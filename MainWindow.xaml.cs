@@ -141,6 +141,18 @@ public sealed partial class MainWindow : Window
         RebuildCategoryNavItems();
     }
 
+    /// <summary>刷新预览面板分类 ComboBox</summary>
+    private void UpdatePreviewCategoryCombo()
+    {
+        if (PreviewCategoryCombo == null) return;
+        var selIdx = PreviewCategoryCombo.SelectedIndex;
+        PreviewCategoryCombo.Items.Clear();
+        PreviewCategoryCombo.Items.Add("(未分类)");
+        foreach (var cat in _categories)
+            PreviewCategoryCombo.Items.Add(cat);
+        PreviewCategoryCombo.SelectedIndex = Math.Min(selIdx, PreviewCategoryCombo.Items.Count - 1);
+    }
+
     /// <summary>重建导航栏中的分类子项</summary>
     private void RebuildCategoryNavItems()
     {
@@ -220,9 +232,10 @@ public sealed partial class MainWindow : Window
             _categories.Add(name);
             newBox.Text = "";
             RebuildCategoryNavItems();
+            UpdatePreviewCategoryCombo();
 
-            // 刷新列表
-            if (dlg.Content is StackPanel sp && sp.Children.Count > 1 && sp.Children[1] is ScrollViewer sv)
+            // 刷新列表（scroll viewer 是 panel 的第一个子元素）
+            if (dlg.Content is StackPanel sp && sp.Children.Count > 0 && sp.Children[0] is ScrollViewer sv)
                 sv.Content = BuildCategoryListPanel();
         };
 
@@ -302,19 +315,20 @@ public sealed partial class MainWindow : Window
                     RebuildCategoryNavItems();
                     ScheduleSave();
                     RefreshPhotos();
+                    UpdatePreviewCategoryCombo();
                 }
             };
 
             delBtn.Click += (_, _) =>
             {
                 var name = delBtn.Tag as string ?? "";
-                // 将该分类下所有照片的分类清空
                 foreach (var p in _allPhotos.Where(p => p.Category == name))
                     p.Category = "";
                 _categories.Remove(name);
                 RebuildCategoryNavItems();
                 ScheduleSave();
                 RefreshPhotos();
+                UpdatePreviewCategoryCombo();
             };
 
             row.Children.Add(label);

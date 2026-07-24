@@ -9,6 +9,22 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- MiSans 系统字体 -->
+            <FontFamily x:Key="MiSans">MiSans</FontFamily>
+
+            <!-- 全局默认样式 -->
+            <Style TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource MiSans}" />
+            </Style>
+            <Style TargetType="Button">
+                <Setter Property="FontFamily" Value="{StaticResource MiSans}" />
+            </Style>
+            <Style TargetType="ComboBoxItem">
+                <Setter Property="FontFamily" Value="{StaticResource MiSans}" />
+            </Style>
+
+            <!-- 低饱和度颜色 -->
             <SolidColorBrush x:Key="AppAccentBrush" Color="#5B6EAE"/>
             <SolidColorBrush x:Key="SoftYellowBrush" Color="#C4A93E"/>
             <SolidColorBrush x:Key="SoftOrangeBrush" Color="#C47E3E"/>
