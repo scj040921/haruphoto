@@ -49,6 +49,15 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         Title = "haruphoto";
 
+        // 应用深色模式主题
+        try
+        {
+            var root = Content as FrameworkElement;
+            if (root != null)
+                root.RequestedTheme = _settings.DarkMode ? ElementTheme.Dark : ElementTheme.Light;
+        }
+        catch { }
+
         // 设置窗口图标
         try
         {
@@ -557,7 +566,7 @@ public sealed partial class MainWindow : Window
         // ── 分类 ComboBox ──
         _suppressCategoryEvent = true;
         PreviewCategoryCombo.Items.Clear();
-        PreviewCategoryCombo.Items.Add("");  // "未分类"
+        PreviewCategoryCombo.Items.Add("(未分类)");  // 清除分类
         foreach (var cat in _categories)
             PreviewCategoryCombo.Items.Add(cat);
         // 选中当前分类
@@ -628,6 +637,7 @@ public sealed partial class MainWindow : Window
         var p = _currentView[_previewIndex];
         var selIdx = PreviewCategoryCombo.SelectedIndex;
         var newCat = selIdx <= 0 ? "" : (PreviewCategoryCombo.SelectedItem as string ?? "");
+        if (newCat == "(未分类)") newCat = "";
         if (p.Category == newCat) return;
         p.Category = newCat;
         RebuildCategories();
