@@ -2,7 +2,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.Collections.Generic;
@@ -146,113 +145,6 @@ public sealed partial class MainWindow : Window
             DetailPanel.BorderBrush = new SolidColorBrush(
                 Windows.UI.Color.FromArgb(isDark ? (byte)30 : (byte)40, (byte)255, (byte)255, (byte)255));
         }
-    }
-
-    private static void AnimateFadeIn(UIElement element, double from = 0, double to = 1, int delayMs = 0, double durationMs = 400)
-    {
-        element.Opacity = from;
-        element.Visibility = Visibility.Visible;
-        var sb = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
-        var fade = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
-        {
-            From = from, To = to,
-            Duration = TimeSpan.FromMilliseconds(durationMs),
-            BeginTime = TimeSpan.FromMilliseconds(delayMs),
-            EnableDependentAnimation = true
-        };
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(fade, element);
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(fade, "Opacity");
-        sb.Children.Add(fade);
-        sb.Begin();
-    }
-
-    private static void AnimateSlideIn(UIElement element, double fromY, double toY = 0, int durationMs = 350)
-    {
-        var transform = element.RenderTransform as Microsoft.UI.Xaml.Media.CompositeTransform;
-        if (transform == null)
-        {
-            transform = new Microsoft.UI.Xaml.Media.CompositeTransform();
-            element.RenderTransform = transform;
-        }
-        transform.TranslateY = fromY;
-        element.Opacity = 0;
-
-        var sb = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
-
-        var slide = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
-        {
-            From = fromY, To = toY,
-            Duration = TimeSpan.FromMilliseconds(durationMs),
-            EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut },
-            EnableDependentAnimation = true
-        };
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(slide, element);
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(slide, "(UIElement.RenderTransform).(CompositeTransform.TranslateY)");
-        sb.Children.Add(slide);
-
-        var fade = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
-        {
-            From = 0, To = 1,
-            Duration = TimeSpan.FromMilliseconds(durationMs),
-            EnableDependentAnimation = true
-        };
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(fade, element);
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(fade, "Opacity");
-        sb.Children.Add(fade);
-
-        element.Visibility = Visibility.Visible;
-        sb.Begin();
-    }
-
-    private void AnimatePreviewEnter()
-    {
-        var overlay = PreviewOverlay;
-        var transform = new Microsoft.UI.Xaml.Media.CompositeTransform { TranslateY = 80 };
-        overlay.RenderTransform = transform;
-        overlay.Opacity = 0;
-
-        var sb = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
-
-        var slide = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
-        {
-            From = 80, To = 0,
-            Duration = TimeSpan.FromMilliseconds(350),
-            EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut },
-            EnableDependentAnimation = true
-        };
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(slide, overlay);
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(slide, "(UIElement.RenderTransform).(CompositeTransform.TranslateY)");
-        sb.Children.Add(slide);
-
-        var fade = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
-        {
-            From = 0.6, To = 1,
-            Duration = TimeSpan.FromMilliseconds(300),
-            EnableDependentAnimation = true
-        };
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(fade, overlay);
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(fade, "Opacity");
-        sb.Children.Add(fade);
-
-        sb.Begin();
-    }
-
-    private void AnimatePhotoCards()
-    {
-        var grid = PhotoGrid;
-        grid.Opacity = 0;
-        var sb = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
-        var fade = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
-        {
-            From = 0, To = 1,
-            Duration = TimeSpan.FromMilliseconds(500),
-            EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut },
-            EnableDependentAnimation = true
-        };
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(fade, grid);
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(fade, "Opacity");
-        sb.Children.Add(fade);
-        sb.Begin();
     }
 
     // ══════════ 分类 ══════════
