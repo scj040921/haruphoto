@@ -229,8 +229,11 @@
                         <FontIcon Glyph="&#xE76C;" FontSize="22" Foreground="#FFFFFF"/>
                     </Button>
 
-                    <!-- 详情面板 -->
-                    <Border Grid.Column="3" Background="{ThemeResource LayerFillColorDefaultBrush}">
+                    <!-- 详情面板 - 毛玻璃效果 -->
+                    <Border x:Name="DetailPanel" Grid.Column="3"
+                            BorderBrush="#30FFFFFF"
+                            BorderThickness="1,0,0,0"
+                            CornerRadius="16,0,0,16">
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel Padding="20" Spacing="16">
                                 <StackPanel Spacing="6">
