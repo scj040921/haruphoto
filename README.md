@@ -1,5 +1,11 @@
 # 📸 haruphoto
 
+<div align="center">
+
+<img src="docs/logo.png" width="128" alt="haruphoto logo"/>
+
+</div>
+
 > 一款轻量、优雅的 Windows 照片管理应用  
 > 基于 WinUI3 + .NET 8 构建，原生 Windows 体验
 
