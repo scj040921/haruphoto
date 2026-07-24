@@ -49,6 +49,16 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         Title = "haruphoto";
 
+        // 设置窗口图标
+        try
+        {
+            var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+            if (System.IO.File.Exists(iconPath))
+                AppWindow.SetIcon(iconPath);
+        }
+        catch { }
+
+        // 最小窗口尺寸
         try
         {
             var presenter = Microsoft.UI.Windowing.OverlappedPresenter.Create();
