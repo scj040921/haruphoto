@@ -1,0 +1,292 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="PhotoAlbum.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="haruphoto">
+
+    <Grid KeyDown="Root_KeyDown">
+        <NavigationView x:Name="NavView" IsBackButtonVisible="Collapsed" IsSettingsVisible="False"
+                        OpenPaneLength="210" CompactPaneLength="48" IsPaneOpen="True"
+                        SelectionChanged="NavView_SelectionChanged">
+            <NavigationView.MenuItems>
+                <NavigationViewItem Content="所有照片" Tag="All" IsSelected="True">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE784;" FontSize="16"/></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="收藏" Tag="Favorites">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE734;" FontSize="16"/></NavigationViewItem.Icon>
+                </NavigationViewItem>
+
+                <!-- 分类（代码动态添加子项）-->
+                <NavigationViewItem Content="分类" IsExpanded="True">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE178;" FontSize="16"/></NavigationViewItem.Icon>
+                </NavigationViewItem>
+
+            </NavigationView.MenuItems>
+
+            <NavigationView.FooterMenuItems>
+                <StackPanel Padding="16,10" Spacing="8">
+                    <TextBlock x:Name="StatsText" Text="0 张照片" FontSize="11"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="Clip"/>
+                    <Button Content="＋ 导入文件夹" Click="ImportButton_Click"
+                            HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"/>
+                    <Button Content="⚙ 设置" Click="SettingsButton_Click"
+                            HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"
+                            Background="Transparent"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+            </NavigationView.FooterMenuItems>
+
+            <!-- 主内容 -->
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- 标题栏 -->
+                <Grid Grid.Row="0" Padding="24,18,24,8">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="haruphoto" FontSize="26" FontWeight="SemiBold"
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                        <TextBlock x:Name="LibraryNameText" Text="照片库" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- 工具栏 -->
+                <Grid Grid.Row="1" Padding="24,6,24,14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <AutoSuggestBox x:Name="SearchBox" PlaceholderText="搜索照片…"
+                                        QueryIcon="Find" MinWidth="220" FontSize="13"
+                                        TextChanged="SearchBox_TextChanged"/>
+                        <ComboBox x:Name="SortCombo" SelectedIndex="0" MinWidth="110"
+                                  SelectionChanged="SortCombo_SelectionChanged" FontSize="13">
+                            <ComboBoxItem Content="📅 最近添加"/>
+                            <ComboBoxItem Content="📝 文件名"/>
+                            <ComboBoxItem Content="⭐ 评分"/>
+                        </ComboBox>
+                        <CheckBox x:Name="FavOnlyCheckBox" Content="❤️ 仅收藏"
+                                  Checked="FavOnly_Changed" Unchecked="FavOnly_Changed"
+                                  VerticalAlignment="Center" FontSize="13"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <ProgressRing x:Name="BusyRing" IsIndeterminate="True" Visibility="Collapsed"
+                                      Width="18" Height="18"/>
+                        <TextBlock x:Name="PageInfo" VerticalAlignment="Center" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                        <Button x:Name="PrevPageBtn" Click="PrevPage_Click" IsEnabled="False"
+                                Padding="10,6" CornerRadius="6">
+                            <FontIcon Glyph="&#xE76B;" FontSize="12"/>
+                        </Button>
+                        <Button x:Name="NextPageBtn" Click="NextPage_Click" IsEnabled="False"
+                                Padding="10,6" CornerRadius="6">
+                            <FontIcon Glyph="&#xE76C;" FontSize="12"/>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+
+                <!-- 照片网格 -->
+                <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto" Padding="24,0,24,16">
+                    <ItemsRepeater x:Name="PhotoGrid">
+                        <ItemsRepeater.Layout>
+                            <UniformGridLayout MinItemWidth="220" MinItemHeight="270"
+                                               MinRowSpacing="14" MinColumnSpacing="14" Orientation="Horizontal"/>
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate>
+                                <Border CornerRadius="14" Tapped="PhotoCard_Tapped">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="180"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+
+                                        <Border Grid.Row="0" CornerRadius="14,14,0,0">
+                                            <Image Stretch="UniformToFill" Source="{Binding ThumbnailSource}"/>
+                                        </Border>
+
+                                        <Button Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                Margin="0,8,8,0" Padding="8,6"
+                                                Background="#78000000" CornerRadius="8"
+                                                Click="CardFavorite_Click">
+                                            <TextBlock Text="{Binding FavoriteIcon}" FontSize="14"
+                                                       Foreground="{StaticResource SoftYellowBrush}"/>
+                                        </Button>
+
+                                        <StackPanel Grid.Row="1" Padding="12,10,12,12">
+                                            <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
+                                                       FontSize="13" TextTrimming="CharacterEllipsis"
+                                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                            <TextBlock Text="{Binding SizeText}" FontSize="11" Margin="0,3,0,0"
+                                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                            <TextBlock Text="{Binding RatingStars}" FontSize="11"
+                                                       Foreground="{StaticResource SoftOrangeBrush}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+                </ScrollViewer>
+
+                <!-- 状态栏 -->
+                <Border Grid.Row="3" Padding="24,9"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="StatusText" Text="就绪" VerticalAlignment="Center" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button Content="❤️ 全选收藏" Click="BatchFav_Click"
+                                    FontSize="12" Padding="12,6" CornerRadius="6"/>
+                            <Button Content="🗑 清空图库" Click="BatchDelete_Click"
+                                    FontSize="12" Padding="12,6" CornerRadius="6"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+        </NavigationView>
+
+        <!-- 全屏预览浮层 -->
+        <Grid x:Name="PreviewOverlay" Visibility="Collapsed">
+            <Grid.Background>
+                <SolidColorBrush Color="#EE000000"/>
+            </Grid.Background>
+
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- 预览工具栏 -->
+                <Border Grid.Row="0" Padding="14,10" Background="#32000000">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="PreviewCounter" VerticalAlignment="Center" FontSize="12"
+                                   Foreground="#90FFFFFF" Margin="0,0,12,0"/>
+                        <TextBlock x:Name="PreviewTitleBar" Grid.Column="1" Text="照片预览"
+                                   FontSize="14" FontWeight="SemiBold" Foreground="#FFFFFF"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                            <Button x:Name="PreviewShareBtn" Click="ShareImage_Click"
+                                    FontSize="12" Padding="10,6" CornerRadius="6"
+                                    Background="#25FFFFFF" Foreground="#FFFFFF">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <FontIcon Glyph="&#xE72D;" FontSize="12"/>
+                                    <TextBlock Text="分享" FontSize="12"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Content="✕" Click="ClosePreview_Click"
+                                    FontSize="14" Padding="14,6" CornerRadius="6"
+                                    Background="#30FFFFFF" Foreground="#FFFFFF"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- 预览主区 -->
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="310"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Button Grid.Column="0" Padding="10" Margin="6,0"
+                            VerticalAlignment="Center" Click="PreviewPrev_Click" x:Name="PreviewPrevBtn"
+                            Background="Transparent">
+                        <FontIcon Glyph="&#xE76B;" FontSize="22" Foreground="#FFFFFF"/>
+                    </Button>
+
+                    <Grid Grid.Column="1" Margin="12,20">
+                        <Image x:Name="PreviewImage" Stretch="Uniform"/>
+                        <ProgressRing x:Name="PreviewLoading" IsIndeterminate="True"
+                                      Width="36" Height="36" HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <Button Grid.Column="2" Padding="10" Margin="6,0"
+                            VerticalAlignment="Center" Click="PreviewNext_Click" x:Name="PreviewNextBtn"
+                            Background="Transparent">
+                        <FontIcon Glyph="&#xE76C;" FontSize="22" Foreground="#FFFFFF"/>
+                    </Button>
+
+                    <!-- 详情面板 -->
+                    <Border Grid.Column="3" Background="{ThemeResource LayerFillColorDefaultBrush}">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Padding="20" Spacing="16">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="照片详情" FontSize="17" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                    <TextBlock x:Name="PreviewName" FontWeight="SemiBold" FontSize="14"
+                                               TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                    <TextBlock x:Name="PreviewInfo" FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                    <TextBlock x:Name="PreviewPath" FontSize="11" TextWrapping="Wrap"
+                                               Opacity="0.6"
+                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                </StackPanel>
+
+                                <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" Opacity="0.5"/>
+
+                                <!-- 分类 -->
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="分类" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <ComboBox x:Name="PreviewCategoryCombo" MinWidth="160"
+                                                  PlaceholderText="未分类" FontSize="13"
+                                                  SelectionChanged="PreviewCategory_Changed"/>
+                                        <Button Content="管理" Click="ManageCategories_Click"
+                                                Padding="10,6" CornerRadius="6" FontSize="12"/>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" Opacity="0.5"/>
+
+                                <!-- 评分 -->
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="评分" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                    <RatingControl x:Name="PreviewRating" MaxRating="5"
+                                                   ValueChanged="PreviewRating_ValueChanged"/>
+                                </StackPanel>
+
+                                <StackPanel Spacing="8">
+                                    <Button x:Name="PreviewFavButton" Click="PreviewFav_Click"
+                                            HorizontalAlignment="Stretch" Height="40" CornerRadius="8" FontSize="14"/>
+                                    <Button Content="📋 复制图片" Click="CopyImage_Click"
+                                            HorizontalAlignment="Stretch" Height="40" CornerRadius="8" FontSize="13"/>
+                                    <Button Content="📁 在文件夹中显示" Click="RevealInExplorer_Click"
+                                            HorizontalAlignment="Stretch" Height="40" CornerRadius="8" FontSize="13"/>
+                                    <Button Content="🗑 从图库移除" Click="RemoveFromLibrary_Click"
+                                            HorizontalAlignment="Stretch" Height="40" CornerRadius="8" FontSize="13"
+                                            Foreground="{StaticResource SoftRedBrush}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Border>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>
