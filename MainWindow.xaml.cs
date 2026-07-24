@@ -393,6 +393,7 @@ public sealed partial class MainWindow : Window
         PrevPageBtn.IsEnabled = _currentPage > 0;
         NextPageBtn.IsEnabled = _currentPage < maxPage;
         UpdateStats();
+        LoadThumbnailsForCurrentPage();
     }
 
     private void UpdateStats()
