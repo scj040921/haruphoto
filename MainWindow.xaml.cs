@@ -501,7 +501,6 @@ public sealed partial class MainWindow : Window
         PrevPageBtn.IsEnabled = _currentPage > 0;
         NextPageBtn.IsEnabled = _currentPage < maxPage;
         UpdateStats();
-        AnimatePhotoCards();
     }
 
     private void UpdateStats()
@@ -689,7 +688,6 @@ public sealed partial class MainWindow : Window
         var idx = _currentView.IndexOf(photo);
         if (idx < 0) return;
         PreviewOverlay.Visibility = Visibility.Visible;
-        AnimatePreviewEnter();
         ShowPreviewAt(idx);
     }
 
