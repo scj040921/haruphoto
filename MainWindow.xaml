@@ -131,6 +131,14 @@
                                                        Foreground="{StaticResource SoftYellowBrush}"/>
                                         </Button>
 
+                                        <!-- 分类标记（批量模式下显示） -->
+                                        <Border Grid.Row="0" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                                                Margin="8,0,0,8" Padding="6,3" CornerRadius="4"
+                                                Background="#90000000" Opacity="{Binding SelectVisibleOpacity}">
+                                            <TextBlock Text="{Binding CategoryDisplay}" FontSize="10"
+                                                       Foreground="#CCFFFFFF"/>
+                                        </Border>
+
                                         <StackPanel Grid.Row="1" Padding="12,10,12,12">
                                             <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
                                                        FontSize="13" TextTrimming="CharacterEllipsis"
@@ -158,6 +166,13 @@
                         <TextBlock x:Name="StatusText" Text="就绪" VerticalAlignment="Center" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="ExitBatchBtn" Content="✕ 退出多选" Click="ExitBatch_Click"
+                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
+                            <Button x:Name="RemoveFromCatBtn" Content="↩ 移出分类" Click="RemoveFromCategory_Click"
+                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
+                            <Button x:Name="DissolveCatBtn" Content="💥 解散分类" Click="DissolveCategory_Click"
+                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"
+                                    Foreground="{StaticResource SoftRedBrush}"/>
                             <Button Content="❤️ 全选收藏" Click="BatchFav_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6"/>
                             <Button Content="🏷 批量分类" Click="BatchClassify_Click"
