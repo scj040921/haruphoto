@@ -33,6 +33,7 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer _saveTimer;
     private readonly HashSet<string> _selectedPaths = new();
     private bool _batchMode;
+    private bool _cancelCatMode; // 取消分类模式：只允许选已分类照片
 
     private int _currentPage, _sortBy;
     private string _searchKeyword = "";
@@ -437,7 +438,8 @@ public sealed partial class MainWindow : Window
         if (!string.IsNullOrEmpty(_categoryFilter))
             q = q.Where(p => p.Category == _categoryFilter);
         if (!string.IsNullOrWhiteSpace(_searchKeyword))
-            q = q.Where(p => p.Filename.Contains(_searchKeyword, StringComparison.OrdinalIgnoreCase));
+            q = q.Where(p => p.Filename.Contains(_searchKeyword, StringComparison.OrdinalIgnoreCase)
+                          || p.Category.Contains(_searchKeyword, StringComparison.OrdinalIgnoreCase));
 
         q = _sortBy switch
         {
@@ -452,7 +454,10 @@ public sealed partial class MainWindow : Window
 
         _photos.Clear();
         foreach (var p in _currentView.Skip(_currentPage * PageSize).Take(PageSize))
+        {
+            p.IsSelected = _selectedPaths.Contains(p.FilePath);
             _photos.Add(p);
+        }
 
         PageInfo.Text = $"第 {_currentPage + 1}/{maxPage + 1} 页 · 共 {_currentView.Count} 张";
         PrevPageBtn.IsEnabled = _currentPage > 0;
@@ -691,15 +696,40 @@ public sealed partial class MainWindow : Window
         var path = btn.Tag as string ?? "";
         if (string.IsNullOrEmpty(path)) return;
 
+        var photo = _allPhotos.FirstOrDefault(p => p.FilePath == path);
+        if (photo == null) return;
+
+        // 取消分类模式下只允许选已分类照片
+        if (_cancelCatMode && string.IsNullOrEmpty(photo.Category))
+        {
+            StatusText.Text = "此照片未分类，无法移出";
+            return;
+        }
+
         if (_selectedPaths.Contains(path))
+        {
             _selectedPaths.Remove(path);
+            photo.IsSelected = false;
+        }
         else
+        {
             _selectedPaths.Add(path);
+            photo.IsSelected = true;
+        }
 
-        // 更新按钮图标
-        if (btn.Content is TextBlock tb)
-            tb.Text = _selectedPaths.Contains(path) ? "☑" : "☐";
+        UpdateStats();
+    }
 
+    private void SelectAllPage_Click(object s, RoutedEventArgs e)
+    {
+        if (!_batchMode) return;
+        var pagePhotos = _currentView.Skip(_currentPage * PageSize).Take(PageSize).ToList();
+        foreach (var p in pagePhotos)
+        {
+            if (_cancelCatMode && string.IsNullOrEmpty(p.Category)) continue;
+            _selectedPaths.Add(p.FilePath);
+            p.IsSelected = true;
+        }
         UpdateStats();
     }
 
@@ -709,15 +739,18 @@ public sealed partial class MainWindow : Window
         _selectedPaths.Clear();
         foreach (var p in _allPhotos) p.SelectVisible = true;
         ExitBatchBtn.Visibility = Visibility.Visible;
+        SelectAllPageBtn.Visibility = Visibility.Visible;
         StatusText.Text = "多选模式：点击卡片左上角 ☐ 选择照片";
     }
 
     private void ExitBatchMode()
     {
         _batchMode = false;
+        _cancelCatMode = false;
         _selectedPaths.Clear();
         foreach (var p in _allPhotos) p.SelectVisible = false;
         ExitBatchBtn.Visibility = Visibility.Collapsed;
+        SelectAllPageBtn.Visibility = Visibility.Collapsed;
         RemoveFromCatBtn.Visibility = Visibility.Collapsed;
         DissolveCatBtn.Visibility = Visibility.Collapsed;
         UpdateStats();
@@ -968,6 +1001,7 @@ public sealed partial class MainWindow : Window
     {
         // 跳转到分类导航，让用户在分类视图中操作
         if (_categories.Count == 0) { StatusText.Text = "还没有任何分类"; return; }
+        _cancelCatMode = true;
         EnterBatchMode();
 
         // 选中「分类」导航项
@@ -980,7 +1014,7 @@ public sealed partial class MainWindow : Window
                 break;
             }
         }
-        StatusText.Text = "多选模式：点击左侧分类查看照片，然后移出或解散";
+        StatusText.Text = "取消分类模式：点击左侧分类查看照片，选择后移出或解散";
     }
 
     private void RemoveFromCategory_Click(object s, RoutedEventArgs e)

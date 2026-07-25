@@ -120,7 +120,7 @@
                                                 Tapped="SelectToggle_Tapped"
                                                 Background="#78000000" CornerRadius="6" Tag="{Binding FilePath}"
                                                 Opacity="{Binding SelectVisibleOpacity}">
-                                            <TextBlock Text="☐" FontSize="14"/>
+                                            <TextBlock Text="{Binding SelectIcon}" FontSize="14"/>
                                         </Button>
 
                                         <Button Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top"
@@ -131,10 +131,10 @@
                                                        Foreground="{StaticResource SoftYellowBrush}"/>
                                         </Button>
 
-                                        <!-- 分类标记（批量模式下显示） -->
+                                        <!-- 分类标记 -->
                                         <Border Grid.Row="0" HorizontalAlignment="Left" VerticalAlignment="Bottom"
                                                 Margin="8,0,0,8" Padding="6,3" CornerRadius="4"
-                                                Background="#90000000" Opacity="{Binding SelectVisibleOpacity}">
+                                                Background="#90000000" Opacity="{Binding CategoryTagOpacity}">
                                             <TextBlock Text="{Binding CategoryDisplay}" FontSize="10"
                                                        Foreground="#CCFFFFFF"/>
                                         </Border>
@@ -167,6 +167,8 @@
                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
                             <Button x:Name="ExitBatchBtn" Content="✕ 退出多选" Click="ExitBatch_Click"
+                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
+                            <Button x:Name="SelectAllPageBtn" Content="☐ 全选本页" Click="SelectAllPage_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
                             <Button x:Name="RemoveFromCatBtn" Content="↩ 移出分类" Click="RemoveFromCategory_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>

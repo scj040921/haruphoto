@@ -78,9 +78,18 @@ public sealed class PhotoItem : INotifyPropertyChanged
     public bool SelectVisible
     {
         get => _selectVisible;
-        set { if (_selectVisible == value) return; _selectVisible = value; OnChanged(nameof(SelectVisibleOpacity)); }
+        set { if (_selectVisible == value) return; _selectVisible = value; OnChanged(nameof(SelectVisibleOpacity)); OnChanged(nameof(CategoryTagOpacity)); }
     }
     public double SelectVisibleOpacity => _selectVisible ? 1.0 : 0.0;
+    public double CategoryTagOpacity => string.IsNullOrEmpty(Category) ? 0.0 : 1.0;
+
+    private bool _isSelected;
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set { if (_isSelected == value) return; _isSelected = value; OnChanged(nameof(SelectIcon)); }
+    }
+    public string SelectIcon => _isSelected ? "☑" : "☐";
 
     private void OnChanged([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
