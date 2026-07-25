@@ -12,7 +12,6 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Windows.Foundation;
 using Windows.Storage.Pickers;
 using Windows.System;
 
@@ -151,94 +150,43 @@ public sealed partial class MainWindow : Window
 
     // ══════════ 分类 ══════════
 
-    /// <summary>物理弹簧入场动画 — 预览内容缩放弹出</summary>
+    /// <summary>预览入场：渐入动画（安全 — 仅 Opacity，不触及 RenderTransform）</summary>
     private void AnimatePreviewIn()
     {
-        var ct = PreviewContentTransform;
-        ct.ScaleX = 0.88;
-        ct.ScaleY = 0.88;
-        PreviewContentRoot.Opacity = 0.3;
-
+        PreviewContentRoot.Opacity = 0.5;
         var sb = new Storyboard();
-
-        var scaleAnim = new DoubleAnimationUsingKeyFrames { EnableDependentAnimation = true };
-        Storyboard.SetTarget(scaleAnim, ct);
-        Storyboard.SetTargetProperty(scaleAnim, "ScaleX");
-        sb.Children.Add(scaleAnim);
-
-        var scaleAnimY = new DoubleAnimationUsingKeyFrames { EnableDependentAnimation = true };
-        Storyboard.SetTarget(scaleAnimY, ct);
-        Storyboard.SetTargetProperty(scaleAnimY, "ScaleY");
-        sb.Children.Add(scaleAnimY);
-
-        var opacityAnim = new DoubleAnimationUsingKeyFrames { EnableDependentAnimation = true };
-        Storyboard.SetTarget(opacityAnim, PreviewContentRoot);
-        Storyboard.SetTargetProperty(opacityAnim, "Opacity");
-        sb.Children.Add(opacityAnim);
-
-        // Spring keyframes — 模拟物理弹簧阻尼系统
-        void AddKey(double timeMs, double scale, double opacity)
+        var fade = new DoubleAnimation
         {
-            var kf = new KeySpline { ControlPoint1 = new Point(0.25, 0.1), ControlPoint2 = new Point(0.25, 1) };
-            scaleAnim.KeyFrames.Add(new SplineDoubleKeyFrame { KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(timeMs)), Value = scale, KeySpline = kf });
-            opacityAnim.KeyFrames.Add(new SplineDoubleKeyFrame { KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(timeMs)), Value = opacity, KeySpline = kf });
-        }
-
-        // 弹簧物理曲线：缩进 → 过冲 → 回弹 → 微小过冲 → 稳定
-        AddKey(0,    0.88, 0.3);
-        AddKey(120,  1.03, 1.0);
-        AddKey(200,  0.97, 1.0);
-        AddKey(260,  1.01, 1.0);
-        AddKey(320,  1.00, 1.0);
-
+            From = 0.5, To = 1.0,
+            Duration = TimeSpan.FromMilliseconds(200),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            EnableDependentAnimation = true
+        };
+        Storyboard.SetTarget(fade, PreviewContentRoot);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+        sb.Children.Add(fade);
         sb.Begin();
     }
 
-    /// <summary>物理弹簧退场动画 — 预览内容缩放收回</summary>
+    /// <summary>预览退场：渐隐并关闭</summary>
     private void AnimatePreviewOut()
     {
-        var ct = PreviewContentTransform;
         var sb = new Storyboard();
-
-        var scaleAnimX = new DoubleAnimation
-        {
-            From = 1.0, To = 0.92,
-            Duration = TimeSpan.FromMilliseconds(180),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
-            EnableDependentAnimation = true
-        };
-        Storyboard.SetTarget(scaleAnimX, ct);
-        Storyboard.SetTargetProperty(scaleAnimX, "ScaleX");
-        sb.Children.Add(scaleAnimX);
-
-        var scaleAnimY = new DoubleAnimation
-        {
-            From = 1.0, To = 0.92,
-            Duration = TimeSpan.FromMilliseconds(180),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
-            EnableDependentAnimation = true
-        };
-        Storyboard.SetTarget(scaleAnimY, ct);
-        Storyboard.SetTargetProperty(scaleAnimY, "ScaleY");
-        sb.Children.Add(scaleAnimY);
-
-        var fadeOut = new DoubleAnimation
+        var fade = new DoubleAnimation
         {
             From = 1.0, To = 0.0,
-            Duration = TimeSpan.FromMilliseconds(160),
+            Duration = TimeSpan.FromMilliseconds(150),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
             EnableDependentAnimation = true
         };
-        Storyboard.SetTarget(fadeOut, PreviewContentRoot);
-        Storyboard.SetTargetProperty(fadeOut, "Opacity");
-        sb.Children.Add(fadeOut);
-
+        Storyboard.SetTarget(fade, PreviewContentRoot);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+        sb.Children.Add(fade);
         sb.Completed += (_, _) =>
         {
             PreviewOverlay.Visibility = Visibility.Collapsed;
             PreviewImage.Source = null;
             _previewIndex = -1;
-            // 复位
-            ct.ScaleX = ct.ScaleY = 1.0;
             PreviewContentRoot.Opacity = 1.0;
         };
         sb.Begin();
