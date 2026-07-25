@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
 
     private readonly DispatcherTimer _searchTimer;
     private readonly DispatcherTimer _saveTimer;
+    private readonly HashSet<string> _selectedPaths = new();
 
     private int _currentPage, _sortBy;
     private string _searchKeyword = "";
@@ -462,7 +463,10 @@ public sealed partial class MainWindow : Window
     private void UpdateStats()
     {
         var fav = _allPhotos.Count(p => p.IsFavorite);
-        StatsText.Text = $"{_allPhotos.Count} 张照片 · {fav} 收藏";
+        var sel = _selectedPaths.Count;
+        StatsText.Text = sel > 0
+            ? $"{_allPhotos.Count} 张照片 · {fav} 收藏 · 已选 {sel} 张"
+            : $"{_allPhotos.Count} 张照片 · {fav} 收藏";
     }
 
     private void LoadThumbnailsForCurrentPage()
@@ -673,6 +677,24 @@ public sealed partial class MainWindow : Window
         if (_favoritesOnly && !photo.IsFavorite) RefreshPhotos();
     }
 
+    private void SelectToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn) return;
+        var path = btn.Tag as string ?? "";
+        if (string.IsNullOrEmpty(path)) return;
+
+        if (_selectedPaths.Contains(path))
+            _selectedPaths.Remove(path);
+        else
+            _selectedPaths.Add(path);
+
+        // 更新按钮图标
+        if (btn.Content is TextBlock tb)
+            tb.Text = _selectedPaths.Contains(path) ? "☑" : "☐";
+
+        UpdateStats();
+    }
+
     // ══════════ 预览 ══════════
 
     private void OpenPreview(PhotoItem photo)
@@ -856,18 +878,22 @@ public sealed partial class MainWindow : Window
 
     private async void BatchClassify_Click(object s, RoutedEventArgs e)
     {
-        if (_currentView.Count == 0) { StatusText.Text = "当前筛选结果为空"; return; }
+        // 获取目标照片：选中的 或 当前筛选结果
+        var targets = _selectedPaths.Count > 0
+            ? _allPhotos.Where(p => _selectedPaths.Contains(p.FilePath)).ToList()
+            : _currentView.ToList();
+
+        if (targets.Count == 0) { StatusText.Text = "没有可操作的照片"; return; }
+
+        var scopeText = _selectedPaths.Count > 0 ? $"已选 {targets.Count} 张" : $"当前筛选 {targets.Count} 张";
 
         // 构建分类选择对话框
         var panel = new StackPanel { Spacing = 12, MinWidth = 300 };
-        panel.Children.Add(new TextBlock { Text = $"将为当前 {_currentView.Count} 张照片设置分类：", FontSize = 13 });
+        panel.Children.Add(new TextBlock { Text = $"将为 {scopeText} 照片设置分类：", FontSize = 13 });
         var combo = new ComboBox { MinWidth = 200, PlaceholderText = "选择分类" };
-        combo.Items.Add("(清除分类)");
         foreach (var cat in _categories) combo.Items.Add(cat);
-        combo.SelectedIndex = 0;
+        if (_categories.Count > 0) combo.SelectedIndex = 0;
         panel.Children.Add(combo);
-
-        // 新建分类
         var newBox = new TextBox { PlaceholderText = "或输入新分类名称…", MinWidth = 200 };
         panel.Children.Add(newBox);
 
@@ -885,25 +911,36 @@ public sealed partial class MainWindow : Window
 
         if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
 
-        // 确定分类名
         var newName = newBox.Text?.Trim();
         if (string.IsNullOrEmpty(newName))
-        {
-            var sel = combo.SelectedIndex;
-            newName = sel <= 0 ? "" : (combo.SelectedItem as string ?? "");
-        }
-        if (newName == "(清除分类)") newName = "";
+            newName = combo.SelectedItem as string ?? "";
+        if (string.IsNullOrEmpty(newName)) { StatusText.Text = "未指定分类"; return; }
 
-        // 添加新分类
-        if (!string.IsNullOrEmpty(newName) && !_categories.Contains(newName, StringComparer.OrdinalIgnoreCase))
+        if (!_categories.Contains(newName, StringComparer.OrdinalIgnoreCase))
             _categories.Add(newName);
 
-        // 应用到所有当前筛选结果
-        foreach (var p in _currentView) p.Category = newName;
+        foreach (var p in targets) p.Category = newName;
+        _selectedPaths.Clear();
         RebuildCategories();
         RefreshPhotos();
         ScheduleSave();
-        StatusText.Text = $"已将 {_currentView.Count} 张照片分类为「{(string.IsNullOrEmpty(newName) ? "未分类" : newName)}」";
+        StatusText.Text = $"已将 {targets.Count} 张照片分类为「{newName}」";
+    }
+
+    private void BatchUncategorize_Click(object s, RoutedEventArgs e)
+    {
+        var targets = _selectedPaths.Count > 0
+            ? _allPhotos.Where(p => _selectedPaths.Contains(p.FilePath) && !string.IsNullOrEmpty(p.Category)).ToList()
+            : _currentView.Where(p => !string.IsNullOrEmpty(p.Category)).ToList();
+
+        if (targets.Count == 0) { StatusText.Text = "没有已分类的照片"; return; }
+
+        foreach (var p in targets) p.Category = "";
+        _selectedPaths.Clear();
+        RebuildCategories();
+        RefreshPhotos();
+        ScheduleSave();
+        StatusText.Text = $"已清除 {targets.Count} 张照片的分类";
     }
 
     // ══════════ 导入 ══════════

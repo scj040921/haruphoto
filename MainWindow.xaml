@@ -115,6 +115,12 @@
                                             <Image Stretch="UniformToFill" Source="{Binding ThumbnailSource}"/>
                                         </Border>
 
+                                        <Button Grid.Row="0" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                Margin="8,8,0,0" Padding="6,4" Click="SelectToggle_Click"
+                                                Background="#78000000" CornerRadius="6" Tag="{Binding FilePath}">
+                                            <TextBlock Text="☐" FontSize="14"/>
+                                        </Button>
+
                                         <Button Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top"
                                                 Margin="0,8,8,0" Padding="8,6"
                                                 Background="#78000000" CornerRadius="8"
@@ -153,6 +159,8 @@
                             <Button Content="❤️ 全选收藏" Click="BatchFav_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6"/>
                             <Button Content="🏷 批量分类" Click="BatchClassify_Click"
+                                    FontSize="12" Padding="12,6" CornerRadius="6"/>
+                            <Button Content="❌ 取消分类" Click="BatchUncategorize_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6"/>
                             <Button Content="🗑 清空图库" Click="BatchDelete_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6"/>
