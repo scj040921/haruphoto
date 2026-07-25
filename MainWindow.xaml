@@ -97,7 +97,7 @@
                 <!-- 照片网格 -->
                 <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Auto" Padding="24,0,24,16">
-                    <ItemsRepeater x:Name="PhotoGrid">
+                    <ItemsRepeater x:Name="PhotoGrid" ElementPrepared="PhotoGrid_ElementPrepared">
                         <ItemsRepeater.Layout>
                             <UniformGridLayout MinItemWidth="220" MinItemHeight="270"
                                                MinRowSpacing="14" MinColumnSpacing="14" Orientation="Horizontal"/>

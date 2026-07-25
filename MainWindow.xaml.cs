@@ -653,6 +653,20 @@ public sealed partial class MainWindow : Window
             OpenPreview(photo);
     }
 
+    private void PhotoGrid_ElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
+    {
+        // 卡片入场：渐入动画
+        if (args.Element is UIElement element)
+        {
+            element.Opacity = 0;
+            var sb = new Storyboard();
+            var fade = new DoubleAnimation { From = 0, To = 1, Duration = TimeSpan.FromMilliseconds(350), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }, EnableDependentAnimation = true };
+            Storyboard.SetTarget(fade, element); Storyboard.SetTargetProperty(fade, "Opacity");
+            sb.Children.Add(fade);
+            sb.Begin();
+        }
+    }
+
     private void PhotoCard_DragStarting(object sender, DragStartingEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is PhotoItem photo)
@@ -724,11 +738,27 @@ public sealed partial class MainWindow : Window
     {
         if (!_batchMode) return;
         var pagePhotos = _currentView.Skip(_currentPage * PageSize).Take(PageSize).ToList();
-        foreach (var p in pagePhotos)
+
+        // 筛选可选照片
+        var selectable = _cancelCatMode
+            ? pagePhotos.Where(p => !string.IsNullOrEmpty(p.Category)).ToList()
+            : pagePhotos;
+
+        // 如果当前页所有可选照片已全选 → 取消全选
+        var allSelected = selectable.Count > 0 && selectable.All(p => _selectedPaths.Contains(p.FilePath));
+
+        foreach (var p in selectable)
         {
-            if (_cancelCatMode && string.IsNullOrEmpty(p.Category)) continue;
-            _selectedPaths.Add(p.FilePath);
-            p.IsSelected = true;
+            if (allSelected)
+            {
+                _selectedPaths.Remove(p.FilePath);
+                p.IsSelected = false;
+            }
+            else
+            {
+                _selectedPaths.Add(p.FilePath);
+                p.IsSelected = true;
+            }
         }
         UpdateStats();
     }
