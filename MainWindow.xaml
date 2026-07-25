@@ -117,7 +117,9 @@
 
                                         <Button Grid.Row="0" HorizontalAlignment="Left" VerticalAlignment="Top"
                                                 Margin="8,8,0,0" Padding="6,4" Click="SelectToggle_Click"
-                                                Background="#78000000" CornerRadius="6" Tag="{Binding FilePath}">
+                                                Tapped="SelectToggle_Tapped"
+                                                Background="#78000000" CornerRadius="6" Tag="{Binding FilePath}"
+                                                Opacity="{Binding SelectVisibleOpacity}">
                                             <TextBlock Text="☐" FontSize="14"/>
                                         </Button>
 

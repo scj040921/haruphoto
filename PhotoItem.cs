@@ -74,6 +74,14 @@ public sealed class PhotoItem : INotifyPropertyChanged
     public string DateText => DateAdded.ToString("yyyy-MM-dd HH:mm");
     public string CategoryDisplay => string.IsNullOrEmpty(Category) ? "" : Category;
 
+    private bool _selectVisible;
+    public bool SelectVisible
+    {
+        get => _selectVisible;
+        set { if (_selectVisible == value) return; _selectVisible = value; OnChanged(nameof(SelectVisibleOpacity)); }
+    }
+    public double SelectVisibleOpacity => _selectVisible ? 1.0 : 0.0;
+
     private void OnChanged([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

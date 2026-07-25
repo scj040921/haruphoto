@@ -32,6 +32,7 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer _searchTimer;
     private readonly DispatcherTimer _saveTimer;
     private readonly HashSet<string> _selectedPaths = new();
+    private bool _batchMode;
 
     private int _currentPage, _sortBy;
     private string _searchKeyword = "";
@@ -677,6 +678,12 @@ public sealed partial class MainWindow : Window
         if (_favoritesOnly && !photo.IsFavorite) RefreshPhotos();
     }
 
+    private void SelectToggle_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        // 阻止冒泡到卡片 Border 的 Tapped（防止打开预览）
+        e.Handled = true;
+    }
+
     private void SelectToggle_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button btn) return;
@@ -692,6 +699,22 @@ public sealed partial class MainWindow : Window
         if (btn.Content is TextBlock tb)
             tb.Text = _selectedPaths.Contains(path) ? "☑" : "☐";
 
+        UpdateStats();
+    }
+
+    private void EnterBatchMode()
+    {
+        _batchMode = true;
+        _selectedPaths.Clear();
+        foreach (var p in _allPhotos) p.SelectVisible = true;
+        StatusText.Text = "多选模式：点击卡片左上角 ☐ 选择照片";
+    }
+
+    private void ExitBatchMode()
+    {
+        _batchMode = false;
+        _selectedPaths.Clear();
+        foreach (var p in _allPhotos) p.SelectVisible = false;
         UpdateStats();
     }
 
@@ -878,12 +901,14 @@ public sealed partial class MainWindow : Window
 
     private async void BatchClassify_Click(object s, RoutedEventArgs e)
     {
+        if (!_batchMode) { EnterBatchMode(); return; }
+
         // 获取目标照片：选中的 或 当前筛选结果
         var targets = _selectedPaths.Count > 0
             ? _allPhotos.Where(p => _selectedPaths.Contains(p.FilePath)).ToList()
             : _currentView.ToList();
 
-        if (targets.Count == 0) { StatusText.Text = "没有可操作的照片"; return; }
+        if (targets.Count == 0) { StatusText.Text = "请先选择照片"; return; }
 
         var scopeText = _selectedPaths.Count > 0 ? $"已选 {targets.Count} 张" : $"当前筛选 {targets.Count} 张";
 
@@ -920,15 +945,17 @@ public sealed partial class MainWindow : Window
             _categories.Add(newName);
 
         foreach (var p in targets) p.Category = newName;
-        _selectedPaths.Clear();
         RebuildCategories();
         RefreshPhotos();
         ScheduleSave();
+        ExitBatchMode();
         StatusText.Text = $"已将 {targets.Count} 张照片分类为「{newName}」";
     }
 
     private void BatchUncategorize_Click(object s, RoutedEventArgs e)
     {
+        if (!_batchMode) { EnterBatchMode(); return; }
+
         var targets = _selectedPaths.Count > 0
             ? _allPhotos.Where(p => _selectedPaths.Contains(p.FilePath) && !string.IsNullOrEmpty(p.Category)).ToList()
             : _currentView.Where(p => !string.IsNullOrEmpty(p.Category)).ToList();
@@ -936,10 +963,10 @@ public sealed partial class MainWindow : Window
         if (targets.Count == 0) { StatusText.Text = "没有已分类的照片"; return; }
 
         foreach (var p in targets) p.Category = "";
-        _selectedPaths.Clear();
         RebuildCategories();
         RefreshPhotos();
         ScheduleSave();
+        ExitBatchMode();
         StatusText.Text = $"已清除 {targets.Count} 张照片的分类";
     }
 
