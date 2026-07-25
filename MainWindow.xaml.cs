@@ -642,6 +642,27 @@ public sealed partial class MainWindow : Window
             OpenPreview(photo);
     }
 
+    private void PhotoCard_DragStarting(object sender, DragStartingEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is PhotoItem photo)
+        {
+            try
+            {
+                var file = Windows.Storage.StorageFile.GetFileFromPathAsync(photo.FilePath).GetAwaiter().GetResult();
+                e.Data.SetStorageItems(new[] { file });
+                e.AllowedOperations = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            }
+            catch
+            {
+                e.Cancel = true;
+            }
+        }
+        else
+        {
+            e.Cancel = true;
+        }
+    }
+
     private void CardFavorite_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not PhotoItem photo) return;
