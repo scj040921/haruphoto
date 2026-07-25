@@ -141,10 +141,16 @@ public sealed partial class MainWindow : Window
         if (DetailPanel != null)
         {
             var isDark = _settings.DarkMode;
+            // 深色模式：深色半透明 + 暗边框
+            // 浅色模式：浅色半透明 + 亮边框
             DetailPanel.Background = new SolidColorBrush(
                 Windows.UI.Color.FromArgb(isDark ? (byte)153 : (byte)180, isDark ? (byte)20 : (byte)245, isDark ? (byte)20 : (byte)245, isDark ? (byte)30 : (byte)255));
-            DetailPanel.BorderBrush = new SolidColorBrush(
-                Windows.UI.Color.FromArgb(isDark ? (byte)30 : (byte)40, (byte)255, (byte)255, (byte)255));
+            // 边框：跟随系统 CardStrokeColorDefaultBrush（深/浅自适应）
+            if (Application.Current.Resources.TryGetValue("CardStrokeColorDefaultBrush", out var brush))
+                DetailPanel.BorderBrush = (Microsoft.UI.Xaml.Media.Brush)brush;
+            else
+                DetailPanel.BorderBrush = new SolidColorBrush(
+                    Windows.UI.Color.FromArgb(isDark ? (byte)40 : (byte)30, (byte)255, (byte)255, (byte)255));
         }
     }
 

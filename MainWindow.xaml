@@ -231,7 +231,6 @@
 
                     <!-- 详情面板 - 毛玻璃效果 -->
                     <Border x:Name="DetailPanel" Grid.Column="3"
-                            BorderBrush="#30FFFFFF"
                             BorderThickness="1,0,0,0"
                             CornerRadius="16,0,0,16">
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
