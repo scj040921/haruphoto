@@ -137,20 +137,15 @@ public sealed partial class MainWindow : Window
 
     private void ApplyGlassEffects()
     {
-        // 预览详情面板毛玻璃
+        // 预览详情面板毛玻璃 — 永远在深色遮罩上，使用固定半透明白色
         if (DetailPanel != null)
         {
             var isDark = _settings.DarkMode;
-            // 深色模式：深色半透明 + 暗边框
-            // 浅色模式：浅色半透明 + 亮边框
             DetailPanel.Background = new SolidColorBrush(
                 Windows.UI.Color.FromArgb(isDark ? (byte)153 : (byte)180, isDark ? (byte)20 : (byte)245, isDark ? (byte)20 : (byte)245, isDark ? (byte)30 : (byte)255));
-            // 边框：跟随系统 CardStrokeColorDefaultBrush（深/浅自适应）
-            if (Application.Current.Resources.TryGetValue("CardStrokeColorDefaultBrush", out var brush))
-                DetailPanel.BorderBrush = (Microsoft.UI.Xaml.Media.Brush)brush;
-            else
-                DetailPanel.BorderBrush = new SolidColorBrush(
-                    Windows.UI.Color.FromArgb(isDark ? (byte)40 : (byte)30, (byte)255, (byte)255, (byte)255));
+            // 边框：半透明白色（在深色遮罩上始终可见）
+            DetailPanel.BorderBrush = new SolidColorBrush(
+                Windows.UI.Color.FromArgb(50, 255, 255, 255));
         }
     }
 
@@ -836,6 +831,58 @@ public sealed partial class MainWindow : Window
         RefreshPhotos();
         ScheduleSave();
         StatusText.Text = "图库已清空（文件仍在磁盘上）";
+    }
+
+    private async void BatchClassify_Click(object s, RoutedEventArgs e)
+    {
+        if (_currentView.Count == 0) { StatusText.Text = "当前筛选结果为空"; return; }
+
+        // 构建分类选择对话框
+        var panel = new StackPanel { Spacing = 12, MinWidth = 300 };
+        panel.Children.Add(new TextBlock { Text = $"将为当前 {_currentView.Count} 张照片设置分类：", FontSize = 13 });
+        var combo = new ComboBox { MinWidth = 200, PlaceholderText = "选择分类" };
+        combo.Items.Add("(清除分类)");
+        foreach (var cat in _categories) combo.Items.Add(cat);
+        combo.SelectedIndex = 0;
+        panel.Children.Add(combo);
+
+        // 新建分类
+        var newBox = new TextBox { PlaceholderText = "或输入新分类名称…", MinWidth = 200 };
+        panel.Children.Add(newBox);
+
+        var dlg = new ContentDialog { Title = "🏷 批量分类", Content = panel, PrimaryButtonText = "确定", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, XamlRoot = Content.XamlRoot };
+
+        // 入场动画
+        panel.Opacity = 0;
+        panel.Loaded += (_, _) =>
+        {
+            var sb = new Storyboard();
+            var fade = new DoubleAnimation { From = 0, To = 1, Duration = TimeSpan.FromMilliseconds(220), EnableDependentAnimation = true };
+            Storyboard.SetTarget(fade, panel); Storyboard.SetTargetProperty(fade, "Opacity"); sb.Children.Add(fade);
+            sb.Begin();
+        };
+
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+
+        // 确定分类名
+        var newName = newBox.Text?.Trim();
+        if (string.IsNullOrEmpty(newName))
+        {
+            var sel = combo.SelectedIndex;
+            newName = sel <= 0 ? "" : (combo.SelectedItem as string ?? "");
+        }
+        if (newName == "(清除分类)") newName = "";
+
+        // 添加新分类
+        if (!string.IsNullOrEmpty(newName) && !_categories.Contains(newName, StringComparer.OrdinalIgnoreCase))
+            _categories.Add(newName);
+
+        // 应用到所有当前筛选结果
+        foreach (var p in _currentView) p.Category = newName;
+        RebuildCategories();
+        RefreshPhotos();
+        ScheduleSave();
+        StatusText.Text = $"已将 {_currentView.Count} 张照片分类为「{(string.IsNullOrEmpty(newName) ? "未分类" : newName)}」";
     }
 
     // ══════════ 导入 ══════════
