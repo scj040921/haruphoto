@@ -202,7 +202,10 @@
                 </Border>
 
                 <!-- 预览主区 -->
-                <Grid Grid.Row="1">
+                <Grid x:Name="PreviewContentRoot" Grid.Row="1" RenderTransformOrigin="0.5,0.5">
+                    <Grid.RenderTransform>
+                        <CompositeTransform x:Name="PreviewContentTransform" />
+                    </Grid.RenderTransform>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
