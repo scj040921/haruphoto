@@ -224,6 +224,36 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
+    /// <summary>构建悬浮顶栏渐变背景（代码构建，避免 XAML ThemeResource 解析问题）。
+    /// 顶部半透明基底 + 白色高光（折射边缘）→ 底部全透明（卡片透出）</summary>
+    private void BuildTopBarGradient()
+    {
+        if (TopBarGradient == null) return;
+        try
+        {
+            var dark = _settings.DarkMode;
+            var g = new Microsoft.UI.Xaml.Media.LinearGradientBrush
+            {
+                StartPoint = new Windows.Foundation.Point(0, 0),
+                EndPoint = new Windows.Foundation.Point(0, 1)
+            };
+            if (dark)
+            {
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xDB, 46, 46, 50), Offset = 0 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xCC, 28, 28, 30), Offset = 0.45 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 28, 28, 30), Offset = 1 });
+            }
+            else
+            {
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xF7, 255, 255, 255), Offset = 0 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xE6, 247, 247, 248), Offset = 0.45 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 247, 247, 248), Offset = 1 });
+            }
+            TopBarGradient.Background = g;
+        }
+        catch { }
+    }
+
     /// <summary>应用主题（深/浅色）与外观设置，即时生效无需重启</summary>
     private void ApplyTheme()
     {
@@ -241,6 +271,9 @@ public sealed partial class MainWindow : Window
 
         // 3. 外观设置（主题色/亚克力）
         ApplyAppearance();
+
+        // 4. 悬浮顶栏渐变（代码构建，跟随主题）
+        BuildTopBarGradient();
     }
 
     /// <summary>应用外观设置：主题色 + 亚克力（SPW 风格可选模式，默认关闭保留原界面）</summary>

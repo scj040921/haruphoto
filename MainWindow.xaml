@@ -49,75 +49,7 @@
                     <RowDefinition Height="Auto"/>   <!-- 状态栏（保持在底部）-->
                 </Grid.RowDefinitions>
 
-                <!-- 悬浮顶栏（内容区覆盖层，VerticalAlignment=Top）：
-                     渐变半透明背景，滚动时下方卡片从渐变区透出 -->
-                <Grid Grid.Row="0" VerticalAlignment="Top">
-                    <Border Background="{ThemeResource TopBarGradientBrush}"/>
 
-                    <!-- 标题栏 -->
-                    <Grid Padding="24,18,24,8">
-                        <StackPanel Spacing="2">
-                            <TextBlock Text="haruphoto" FontSize="26" FontWeight="SemiBold"
-                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                            <TextBlock x:Name="LibraryNameText" Text="照片库" FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                        </StackPanel>
-                    </Grid>
-
-                    <!-- 工具栏 -->
-                    <Grid Margin="0,64,0,0" Padding="24,6,24,14">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <StackPanel Orientation="Horizontal" Spacing="10">
-                        <AutoSuggestBox x:Name="SearchBox" PlaceholderText="搜索照片…"
-                                        QueryIcon="Find" MinWidth="220" FontSize="13"
-                                        TextChanged="SearchBox_TextChanged"/>
-                        <ComboBox x:Name="SortCombo" SelectedIndex="0" MinWidth="110"
-                                  SelectionChanged="SortCombo_SelectionChanged" FontSize="13">
-                            <ComboBoxItem Content="📅 最近添加"/>
-                            <ComboBoxItem Content="📝 文件名"/>
-                            <ComboBoxItem Content="⭐ 评分"/>
-                        </ComboBox>
-                        <ComboBox x:Name="FilterRatingCombo" SelectedIndex="0" MinWidth="100"
-                                  SelectionChanged="FilterCombo_Changed" FontSize="13">
-                            <ComboBoxItem Content="⭐ 评分不限"/>
-                            <ComboBoxItem Content="★1 以上"/>
-                            <ComboBoxItem Content="★2 以上"/>
-                            <ComboBoxItem Content="★3 以上"/>
-                            <ComboBoxItem Content="★4 以上"/>
-                            <ComboBoxItem Content="★5 满分"/>
-                        </ComboBox>
-                        <ComboBox x:Name="FilterDateCombo" SelectedIndex="0" MinWidth="110"
-                                  SelectionChanged="FilterCombo_Changed" FontSize="13">
-                            <ComboBoxItem Content="🗓 全部时间"/>
-                            <ComboBoxItem Content="最近 7 天"/>
-                            <ComboBoxItem Content="最近 30 天"/>
-                            <ComboBoxItem Content="最近 90 天"/>
-                        </ComboBox>
-                        <CheckBox x:Name="FavOnlyCheckBox" Content="❤️ 仅收藏"
-                                  Checked="FavOnly_Changed" Unchecked="FavOnly_Changed"
-                                  VerticalAlignment="Center" FontSize="13"/>
-                    </StackPanel>
-
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <ProgressRing x:Name="BusyRing" IsIndeterminate="True" Visibility="Collapsed"
-                                      Width="18" Height="18"/>
-                        <TextBlock x:Name="PageInfo" VerticalAlignment="Center" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                        <Button x:Name="PrevPageBtn" Click="PrevPage_Click" IsEnabled="False"
-                                Padding="10,6" CornerRadius="6">
-                            <FontIcon Glyph="&#xE76B;" FontSize="12"/>
-                        </Button>
-                        <Button x:Name="NextPageBtn" Click="NextPage_Click" IsEnabled="False"
-                                Padding="10,6" CornerRadius="6">
-                            <FontIcon Glyph="&#xE76C;" FontSize="12"/>
-                        </Button>
-                    </StackPanel>
-                </Grid>
-                </Grid>  <!-- 悬浮顶栏结束 -->
 
                 <!-- 照片网格（占满内容区；顶部留出悬浮顶栏高度，滚动时卡片滑入顶栏下方）-->
                 <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled"
@@ -190,6 +122,80 @@
                     </ItemsRepeater>
                     </Grid>
                 </ScrollViewer>
+
+                <!-- 悬浮顶栏（内容区覆盖层，VerticalAlignment=Top）：
+                     渐变半透明背景，滚动时下方卡片从渐变区透出。
+                     背景由代码构建（ApplyTheme → BuildTopBarGradient），
+                     避免 XAML ThemeResource 解析问题 -->
+                <Grid x:Name="TopBarOverlay" Grid.Row="0" VerticalAlignment="Top">
+                    <!-- 渐变背景层不拦截鼠标事件（下层卡片可正常悬停/点击）-->
+                    <Border x:Name="TopBarGradient" IsHitTestVisible="False"/>
+
+                    <!-- 标题栏 -->
+                    <Grid Padding="24,18,24,8">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="haruphoto" FontSize="26" FontWeight="SemiBold"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                            <TextBlock x:Name="LibraryNameText" Text="照片库" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- 工具栏 -->
+                    <Grid Margin="0,64,0,0" Padding="24,6,24,14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <AutoSuggestBox x:Name="SearchBox" PlaceholderText="搜索照片…"
+                                        QueryIcon="Find" MinWidth="220" FontSize="13"
+                                        TextChanged="SearchBox_TextChanged"/>
+                        <ComboBox x:Name="SortCombo" SelectedIndex="0" MinWidth="110"
+                                  SelectionChanged="SortCombo_SelectionChanged" FontSize="13">
+                            <ComboBoxItem Content="📅 最近添加"/>
+                            <ComboBoxItem Content="📝 文件名"/>
+                            <ComboBoxItem Content="⭐ 评分"/>
+                        </ComboBox>
+                        <ComboBox x:Name="FilterRatingCombo" SelectedIndex="0" MinWidth="100"
+                                  SelectionChanged="FilterCombo_Changed" FontSize="13">
+                            <ComboBoxItem Content="⭐ 评分不限"/>
+                            <ComboBoxItem Content="★1 以上"/>
+                            <ComboBoxItem Content="★2 以上"/>
+                            <ComboBoxItem Content="★3 以上"/>
+                            <ComboBoxItem Content="★4 以上"/>
+                            <ComboBoxItem Content="★5 满分"/>
+                        </ComboBox>
+                        <ComboBox x:Name="FilterDateCombo" SelectedIndex="0" MinWidth="110"
+                                  SelectionChanged="FilterCombo_Changed" FontSize="13">
+                            <ComboBoxItem Content="🗓 全部时间"/>
+                            <ComboBoxItem Content="最近 7 天"/>
+                            <ComboBoxItem Content="最近 30 天"/>
+                            <ComboBoxItem Content="最近 90 天"/>
+                        </ComboBox>
+                        <CheckBox x:Name="FavOnlyCheckBox" Content="❤️ 仅收藏"
+                                  Checked="FavOnly_Changed" Unchecked="FavOnly_Changed"
+                                  VerticalAlignment="Center" FontSize="13"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <ProgressRing x:Name="BusyRing" IsIndeterminate="True" Visibility="Collapsed"
+                                      Width="18" Height="18"/>
+                        <TextBlock x:Name="PageInfo" VerticalAlignment="Center" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                        <Button x:Name="PrevPageBtn" Click="PrevPage_Click" IsEnabled="False"
+                                Padding="10,6" CornerRadius="6">
+                            <FontIcon Glyph="&#xE76B;" FontSize="12"/>
+                        </Button>
+                        <Button x:Name="NextPageBtn" Click="NextPage_Click" IsEnabled="False"
+                                Padding="10,6" CornerRadius="6">
+                            <FontIcon Glyph="&#xE76C;" FontSize="12"/>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+                </Grid>  <!-- 悬浮顶栏结束 -->
+
 
                 <!-- 状态栏 -->
                 <Border Grid.Row="1" Padding="24,9"

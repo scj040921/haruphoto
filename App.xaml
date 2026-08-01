@@ -43,12 +43,12 @@
                     </LinearGradientBrush>
                     <!-- 信息区亚克力渐变：顶部强高光（折射感）→ 渐深底色（区分卡片）-->
                     <LinearGradientBrush x:Key="InfoAreaGradientBrush" StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#99FFFFFF" Offset="0"/>
+                        <GradientStop Color="#B3FFFFFF" Offset="0"/>
                         <GradientStop Color="#D8ECECEF" Offset="0.55"/>
                         <GradientStop Color="#E4ECECEF" Offset="1"/>
                     </LinearGradientBrush>
                     <!-- 玻璃边缘高光线 -->
-                    <SolidColorBrush x:Key="HighlightLineBrush" Color="#80FFFFFF"/>
+                    <SolidColorBrush x:Key="HighlightLineBrush" Color="#99FFFFFF"/>
                 </ResourceDictionary>
                 <!-- 深色 -->
                 <ResourceDictionary x:Key="Dark">
@@ -58,11 +58,11 @@
                         <GradientStop Color="#001C1C1E" Offset="1"/>
                     </LinearGradientBrush>
                     <LinearGradientBrush x:Key="InfoAreaGradientBrush" StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#5028282C" Offset="0"/>
+                        <GradientStop Color="#6628282C" Offset="0"/>
                         <GradientStop Color="#E028282C" Offset="0.55"/>
                         <GradientStop Color="#DC242428" Offset="1"/>
                     </LinearGradientBrush>
-                    <SolidColorBrush x:Key="HighlightLineBrush" Color="#33FFFFFF"/>
+                    <SolidColorBrush x:Key="HighlightLineBrush" Color="#40FFFFFF"/>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
