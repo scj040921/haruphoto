@@ -151,25 +151,17 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// <summary>背景透出模式下，将侧边栏/内容区设为半透明基底（保证文字可读 + 看到背景）</summary>
+    /// <summary>背景透出模式下，将侧边栏设为半透明基底（保证文字可读 + 看到背景）</summary>
     private void ApplyTranslucentSurfaces()
     {
         try
         {
+            // 直接赋值 NavView.Background（属性级动态生效，避免模板 Setter 残留问题）
             var dark = _settings.DarkMode;
-            // 内容区半透明基底（深 0xCC / 浅 0xE6）
-            var contentColor = dark
-                ? Windows.UI.Color.FromArgb(0xCC, 20, 20, 24)
-                : Windows.UI.Color.FromArgb(0xE6, 250, 250, 251);
-            NavView.Resources["NavigationViewContentBackground"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(contentColor);
-
-            // 侧边栏比内容区略不透明（保证文字可读）
             var paneColor = dark
-                ? Windows.UI.Color.FromArgb(0xD9, 24, 24, 28)
-                : Windows.UI.Color.FromArgb(0xF2, 248, 248, 249);
-            var paneBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(paneColor);
-            NavView.Resources["NavigationViewExpandedPaneBackground"] = paneBrush;
-            NavView.Resources["NavigationViewDefaultPaneBackground"] = paneBrush;
+                ? Windows.UI.Color.FromArgb(0xB8, 24, 24, 28)
+                : Windows.UI.Color.FromArgb(0xD9, 248, 248, 249);
+            NavView.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(paneColor);
         }
         catch { }
     }
@@ -254,20 +246,11 @@ public sealed partial class MainWindow : Window
                         : Windows.UI.Color.FromArgb(a, 247, 247, 248);  // 浅色基底
                     root.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(baseColor);
 
-                    // 侧边栏 Pane 背景：比基底略不透明（下限 210），保证文字可读，
-                    // 同时保持半透明可看到亚克力磨砂
-                    var paneAlpha = (byte)Math.Clamp(a + 45, 210, 255);
-                    var paneColor = _settings.DarkMode
-                        ? Windows.UI.Color.FromArgb(paneAlpha, 28, 28, 30)
-                        : Windows.UI.Color.FromArgb(paneAlpha, 245, 245, 246);
-                    var paneBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(paneColor);
-                    // 展开模式实际使用 NavigationViewExpandedPaneBackground；
-                    // 收起模式使用 NavigationViewDefaultPaneBackground
-                    NavView.Resources["NavigationViewExpandedPaneBackground"] = paneBrush;
-                    NavView.Resources["NavigationViewDefaultPaneBackground"] = paneBrush;
-                    // 内容区也保持半透明，让亚克力透出
-                    NavView.Resources["NavigationViewContentBackground"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                        Windows.UI.Color.FromArgb(a, baseColor.R, baseColor.G, baseColor.B));
+                    // 侧边栏/内容区：保持模板默认（浅色 Pane 自带白底，
+                    // 深色 Pane 透明 → 透出半透明根背景 → 亚克力可见）。
+                    // 绝不设置 NavView.Background —— 它会盖住整个控件区域，
+                    // 把亚克力挡成实心。
+                    NavView.ClearValue(Microsoft.UI.Xaml.Controls.Control.BackgroundProperty);
                 }
             }
             else
@@ -275,9 +258,7 @@ public sealed partial class MainWindow : Window
                 AcrylicHelper.Disable(hwnd);
                 if (Content is Grid root)
                     root.ClearValue(Grid.BackgroundProperty);
-                NavView.Resources.Remove("NavigationViewExpandedPaneBackground");
-                NavView.Resources.Remove("NavigationViewDefaultPaneBackground");
-                NavView.Resources.Remove("NavigationViewContentBackground");
+                NavView.ClearValue(Microsoft.UI.Xaml.Controls.Control.BackgroundProperty);
             }
         }
         catch { }
