@@ -16,8 +16,6 @@ using System.Threading.Tasks;
 using Windows.Storage.Pickers;
 using Windows.System;
 using Windows.UI.Core;
-using Microsoft.UI.Xaml.Hosting; // ElementCompositionPreview
-using Microsoft.UI.Composition;  // SpriteVisual / CompositionEffectSourceParameter
 
 namespace PhotoAlbum;
 
@@ -32,7 +30,6 @@ public sealed partial class MainWindow : Window
     private CancellationTokenSource? _thumbCts;
     private readonly FolderWatcherService _folderWatcher = new();
     private readonly AppSettings _settings = AppSettings.Load();
-    private Microsoft.UI.Composition.SpriteVisual? _topBarBlurSprite;
 
     private readonly DispatcherTimer _searchTimer;
     private readonly DispatcherTimer _saveTimer;
@@ -67,10 +64,7 @@ public sealed partial class MainWindow : Window
 
         // 模板加载完成后重新应用外观（ContentGrid 此时才可查找）
         if (Content is FrameworkElement rootEl)
-        {
             rootEl.Loaded += (_, _) => ApplyAppearance();
-            rootEl.SizeChanged += (_, _) => ResizeTopBarBlur();
-        }
 
         // 设置窗口图标
         try
@@ -230,14 +224,20 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
-    /// <summary>构建悬浮顶栏渐变背景（代码构建，避免 XAML ThemeResource 解析问题）。
-    /// 顶部半透明基底 + 白色高光（折射边缘）→ 底部全透明（卡片透出）</summary>
+    /// <summary>构建悬浮顶栏渐变背景 —— 与侧边栏同款亚克力材质：
+    /// 基底色 = Pane 同款（深 24,24,26 / 浅 247,247,248），
+    /// alpha 跟随亚克力透明度；顶部稍亮（玻璃边缘）→ 底部渐透（卡片透出）。
+    /// 模糊由窗口级 DWM 亚克力统一提供（与侧边栏一致）。</summary>
     private void BuildTopBarGradient()
     {
         if (TopBarGradient == null) return;
         try
         {
             var dark = _settings.DarkMode;
+            var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 8, 250);
+            var top = (byte)Math.Min(a + 20, 255);
+            var mid = (byte)(a * 0.8);
+            var bot = (byte)(a * 0.45);
             var g = new Microsoft.UI.Xaml.Media.LinearGradientBrush
             {
                 StartPoint = new Windows.Foundation.Point(0, 0),
@@ -245,62 +245,19 @@ public sealed partial class MainWindow : Window
             };
             if (dark)
             {
-                // 深色：顶部 45% 亮灰（玻璃边缘高光）→ 20% → 全透明
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x73, 40, 40, 44), Offset = 0 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x33, 40, 40, 44), Offset = 0.3 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 28, 28, 30), Offset = 1 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(top, 30, 30, 32), Offset = 0 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(mid, 24, 24, 26), Offset = 0.4 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(bot, 24, 24, 26), Offset = 1 });
             }
             else
             {
-                // 浅色：顶部 45% 白（玻璃边缘高光）→ 20% → 全透明
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x73, 255, 255, 255), Offset = 0 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x33, 247, 247, 248), Offset = 0.3 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 247, 247, 248), Offset = 1 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(top, 252, 252, 253), Offset = 0 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(mid, 247, 247, 248), Offset = 0.4 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(bot, 247, 247, 248), Offset = 1 });
             }
             TopBarGradient.Background = g;
         }
         catch { }
-    }
-
-    /// <summary>顶栏毛玻璃：Composition 模糊层（BackdropBrush 实时模糊顶栏背后的
-    /// 滚动卡片）+ 渐变 tint。非打包模式验证可用则启用，失败静默回退纯渐变。</summary>
-    private void ApplyTopBarFrostedGlass()
-    {
-        if (TopBarGradient == null) return;
-        try
-        {
-            var compositor = ElementCompositionPreview.GetElementVisual(TopBarGradient).Compositor;
-            var effect = new Microsoft.Graphics.Canvas.Effects.GaussianBlurEffect
-            {
-                Name = "topbar_blur",
-                BlurAmount = 45f,
-                BorderMode = Microsoft.Graphics.Canvas.Effects.EffectBorderMode.Hard,
-                Optimization = Microsoft.Graphics.Canvas.Effects.EffectOptimization.Speed,
-                Source = new CompositionEffectSourceParameter("source")
-            };
-            var factory = compositor.CreateEffectFactory(effect);
-            var brush = factory.CreateBrush();
-            brush.SetSourceParameter("source", compositor.CreateBackdropBrush());
-
-            var sprite = compositor.CreateSpriteVisual();
-            sprite.Brush = brush;
-            sprite.Opacity = 0.62f;   // 模糊层 62%：磨砂剪影更实，卡片细节不可辨
-            sprite.Size = new System.Numerics.Vector2(
-                (float)Math.Max(TopBarGradient.ActualWidth, 1),
-                (float)Math.Max(TopBarGradient.ActualHeight, 1));
-            ElementCompositionPreview.SetElementChildVisual(TopBarGradient, sprite);
-            _topBarBlurSprite = sprite;
-        }
-        catch { /* 非打包/合成不支持时静默回退纯渐变 */ }
-    }
-
-    /// <summary>窗口尺寸变化时同步顶栏模糊层尺寸</summary>
-    private void ResizeTopBarBlur()
-    {
-        if (_topBarBlurSprite != null && TopBarGradient != null)
-            _topBarBlurSprite.Size = new System.Numerics.Vector2(
-                (float)Math.Max(TopBarGradient.ActualWidth, 1),
-                (float)Math.Max(TopBarGradient.ActualHeight, 1));
     }
 
     /// <summary>应用主题（深/浅色）与外观设置，即时生效无需重启</summary>
@@ -321,11 +278,8 @@ public sealed partial class MainWindow : Window
         // 3. 外观设置（主题色/亚克力）
         ApplyAppearance();
 
-        // 4. 悬浮顶栏渐变（代码构建，跟随主题）
+        // 4. 悬浮顶栏渐变（与侧边栏同款亚克力，跟随主题/透明度）
         BuildTopBarGradient();
-
-        // 5. 顶栏毛玻璃（Composition 模糊，失败自动回退渐变）
-        ApplyTopBarFrostedGlass();
     }
 
     /// <summary>应用外观设置：主题色 + 亚克力（SPW 风格可选模式，默认关闭保留原界面）</summary>
