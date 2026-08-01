@@ -267,19 +267,20 @@ public sealed partial class MainWindow : Window
             };
             if (dark)
             {
-                // 深色：Pane 同款（透明面板 → 透出根背景），顶部略亮（玻璃边缘）
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb((byte)Math.Min(a + 30, 255), 30, 30, 32), Offset = 0 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(a, 24, 24, 26), Offset = 0.4 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb((byte)(a * 0.6), 24, 24, 26), Offset = 1 });
+                // 深色：Pane 同款（透明面板 → 透出根背景），顶部略亮（玻璃边缘）。
+                // tint ~58% 深灰：卡片滑过 = 隐约轮廓（同浅色 70% 的白化等效）
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb((byte)Math.Min(a + 40, 255), 30, 30, 32), Offset = 0 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb((byte)Math.Min(a + 40, 255), 24, 24, 26), Offset = 0.4 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb((byte)((a + 40) * 0.65), 24, 24, 26), Offset = 1 });
             }
             else
             {
-                // 浅色：SPW 亚克力面板 —— 与侧边栏 Pane 完全同款 tint（+45，
-                // ~60% 半透明），透出 DWM 亚克力模糊 = 磨砂感来源。
-                // 教训：之前 +100 加实到 80% 会把 DWM 模糊完全挡住 → 白板。
-                var lt = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255) + 45, 60, 245);
-                var lm = (byte)(lt * 0.8);
-                var lb = (byte)(lt * 0.5);
+                // 浅色：SPW 亚克力面板 —— tint ~70%（介于 60% 透明与 80% 白化之间）：
+                // 卡片滑过 = 隐约轮廓（看不出内容，看得出有东西在动）；
+                // DWM 亚克力模糊透出 = 磨砂面板感。
+                var lt = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255) + 75, 100, 240);
+                var lm = (byte)(lt * 0.85);
+                var lb = (byte)(lt * 0.55);
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(lt, 252, 252, 253), Offset = 0 });
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(lm, 247, 247, 248), Offset = 0.4 });
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(lb, 247, 247, 248), Offset = 1 });
