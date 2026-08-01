@@ -310,7 +310,7 @@ public sealed partial class MainWindow : Window
                 if (Content is Grid root)
                 {
                     // 半透明基底色（深/浅），透过它看到窗口背后的图层
-                    var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 60, 215);
+                    var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 30, 220);
                     var baseColor = _settings.DarkMode
                         ? Windows.UI.Color.FromArgb(a, 24, 24, 26)      // 深色基底
                         : Windows.UI.Color.FromArgb(a, 247, 247, 248);  // 浅色基底
@@ -873,7 +873,7 @@ public sealed partial class MainWindow : Window
         var lookLabel = new TextBlock { Text = "外观风格（SPW 风格 · 可选）", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15, Margin = new Microsoft.UI.Xaml.Thickness(0, 8, 0, 0) };
 
         var acrylicToggle = new ToggleSwitch { Header = "亚克力毛玻璃", IsOn = _settings.AcrylicEnabled, OnContent = "已开启", OffContent = "已关闭" };
-        var acrylicSlider = new Slider { Header = "亚克力透明度", Minimum = 0.15, Maximum = 0.9, StepFrequency = 0.05, Value = _settings.AcrylicOpacity, IsEnabled = _settings.AcrylicEnabled };
+        var acrylicSlider = new Slider { Header = "亚克力透明度", Minimum = 0.05, Maximum = 0.95, StepFrequency = 0.05, Value = _settings.AcrylicOpacity, IsEnabled = _settings.AcrylicEnabled };
         acrylicToggle.Toggled += (_, _) => acrylicSlider.IsEnabled = acrylicToggle.IsOn;
 
         // 主题色：预设色板 + ColorPicker
@@ -1188,8 +1188,19 @@ public sealed partial class MainWindow : Window
             }
 
             // 卡片阴影（ThemeShadow）+ 悬停交互：无条件执行（不依赖圆角设置）
-            if (element is Border card)
+            // 模板根现在是 Grid：子 0 = 伪阴影层 CardShadowLayer，子 1 = 卡片 CardRoot
+            if (element is Grid cardHost && cardHost.Children.Count >= 2
+                && cardHost.Children[0] is Border shadowLayer && cardHost.Children[1] is Border card)
             {
+                var dark = _settings.DarkMode;
+
+                // 伪阴影层：深色=白色亮边（深色背景上看不到黑阴影），浅色=黑色投影
+                var shadowColor = dark
+                    ? Windows.UI.Color.FromArgb(45, 255, 255, 255)
+                    : Windows.UI.Color.FromArgb(35, 0, 0, 0);
+                var shadowBrush = new SolidColorBrush(shadowColor);
+                shadowLayer.Background = shadowBrush;
+
                 try
                 {
                     var shadow = new Microsoft.UI.Xaml.Media.ThemeShadow();
@@ -1199,23 +1210,37 @@ public sealed partial class MainWindow : Window
                 }
                 catch { /* 阴影不可用时不影响卡片 */ }
 
-                // 自定义圆角（SPW 风格外观设置）
+                // 自定义圆角（SPW 风格外观设置），同步伪阴影层
                 if (_settings.CardCornerRadius > 0)
                 {
                     var r = _settings.CardCornerRadius;
                     card.CornerRadius = new CornerRadius(r);
+                    shadowLayer.CornerRadius = new CornerRadius(r);
                     // 同步内层图片容器圆角（避免溢出）
                     if (card.Child is Grid g && g.Children.Count > 0 && g.Children[0] is Border imgBorder)
                         imgBorder.CornerRadius = new CornerRadius(r, r, 0, 0);
                 }
 
-                // 悬停交互：独立画刷副本（不污染共享资源）；退出时 ClearValue
-                // 恢复 XAML 的 ThemeResource 背景 —— 主题切换后背景自动跟随
-                var hoverBrush = new SolidColorBrush(_settings.DarkMode
-                    ? Windows.UI.Color.FromArgb(255, 58, 58, 64)
-                    : Windows.UI.Color.FromArgb(255, 255, 255, 255));
-                card.PointerEntered += (s, _) => { if (s is Border b) b.Background = hoverBrush; };
-                card.PointerExited += (s, _) => { if (s is Border b) b.ClearValue(Border.BackgroundProperty); };
+                // 悬停交互：动态读取当前主题（快照会在主题切换后残留 →
+                // 浅色 hoverBrush + 深色白字 = 信息区全白）；退出恢复主题背景
+                card.PointerEntered += (_, _) =>
+                {
+                    var isDark = _settings.DarkMode;
+                    card.Background = new SolidColorBrush(isDark
+                        ? Windows.UI.Color.FromArgb(255, 58, 58, 64)
+                        : Windows.UI.Color.FromArgb(255, 255, 255, 255));
+                    shadowLayer.Background = new SolidColorBrush(isDark
+                        ? Windows.UI.Color.FromArgb(70, 255, 255, 255)
+                        : Windows.UI.Color.FromArgb(60, 0, 0, 0));
+                };
+                card.PointerExited += (_, _) =>
+                {
+                    var isDark = _settings.DarkMode;
+                    card.ClearValue(Border.BackgroundProperty);
+                    shadowLayer.Background = new SolidColorBrush(isDark
+                        ? Windows.UI.Color.FromArgb(45, 255, 255, 255)
+                        : Windows.UI.Color.FromArgb(35, 0, 0, 0));
+                };
             }
         }
     }

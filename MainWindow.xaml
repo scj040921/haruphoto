@@ -129,53 +129,58 @@
                         </ItemsRepeater.Layout>
                         <ItemsRepeater.ItemTemplate>
                             <DataTemplate>
-                                <Border CornerRadius="14" Tapped="PhotoCard_Tapped" RightTapped="PhotoCard_RightTapped" CanDrag="True" DragStarting="PhotoCard_DragStarting"
-                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                                    <Grid>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="180"/>
-                                            <RowDefinition Height="Auto"/>
-                                        </Grid.RowDefinitions>
+                                <Grid>
+                                    <!-- 伪阴影层：卡片底部偏移 4px（深色=亮边 / 浅色=投影），
+                                        保证任何主题下都有立体感；ThemeShadow 仅浅色模式明显 -->
+                                    <Border x:Name="CardShadowLayer" CornerRadius="14" Margin="0,4,0,0"/>
+                                    <Border x:Name="CardRoot" CornerRadius="14" Tapped="PhotoCard_Tapped" RightTapped="PhotoCard_RightTapped" CanDrag="True" DragStarting="PhotoCard_DragStarting"
+                                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="180"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
 
-                                        <Border Grid.Row="0" CornerRadius="14,14,0,0">
-                                            <Image Stretch="UniformToFill" Source="{Binding ThumbnailSource}"/>
-                                        </Border>
+                                            <Border Grid.Row="0" CornerRadius="14,14,0,0">
+                                                <Image Stretch="UniformToFill" Source="{Binding ThumbnailSource}"/>
+                                            </Border>
 
-                                        <Button Grid.Row="0" HorizontalAlignment="Left" VerticalAlignment="Top"
-                                                Margin="8,8,0,0" Padding="6,4" Click="SelectToggle_Click"
-                                                Tapped="SelectToggle_Tapped"
-                                                Background="#78000000" CornerRadius="6" Tag="{Binding FilePath}"
-                                                Opacity="{Binding SelectVisibleOpacity}">
-                                            <TextBlock Text="{Binding SelectIcon}" FontSize="14"/>
-                                        </Button>
+                                            <Button Grid.Row="0" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                    Margin="8,8,0,0" Padding="6,4" Click="SelectToggle_Click"
+                                                    Tapped="SelectToggle_Tapped"
+                                                    Background="#78000000" CornerRadius="6" Tag="{Binding FilePath}"
+                                                    Opacity="{Binding SelectVisibleOpacity}">
+                                                <TextBlock Text="{Binding SelectIcon}" FontSize="14"/>
+                                            </Button>
 
-                                        <Button Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top"
-                                                Margin="0,8,8,0" Padding="8,6"
-                                                Background="#78000000" CornerRadius="8"
-                                                Click="CardFavorite_Click">
-                                            <TextBlock Text="{Binding FavoriteIcon}" FontSize="14"
-                                                       Foreground="{StaticResource SoftYellowBrush}"/>
-                                        </Button>
+                                            <Button Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                    Margin="0,8,8,0" Padding="8,6"
+                                                    Background="#78000000" CornerRadius="8"
+                                                    Click="CardFavorite_Click">
+                                                <TextBlock Text="{Binding FavoriteIcon}" FontSize="14"
+                                                           Foreground="{StaticResource SoftYellowBrush}"/>
+                                            </Button>
 
-                                        <!-- 分类标记 -->
-                                        <Border Grid.Row="0" HorizontalAlignment="Left" VerticalAlignment="Bottom"
-                                                Margin="8,0,0,8" Padding="6,3" CornerRadius="4"
-                                                Background="#90000000" Opacity="{Binding CategoryTagOpacity}">
-                                            <TextBlock Text="{Binding CategoryDisplay}" FontSize="10"
-                                                       Foreground="#CCFFFFFF"/>
-                                        </Border>
+                                            <!-- 分类标记 -->
+                                            <Border Grid.Row="0" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                                                    Margin="8,0,0,8" Padding="6,3" CornerRadius="4"
+                                                    Background="#90000000" Opacity="{Binding CategoryTagOpacity}">
+                                                <TextBlock Text="{Binding CategoryDisplay}" FontSize="10"
+                                                           Foreground="#CCFFFFFF"/>
+                                            </Border>
 
-                                        <StackPanel Grid.Row="1" Padding="12,10,12,12">
-                                            <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
-                                                       FontSize="13" TextTrimming="CharacterEllipsis"
-                                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                            <TextBlock Text="{Binding SizeText}" FontSize="11" Margin="0,3,0,0"
-                                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                            <TextBlock Text="{Binding RatingStars}" FontSize="11"
-                                                       Foreground="{StaticResource SoftOrangeBrush}"/>
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
+                                            <StackPanel Grid.Row="1" Padding="12,10,12,12">
+                                                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
+                                                           FontSize="13" TextTrimming="CharacterEllipsis"
+                                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                                <TextBlock Text="{Binding SizeText}" FontSize="11" Margin="0,3,0,0"
+                                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                <TextBlock Text="{Binding RatingStars}" FontSize="11"
+                                                           Foreground="{StaticResource SoftOrangeBrush}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </Grid>
                             </DataTemplate>
                         </ItemsRepeater.ItemTemplate>
                     </ItemsRepeater>
