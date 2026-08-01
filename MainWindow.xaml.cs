@@ -167,6 +167,11 @@ public sealed partial class MainWindow : Window
                 contentGrid.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(dark
                     ? Windows.UI.Color.FromArgb(0xA0, 20, 20, 24)
                     : Windows.UI.Color.FromArgb(0xCC, 250, 250, 251));
+            // 阴影接收层同步半透明
+            if (PhotoShadowReceiver != null)
+                PhotoShadowReceiver.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(dark
+                    ? Windows.UI.Color.FromArgb(0xA0, 20, 20, 24)
+                    : Windows.UI.Color.FromArgb(0xCC, 250, 250, 251));
 
             // 侧边栏半透明基底（直接赋值 NavView.Background，属性级动态生效）
             var paneColor = dark
@@ -317,6 +322,10 @@ public sealed partial class MainWindow : Window
                     if (contentGrid != null)
                         contentGrid.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
                             Windows.UI.Color.FromArgb(a, baseColor.R, baseColor.G, baseColor.B));
+                    // 阴影接收层同步半透明（与内容区一致，避免挡住亚克力）
+                    if (PhotoShadowReceiver != null)
+                        PhotoShadowReceiver.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                            Windows.UI.Color.FromArgb(a, baseColor.R, baseColor.G, baseColor.B));
 
                     // 侧边栏：保持模板默认（浅色 Pane 自带白底，
                     // 深色 Pane 透明 → 透出半透明根背景 → 亚克力可见）。
@@ -337,6 +346,9 @@ public sealed partial class MainWindow : Window
                     contentGrid.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(_settings.DarkMode
                         ? Windows.UI.Color.FromArgb(255, 32, 32, 36)
                         : Windows.UI.Color.FromArgb(255, 252, 252, 253));
+                // 阴影接收层恢复默认（ThemeResource 主题背景）
+                if (PhotoShadowReceiver != null)
+                    PhotoShadowReceiver.ClearValue(Border.BackgroundProperty);
                 NavView.ClearValue(Microsoft.UI.Xaml.Controls.Control.BackgroundProperty);
             }
         }
@@ -989,7 +1001,10 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(intervalBox);
         panel.Children.Add(watchLabel);
 
-        var dlg = new ContentDialog { Title = "⚙ 设置", Content = panel, PrimaryButtonText = "保存", SecondaryButtonText = "恢复默认", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, XamlRoot = Content.XamlRoot };
+        // 面板包 ScrollViewer：内容超出 ContentDialog 高度时可滚动
+        // （背景设置等选项在窗口较矮时也能完整看到）
+        var scroll = new ScrollViewer { Content = panel, MaxHeight = 480, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        var dlg = new ContentDialog { Title = "⚙ 设置", Content = scroll, PrimaryButtonText = "保存", SecondaryButtonText = "恢复默认", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, XamlRoot = Content.XamlRoot };
 
         var result = await dlg.ShowAsync();
         if (result == ContentDialogResult.Secondary)

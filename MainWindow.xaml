@@ -120,8 +120,8 @@
                 <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Auto" Padding="24,0,24,16">
                     <Grid>
-                        <!-- ThemeShadow 阴影接收层（在卡片后面）-->
-                        <Border x:Name="PhotoShadowReceiver" Background="Transparent"/>
+                        <!-- ThemeShadow 阴影接收层（在卡片后面；须有可见背景才能投射阴影）-->
+                        <Border x:Name="PhotoShadowReceiver" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
                         <ItemsRepeater x:Name="PhotoGrid" ElementPrepared="PhotoGrid_ElementPrepared">
                         <ItemsRepeater.Layout>
                             <UniformGridLayout MinItemWidth="220" MinItemHeight="270"
