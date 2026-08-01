@@ -122,6 +122,9 @@ public sealed partial class MainWindow : Window
                     : $"已加载 {photos.Count} 张照片";
 
             _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
+
+            // 启动后后台补读缺失的拍摄日期（历史照片从未读过 EXIF）
+            _ = EnrichMissingDateTakenAsync();
         }
         finally
         {
@@ -245,7 +248,7 @@ public sealed partial class MainWindow : Window
                 if (Content is Grid root)
                 {
                     // 半透明基底色（深/浅），透过它看到窗口背后的图层
-                    var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 90, 220);
+                    var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 60, 215);
                     var baseColor = _settings.DarkMode
                         ? Windows.UI.Color.FromArgb(a, 24, 24, 26)      // 深色基底
                         : Windows.UI.Color.FromArgb(a, 247, 247, 248);  // 浅色基底
@@ -798,7 +801,7 @@ public sealed partial class MainWindow : Window
         var lookLabel = new TextBlock { Text = "外观风格（SPW 风格 · 可选）", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15, Margin = new Microsoft.UI.Xaml.Thickness(0, 8, 0, 0) };
 
         var acrylicToggle = new ToggleSwitch { Header = "亚克力毛玻璃", IsOn = _settings.AcrylicEnabled, OnContent = "已开启", OffContent = "已关闭" };
-        var acrylicSlider = new Slider { Header = "亚克力透明度", Minimum = 0.3, Maximum = 0.9, StepFrequency = 0.05, Value = _settings.AcrylicOpacity, IsEnabled = _settings.AcrylicEnabled };
+        var acrylicSlider = new Slider { Header = "亚克力透明度", Minimum = 0.15, Maximum = 0.9, StepFrequency = 0.05, Value = _settings.AcrylicOpacity, IsEnabled = _settings.AcrylicEnabled };
         acrylicToggle.Toggled += (_, _) => acrylicSlider.IsEnabled = acrylicToggle.IsOn;
 
         // 主题色：预设色板 + ColorPicker
@@ -1117,6 +1120,28 @@ public sealed partial class MainWindow : Window
                 // 同步内层图片容器圆角（避免溢出）
                 if (card.Child is Grid g && g.Children.Count > 0 && g.Children[0] is Border imgBorder)
                     imgBorder.CornerRadius = new CornerRadius(r, r, 0, 0);
+
+                // 卡片阴影（ThemeShadow，非打包模式安全）+ 悬停交互
+                try
+                {
+                    var shadow = new Microsoft.UI.Xaml.Media.ThemeShadow();
+                    if (PhotoShadowReceiver != null)
+                        shadow.Receivers.Add(PhotoShadowReceiver);
+                    card.Shadow = shadow;
+
+                    // 独立画刷副本（不污染共享资源），悬停时背景微亮
+                    var dark = _settings.DarkMode;
+                    var normal = new SolidColorBrush(dark
+                        ? Windows.UI.Color.FromArgb(255, 40, 40, 44)
+                        : Windows.UI.Color.FromArgb(255, 246, 246, 248));
+                    var hover = new SolidColorBrush(dark
+                        ? Windows.UI.Color.FromArgb(255, 56, 56, 62)
+                        : Windows.UI.Color.FromArgb(255, 255, 255, 255));
+                    card.Background = normal;
+                    card.PointerEntered += (s, _) => { if (s is Border b) b.Background = hover; };
+                    card.PointerExited += (s, _) => { if (s is Border b) b.Background = normal; };
+                }
+                catch { /* 阴影不可用时不影响卡片 */ }
             }
         }
     }
@@ -1825,6 +1850,38 @@ public sealed partial class MainWindow : Window
             if (d.HasValue) p.DateTaken = d;
         ScheduleSave();
         RebuildTimelineNavItems();
+    }
+
+    /// <summary>启动后补读历史照片缺失的拍摄日期（后台逐张读取，不阻塞 UI）</summary>
+    private async Task EnrichMissingDateTakenAsync()
+    {
+        var pending = _allPhotos.Where(p => !p.DateTaken.HasValue).ToList();
+        if (pending.Count == 0) return;
+
+        var done = 0;
+        await Task.Run(async () =>
+        {
+            foreach (var p in pending)
+            {
+                try
+                {
+                    var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(p.FilePath);
+                    var props = await file.Properties.GetImagePropertiesAsync();
+                    if (props.DateTaken != DateTimeOffset.MinValue)
+                        p.DateTaken = props.DateTaken.LocalDateTime;
+                }
+                catch { }
+                done++;
+                if (done % 100 == 0)
+                {
+                    var n = done;
+                    DispatcherQueue.TryEnqueue(() => StatusText.Text = $"正在补读拍摄信息… {n}/{pending.Count}");
+                }
+            }
+        });
+        ScheduleSave();
+        RebuildTimelineNavItems();
+        StatusText.Text = $"拍摄信息读取完成（{pending.Count} 张）";
     }
 
     private void OnNewFilesFound(List<string> files)
