@@ -224,9 +224,9 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
-    /// <summary>构建悬浮顶栏渐变背景 —— 与侧边栏同款亚克力材质：
-    /// 基底色 = Pane 同款（深 24,24,26 / 浅 247,247,248），
-    /// alpha 跟随亚克力透明度；顶部稍亮（玻璃边缘）→ 底部渐透（卡片透出）。
+    /// <summary>构建悬浮顶栏渐变背景 —— 与侧边栏同款材质：
+    /// 浅色 = Pane 自带白底同款（高不透明白面板，底部渐透让卡片滑过）；
+    /// 深色 = Pane 同款（透明 → 透出根背景基底，alpha 跟随亚克力透明度）。
     /// 模糊由窗口级 DWM 亚克力统一提供（与侧边栏一致）。</summary>
     private void BuildTopBarGradient()
     {
@@ -235,9 +235,6 @@ public sealed partial class MainWindow : Window
         {
             var dark = _settings.DarkMode;
             var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 8, 250);
-            var top = (byte)Math.Min(a + 20, 255);
-            var mid = (byte)(a * 0.8);
-            var bot = (byte)(a * 0.45);
             var g = new Microsoft.UI.Xaml.Media.LinearGradientBrush
             {
                 StartPoint = new Windows.Foundation.Point(0, 0),
@@ -245,15 +242,17 @@ public sealed partial class MainWindow : Window
             };
             if (dark)
             {
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(top, 30, 30, 32), Offset = 0 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(mid, 24, 24, 26), Offset = 0.4 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(bot, 24, 24, 26), Offset = 1 });
+                // 深色：Pane 同款（透明面板 → 透出根背景），顶部略亮（玻璃边缘）
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb((byte)Math.Min(a + 20, 255), 30, 30, 32), Offset = 0 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(a, 24, 24, 26), Offset = 0.4 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb((byte)(a * 0.6), 24, 24, 26), Offset = 1 });
             }
             else
             {
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(top, 252, 252, 253), Offset = 0 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(mid, 247, 247, 248), Offset = 0.4 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(bot, 247, 247, 248), Offset = 1 });
+                // 浅色：Pane 自带白底同款（94% 白面板）→ 底部渐透（65% → 卡片滑过可见）
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xF0, 252, 252, 253), Offset = 0 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xE6, 247, 247, 248), Offset = 0.4 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xA6, 247, 247, 248), Offset = 1 });
             }
             TopBarGradient.Background = g;
         }
