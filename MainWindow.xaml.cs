@@ -156,8 +156,14 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            // 直接赋值 NavView.Background（属性级动态生效，避免模板 Setter 残留问题）
             var dark = _settings.DarkMode;
+            // 内容区透明化（模板 key，启动时设置生效），让背景图/纯色背景透出
+            var contentColor = dark
+                ? Windows.UI.Color.FromArgb(0xA0, 20, 20, 24)
+                : Windows.UI.Color.FromArgb(0xCC, 250, 250, 251);
+            NavView.Resources["NavigationViewContentBackground"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(contentColor);
+
+            // 侧边栏半透明基底（直接赋值 NavView.Background，属性级动态生效）
             var paneColor = dark
                 ? Windows.UI.Color.FromArgb(0xB8, 24, 24, 28)
                 : Windows.UI.Color.FromArgb(0xD9, 248, 248, 249);
@@ -246,6 +252,13 @@ public sealed partial class MainWindow : Window
                         : Windows.UI.Color.FromArgb(a, 247, 247, 248);  // 浅色基底
                     root.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(baseColor);
 
+                    // 内容区透明化：覆盖模板的 NavigationViewContentBackground
+                    // （默认 80% 不透明，会把亚克力挡成实心）。
+                    // 构造函数/启动时设置 → 模板首次加载时即解析到该值，有效。
+                    // 运行时切换：尽力更新（模板已加载时可能不生效，重启应用即恢复）。
+                    NavView.Resources["NavigationViewContentBackground"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                        Windows.UI.Color.FromArgb(a, baseColor.R, baseColor.G, baseColor.B));
+
                     // 侧边栏/内容区：保持模板默认（浅色 Pane 自带白底，
                     // 深色 Pane 透明 → 透出半透明根背景 → 亚克力可见）。
                     // 绝不设置 NavView.Background —— 它会盖住整个控件区域，
@@ -258,6 +271,7 @@ public sealed partial class MainWindow : Window
                 AcrylicHelper.Disable(hwnd);
                 if (Content is Grid root)
                     root.ClearValue(Grid.BackgroundProperty);
+                NavView.Resources.Remove("NavigationViewContentBackground");
                 NavView.ClearValue(Microsoft.UI.Xaml.Controls.Control.BackgroundProperty);
             }
         }
@@ -1093,36 +1107,35 @@ public sealed partial class MainWindow : Window
                 element.Opacity = 1;
             }
 
-            // 自定义圆角（SPW 风格外观设置）
-            if (element is Border card && _settings.CardCornerRadius > 0)
+            // 卡片阴影（ThemeShadow）+ 悬停交互：无条件执行（不依赖圆角设置）
+            if (element is Border card)
             {
-                var r = _settings.CardCornerRadius;
-                card.CornerRadius = new CornerRadius(r);
-                // 同步内层图片容器圆角（避免溢出）
-                if (card.Child is Grid g && g.Children.Count > 0 && g.Children[0] is Border imgBorder)
-                    imgBorder.CornerRadius = new CornerRadius(r, r, 0, 0);
-
-                // 卡片阴影（ThemeShadow，非打包模式安全）+ 悬停交互
                 try
                 {
                     var shadow = new Microsoft.UI.Xaml.Media.ThemeShadow();
                     if (PhotoShadowReceiver != null)
                         shadow.Receivers.Add(PhotoShadowReceiver);
                     card.Shadow = shadow;
-
-                    // 独立画刷副本（不污染共享资源），悬停时背景微亮
-                    var dark = _settings.DarkMode;
-                    var normal = new SolidColorBrush(dark
-                        ? Windows.UI.Color.FromArgb(255, 40, 40, 44)
-                        : Windows.UI.Color.FromArgb(255, 246, 246, 248));
-                    var hover = new SolidColorBrush(dark
-                        ? Windows.UI.Color.FromArgb(255, 56, 56, 62)
-                        : Windows.UI.Color.FromArgb(255, 255, 255, 255));
-                    card.Background = normal;
-                    card.PointerEntered += (s, _) => { if (s is Border b) b.Background = hover; };
-                    card.PointerExited += (s, _) => { if (s is Border b) b.Background = normal; };
                 }
                 catch { /* 阴影不可用时不影响卡片 */ }
+
+                // 自定义圆角（SPW 风格外观设置）
+                if (_settings.CardCornerRadius > 0)
+                {
+                    var r = _settings.CardCornerRadius;
+                    card.CornerRadius = new CornerRadius(r);
+                    // 同步内层图片容器圆角（避免溢出）
+                    if (card.Child is Grid g && g.Children.Count > 0 && g.Children[0] is Border imgBorder)
+                        imgBorder.CornerRadius = new CornerRadius(r, r, 0, 0);
+                }
+
+                // 悬停交互：独立画刷副本（不污染共享资源）；退出时 ClearValue
+                // 恢复 XAML 的 ThemeResource 背景 —— 主题切换后背景自动跟随
+                var hoverBrush = new SolidColorBrush(_settings.DarkMode
+                    ? Windows.UI.Color.FromArgb(255, 58, 58, 64)
+                    : Windows.UI.Color.FromArgb(255, 255, 255, 255));
+                card.PointerEntered += (s, _) => { if (s is Border b) b.Background = hoverBrush; };
+                card.PointerExited += (s, _) => { if (s is Border b) b.ClearValue(Border.BackgroundProperty); };
             }
         }
     }
