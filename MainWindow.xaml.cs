@@ -248,62 +248,35 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
-    /// <summary>构建悬浮顶栏 tint 渐变层（Acrylic 结构的上层）：
-    /// 浅色 = SPW 亚克力磨砂（半透明白，顶部亮 → 底部渐透让卡片滑过）；
-    /// 深色 = Pane 同款（透明 → 透出根背景基底，alpha 跟随亚克力透明度）。
-    /// 下层实时模糊由 ApplyTopBarFrostedGlass / ApplyTopBarLiquidGlass
-    /// 的 Composition sprite（BackdropBrush）提供。</summary>
+    /// <summary>构建悬浮顶栏 tint 层（Acrylic 结构的上层）：
+    /// 使用官方 AcrylicBrush（BackgroundSource=Backdrop 采样窗口内
+    /// 元素背后内容 → 滚动卡片实时模糊 = 真磨砂；不是自建 BackdropBrush
+    /// 链，后者像素实证只采样窗口背后）。
+    /// 浅色 = SPW 亚克力白面板；深色 = 深灰面板。
+    /// 液态玻璃模式 = 更低 TintOpacity（更透）+ 描边高光。</summary>
     private void BuildTopBarGradient()
     {
         if (TopBarTint == null) return;
         try
         {
             var dark = _settings.DarkMode;
-            var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 8, 250);
-            var g = new Microsoft.UI.Xaml.Media.LinearGradientBrush
+            var acrylic = new Microsoft.UI.Xaml.Media.AcrylicBrush
             {
-                StartPoint = new Windows.Foundation.Point(0, 0),
-                EndPoint = new Windows.Foundation.Point(0, 1)
+                // 注：WinUI3 桌面版 AcrylicBrush 无 BackgroundSource 属性
+                // （UWP 才有 Backdrop/HostBackdrop 之分）→ 固定采样窗口背后。
+                // tint 下限 0.55：即使滑块拉到 0 也不会纯透明（磨砂面板底线）
+                TintOpacity = _settings.TopBarStyle == 1
+                    ? Math.Max(_settings.AcrylicOpacity, 0.35)
+                    : Math.Max(_settings.AcrylicOpacity, 0.55),
+                TintLuminosityOpacity = 0.7,
+                FallbackColor = dark
+                    ? Windows.UI.Color.FromArgb(255, 24, 24, 26)
+                    : Windows.UI.Color.FromArgb(255, 247, 247, 248),
+                TintColor = dark
+                    ? Windows.UI.Color.FromArgb(255, 24, 24, 26)
+                    : Windows.UI.Color.FromArgb(255, 247, 247, 248),
             };
-            if (dark)
-            {
-                // 深色：Pane 同款（透明面板 → 透出根背景），顶部略亮（玻璃边缘）。
-                // tint ~58% 深灰：卡片滑过 = 隐约轮廓（同浅色 70% 的白化等效）
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb((byte)Math.Min(a + 40, 255), 30, 30, 32), Offset = 0 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb((byte)Math.Min(a + 40, 255), 24, 24, 26), Offset = 0.4 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb((byte)((a + 40) * 0.65), 24, 24, 26), Offset = 1 });
-            }
-            else
-            {
-                // 浅色：SPW 亚克力面板 —— tint ~70%（介于 60% 透明与 80% 白化之间）：
-                // 卡片滑过 = 隐约轮廓（看不出内容，看得出有东西在动）；
-                // DWM 亚克力模糊透出 = 磨砂面板感。
-                var lt = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255) + 75, 100, 240);
-                var lm = (byte)(lt * 0.85);
-                var lb = (byte)(lt * 0.55);
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(lt, 252, 252, 253), Offset = 0 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(lm, 247, 247, 248), Offset = 0.4 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(lb, 247, 247, 248), Offset = 1 });
-            }
-            // 液态玻璃模式：tint 压暗（用户建议）—— 深色更深、浅色转灰调，
-            // 让毛玻璃层更沉稳（扭曲层仍不被白白化盖住）
-            if (_settings.TopBarStyle == 1)
-            {
-                g.GradientStops.Clear();
-                if (dark)
-                {
-                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x80, 36, 36, 40), Offset = 0 });
-                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x40, 22, 22, 24), Offset = 0.5 });
-                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x1A, 22, 22, 24), Offset = 1 });
-                }
-                else
-                {
-                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x66, 232, 232, 234), Offset = 0 });
-                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x26, 236, 236, 238), Offset = 0.5 });
-                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 236, 236, 238), Offset = 1 });
-                }
-            }
-            TopBarTint.Background = g;
+            TopBarTint.Background = acrylic;
 
             // 高光描边：液态玻璃模式 = 四周 1px 玻璃边缘光（顶部+底部+两侧），
             // 侧边栏同款模式 = 仅底部 1px 折射边缘光
