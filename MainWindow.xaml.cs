@@ -310,7 +310,7 @@ public sealed partial class MainWindow : Window
                 if (Content is Grid root)
                 {
                     // 半透明基底色（深/浅），透过它看到窗口背后的图层
-                    var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 15, 230);
+                    var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 8, 250);
                     var baseColor = _settings.DarkMode
                         ? Windows.UI.Color.FromArgb(a, 24, 24, 26)      // 深色基底
                         : Windows.UI.Color.FromArgb(a, 247, 247, 248);  // 浅色基底
@@ -873,7 +873,7 @@ public sealed partial class MainWindow : Window
         var lookLabel = new TextBlock { Text = "外观风格（SPW 风格 · 可选）", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15, Margin = new Microsoft.UI.Xaml.Thickness(0, 8, 0, 0) };
 
         var acrylicToggle = new ToggleSwitch { Header = "亚克力毛玻璃", IsOn = _settings.AcrylicEnabled, OnContent = "已开启", OffContent = "已关闭" };
-        var acrylicSlider = new Slider { Header = "亚克力透明度", Minimum = 0.05, Maximum = 0.95, StepFrequency = 0.05, Value = _settings.AcrylicOpacity, IsEnabled = _settings.AcrylicEnabled };
+        var acrylicSlider = new Slider { Header = "亚克力透明度", Minimum = 0.0, Maximum = 1.0, StepFrequency = 0.05, Value = _settings.AcrylicOpacity, IsEnabled = _settings.AcrylicEnabled };
         acrylicToggle.Toggled += (_, _) => acrylicSlider.IsEnabled = acrylicToggle.IsOn;
 
         // 主题色：预设色板 + ColorPicker

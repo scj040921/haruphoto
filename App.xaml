@@ -35,29 +35,34 @@
             <ResourceDictionary.ThemeDictionaries>
                 <!-- 浅色 -->
                 <ResourceDictionary x:Key="Light">
-                    <!-- 顶栏渐变：顶部较实 → 底部透明（滚动时卡片从渐变区透出）-->
+                    <!-- 顶栏渐变：顶部高光（玻璃边缘）→ 底部透明（卡片透出）-->
                     <LinearGradientBrush x:Key="TopBarGradientBrush" StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#F4F7F7F8" Offset="0"/>
-                        <GradientStop Color="#E8F7F7F8" Offset="0.65"/>
+                        <GradientStop Color="#E6FFFFFF" Offset="0"/>
+                        <GradientStop Color="#E8F7F7F8" Offset="0.4"/>
                         <GradientStop Color="#00F7F7F8" Offset="1"/>
                     </LinearGradientBrush>
-                    <!-- 信息区亚克力渐变：顶部高光（模拟折射）+ 渐深底色（与卡片区分）-->
+                    <!-- 信息区亚克力渐变：顶部强高光（折射感）→ 渐深底色（区分卡片）-->
                     <LinearGradientBrush x:Key="InfoAreaGradientBrush" StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#F2F2F2F4" Offset="0"/>
+                        <GradientStop Color="#99FFFFFF" Offset="0"/>
+                        <GradientStop Color="#D8ECECEF" Offset="0.55"/>
                         <GradientStop Color="#E4ECECEF" Offset="1"/>
                     </LinearGradientBrush>
+                    <!-- 玻璃边缘高光线 -->
+                    <SolidColorBrush x:Key="HighlightLineBrush" Color="#80FFFFFF"/>
                 </ResourceDictionary>
                 <!-- 深色 -->
                 <ResourceDictionary x:Key="Dark">
                     <LinearGradientBrush x:Key="TopBarGradientBrush" StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#F21C1C1E" Offset="0"/>
-                        <GradientStop Color="#E01C1C1E" Offset="0.65"/>
+                        <GradientStop Color="#5928282C" Offset="0"/>
+                        <GradientStop Color="#E01C1C1E" Offset="0.4"/>
                         <GradientStop Color="#001C1C1E" Offset="1"/>
                     </LinearGradientBrush>
                     <LinearGradientBrush x:Key="InfoAreaGradientBrush" StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#E828282C" Offset="0"/>
+                        <GradientStop Color="#5028282C" Offset="0"/>
+                        <GradientStop Color="#E028282C" Offset="0.55"/>
                         <GradientStop Color="#DC242428" Offset="1"/>
                     </LinearGradientBrush>
+                    <SolidColorBrush x:Key="HighlightLineBrush" Color="#33FFFFFF"/>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

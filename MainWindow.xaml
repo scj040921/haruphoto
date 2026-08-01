@@ -169,10 +169,10 @@
                                                            Foreground="#CCFFFFFF"/>
                                             </Border>
 
-                                            <!-- 信息区：亚克力渐变（顶部高光模拟折射 + 与卡片底色区分）-->
+                                            <!-- 信息区：亚克力渐变（顶部高光折射 + 与卡片底色区分）-->
                                             <StackPanel Grid.Row="1" Padding="12,10,12,12"
                                                         Background="{ThemeResource InfoAreaGradientBrush}"
-                                                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                                        BorderBrush="{ThemeResource HighlightLineBrush}"
                                                         BorderThickness="0,1,0,0">
                                                 <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
                                                            FontSize="13" TextTrimming="CharacterEllipsis"
