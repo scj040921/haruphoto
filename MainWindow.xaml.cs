@@ -32,7 +32,6 @@ public sealed partial class MainWindow : Window
     private CancellationTokenSource? _thumbCts;
     private readonly FolderWatcherService _folderWatcher = new();
     private readonly AppSettings _settings = AppSettings.Load();
-    private Microsoft.UI.Composition.SpriteVisual? _topBarSprite;
 
     private readonly DispatcherTimer _searchTimer;
     private readonly DispatcherTimer _saveTimer;
@@ -67,12 +66,7 @@ public sealed partial class MainWindow : Window
 
         // 模板加载完成后重新应用外观（ContentGrid 此时才可查找）
         if (Content is FrameworkElement rootEl)
-        {
             rootEl.Loaded += (_, _) => ApplyAppearance();
-            // 顶栏 Composition sprite 尺寸随窗口布局更新
-            // （初始 ActualWidth=0 → sprite 1x1 不可见，必须 SizeChanged 修正）
-            rootEl.SizeChanged += (_, _) => ResizeTopBarSprite();
-        }
 
         // 设置窗口图标
         try
@@ -325,100 +319,21 @@ public sealed partial class MainWindow : Window
         catch { }
     }
 
-    /// <summary>磨砂模式（SPW 亚克力）：Composition 实时模糊 + tint 白面板。
-    /// BackdropBrush 采样顶栏背后内容（滚动的卡片）→ GaussianBlur 磨砂
-    /// → 55% 半透明 sprite；tint 渐变（TopBarTint）在 sprite 之上。
-    /// = 微软 Acrylic 标准结构（下层实时模糊 + 上层 tint 面板）。
-    /// 上次「脏玻璃」教训：模糊层 92% 太实会把内容糊成灰块；
-    /// 55% + 明显 tint 才有磨砂面板层次。</summary>
+    /// <summary>磨砂模式（SPW 亚克力）：tint 渐变 + 窗口级 DWM 亚克力。
+    /// 像素实证：WinUI3 桌面版 BackdropBrush 只采样窗口背后（DWM 层），
+    /// 不采样窗口内 XAML 内容 → 无法实时模糊滚动卡片 → 不挂 sprite。</summary>
     private void ApplyTopBarFrostedGlass()
     {
-        if (TopBarGradient == null) return;
-        try
-        {
-            var compositor = ElementCompositionPreview.GetElementVisual(TopBarGradient).Compositor;
-            var blur = new Microsoft.Graphics.Canvas.Effects.GaussianBlurEffect
-            {
-                Name = "frost",
-                BlurAmount = 12f,
-                Source = new CompositionEffectSourceParameter("backdrop")
-            };
-            var factory = compositor.CreateEffectFactory(blur);
-            var brush = factory.CreateBrush();
-            brush.SetSourceParameter("backdrop", compositor.CreateBackdropBrush());
-            var sprite = compositor.CreateSpriteVisual();
-            sprite.Brush = brush;
-            sprite.Opacity = 0.55f;   // 半透明模糊（内容模糊可见，不糊死）
-            sprite.Size = new System.Numerics.Vector2(
-                (float)Math.Max(TopBarGradient.ActualWidth, 1),
-                (float)Math.Max(TopBarGradient.ActualHeight, 1));
-            ElementCompositionPreview.SetElementChildVisual(TopBarGradient, sprite);
-            _topBarSprite = sprite;
-        }
-        catch (Exception ex)
-        {
-            try { System.IO.File.AppendAllText(
-                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "haruphoto_liquid.log"),
-                $"[{DateTime.Now:HH:mm:ss}] 磨砂层创建失败: {ex}\n"); } catch { }
-        }
+        // 材质 = BuildTopBarGradient 的 tint 渐变 + DWM 亚克力（模糊窗口背后）
     }
 
-    /// <summary>顶栏液态玻璃模式：Composition 磨砂 + 高光折射。
-    /// 注：DisplacementMapEffect 扭曲被 WinUI3 桌面版 CompositionEffectFactory
-    /// 拒绝（Unsupported effect type，诊断日志证实）→ 退化为平台支持的
-    /// GaussianBlur 磨砂 + 描边高光（近似液态玻璃质感）。
-    /// 失败时静默回退纯渐变（BuildTopBarGradient）。</summary>
+    /// <summary>顶栏液态玻璃模式：tint 压暗渐变 + 四周高光描边。
+    /// 注：DisplacementMapEffect 扭曲被 CompositionEffectFactory 拒绝
+    /// （Unsupported effect type）；BackdropBrush 不采样窗口内内容
+    /// （像素实证）→ 两平台限制下，液态玻璃 = 更透的 tint + 描边光。</summary>
     private void ApplyTopBarLiquidGlass()
     {
-        if (TopBarGradient == null) return;
-        try
-        {
-            var compositor = ElementCompositionPreview.GetElementVisual(TopBarGradient).Compositor;
-
-            // 效果链：BackdropBrush（背后滚动卡片实时）→ 高斯磨砂
-            var blur = new Microsoft.Graphics.Canvas.Effects.GaussianBlurEffect
-            {
-                Name = "liquid_frost",
-                BlurAmount = 14f,
-                Source = new CompositionEffectSourceParameter("backdrop")
-            };
-
-            // 挂到顶栏渐变层（不拦截鼠标，滚动态实时磨砂）
-            var factory = compositor.CreateEffectFactory(blur);
-            var brush = factory.CreateBrush();
-            brush.SetSourceParameter("backdrop", compositor.CreateBackdropBrush());
-            var sprite = compositor.CreateSpriteVisual();
-            sprite.Brush = brush;
-            sprite.Opacity = 0.7f;   // 液态玻璃层：磨砂清晰可见
-            sprite.Size = new System.Numerics.Vector2(
-                (float)Math.Max(TopBarGradient.ActualWidth, 1),
-                (float)Math.Max(TopBarGradient.ActualHeight, 1));
-            ElementCompositionPreview.SetElementChildVisual(TopBarGradient, sprite);
-            _topBarSprite = sprite;
-            // 诊断：效果链激活确认（LibraryNameText 在标题下方）
-            if (LibraryNameText != null)
-                LibraryNameText.Text = "照片库 · 液态玻璃已启用";
-        }
-        catch (Exception ex)
-        {
-            // 合成不支持时静默回退纯渐变，但留下可见诊断 + 文件日志
-            try { System.IO.File.AppendAllText(
-                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "haruphoto_liquid.log"),
-                $"[{DateTime.Now:HH:mm:ss}] 液态玻璃创建失败: {ex}\n"); } catch { }
-            if (LibraryNameText != null)
-                LibraryNameText.Text = "照片库 · 液态玻璃不可用（已回退）";
-        }
-    }
-
-    /// <summary>窗口尺寸变化时同步顶栏 Composition sprite 尺寸
-    /// （sprite 初始 1x1，布局完成前不可见）</summary>
-    private void ResizeTopBarSprite()
-    {
-        if (_topBarSprite == null || TopBarGradient == null) return;
-        var w = (float)Math.Max(TopBarGradient.ActualWidth, 1);
-        var h = (float)Math.Max(TopBarGradient.ActualHeight, 1);
-        if (_topBarSprite.Size.X != w || _topBarSprite.Size.Y != h)
-            _topBarSprite.Size = new System.Numerics.Vector2(w, h);
+        // 材质 = BuildTopBarGradient 的液态玻璃 tint（压暗版）+ TopBarGradient 描边
     }
 
     /// <summary>应用主题（深/浅色）与外观设置，即时生效无需重启</summary>
