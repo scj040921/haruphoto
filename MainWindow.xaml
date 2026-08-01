@@ -45,8 +45,8 @@
             <!-- 主内容 -->
             <Grid>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>   <!-- 状态栏 -->
                     <RowDefinition Height="*"/>      <!-- 内容区：滚动网格 + 悬浮顶栏 -->
+                    <RowDefinition Height="Auto"/>   <!-- 状态栏（保持在底部）-->
                 </Grid.RowDefinitions>
 
                 <!-- 悬浮顶栏（内容区覆盖层，VerticalAlignment=Top）：
@@ -192,7 +192,7 @@
                 </ScrollViewer>
 
                 <!-- 状态栏 -->
-                <Border Grid.Row="0" Padding="24,9"
+                <Border Grid.Row="1" Padding="24,9"
                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                     <Grid>
                         <Grid.ColumnDefinitions>
