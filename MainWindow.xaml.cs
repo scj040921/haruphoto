@@ -245,16 +245,16 @@ public sealed partial class MainWindow : Window
             };
             if (dark)
             {
-                // 深色：顶部 35% 亮灰（玻璃边缘高光）→ 15% → 全透明（磨砂由模糊层主导）
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x59, 40, 40, 44), Offset = 0 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x26, 40, 40, 44), Offset = 0.35 });
+                // 深色：顶部 45% 亮灰（玻璃边缘高光）→ 20% → 全透明
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x73, 40, 40, 44), Offset = 0 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x33, 40, 40, 44), Offset = 0.3 });
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 28, 28, 30), Offset = 1 });
             }
             else
             {
-                // 浅色：顶部 35% 白（玻璃边缘高光）→ 15% → 全透明（磨砂由模糊层主导）
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x59, 255, 255, 255), Offset = 0 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x26, 247, 247, 248), Offset = 0.35 });
+                // 浅色：顶部 45% 白（玻璃边缘高光）→ 20% → 全透明
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x73, 255, 255, 255), Offset = 0 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x33, 247, 247, 248), Offset = 0.3 });
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 247, 247, 248), Offset = 1 });
             }
             TopBarGradient.Background = g;
@@ -273,7 +273,7 @@ public sealed partial class MainWindow : Window
             var effect = new Microsoft.Graphics.Canvas.Effects.GaussianBlurEffect
             {
                 Name = "topbar_blur",
-                BlurAmount = 28f,
+                BlurAmount = 45f,
                 BorderMode = Microsoft.Graphics.Canvas.Effects.EffectBorderMode.Hard,
                 Optimization = Microsoft.Graphics.Canvas.Effects.EffectOptimization.Speed,
                 Source = new CompositionEffectSourceParameter("source")

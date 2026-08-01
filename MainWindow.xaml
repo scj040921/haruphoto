@@ -130,8 +130,10 @@
                      背景由代码构建（ApplyTheme → BuildTopBarGradient），
                      避免 XAML ThemeResource 解析问题 -->
                 <Grid x:Name="TopBarOverlay" Grid.Row="0" VerticalAlignment="Top">
-                    <!-- 渐变背景层不拦截鼠标事件（下层卡片可正常悬停/点击）-->
-                    <Border x:Name="TopBarGradient" IsHitTestVisible="False"/>
+                    <!-- 渐变背景层不拦截鼠标事件（下层卡片可正常悬停/点击）。
+                         底部 1px 高光线 = 玻璃底部折射边缘光 -->
+                    <Border x:Name="TopBarGradient" IsHitTestVisible="False"
+                            BorderBrush="{ThemeResource HighlightLineBrush}" BorderThickness="0,0,0,1"/>
 
                     <!-- 标题栏 -->
                     <Grid Padding="24,18,24,8">
