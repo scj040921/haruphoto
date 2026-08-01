@@ -51,10 +51,12 @@
 
 
 
-                <!-- 照片网格（占满内容区；顶部留出悬浮顶栏高度，滚动时卡片滑入顶栏下方）-->
+                <!-- 照片网格（占满内容区）。注意：顶部留白必须用内容 Margin 而非
+                     ScrollViewer Padding —— Padding 是固定内边距，内容永远滚不进去；
+                     Margin 属于内容，随滚动移动 → 卡片才能滑入顶栏渐变下方透出 -->
                 <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled"
-                              VerticalScrollBarVisibility="Auto" Padding="24,132,24,16">
-                    <Grid>
+                              VerticalScrollBarVisibility="Auto" Padding="24,0,24,16">
+                    <Grid Margin="0,132,0,0">
                         <!-- ThemeShadow 阴影接收层（在卡片后面；须有可见背景才能投射阴影）-->
                         <Border x:Name="PhotoShadowReceiver" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
                         <ItemsRepeater x:Name="PhotoGrid" ElementPrepared="PhotoGrid_ElementPrepared">
