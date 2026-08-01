@@ -2131,6 +2131,21 @@ public sealed partial class MainWindow : Window
         StatusText.Text = $"已收藏当前筛选结果（{_currentView.Count} 张）";
     }
 
+    /// <summary>批量取消收藏：有选中 → 只取消选中的；无选中 → 取消当前筛选结果全部</summary>
+    private void BatchUnfav_Click(object s, RoutedEventArgs e)
+    {
+        var targets = _selectedPaths.Count > 0
+            ? _allPhotos.Where(p => _selectedPaths.Contains(p.FilePath)).ToList()
+            : _currentView.Where(p => p.IsFavorite).ToList();
+        if (targets.Count == 0) { StatusText.Text = "没有可取消收藏的照片"; return; }
+        foreach (var p in targets) p.IsFavorite = false;
+        UpdateStats();
+        ScheduleSave();
+        StatusText.Text = _selectedPaths.Count > 0
+            ? $"已取消收藏选中照片（{targets.Count} 张）"
+            : $"已取消收藏当前筛选结果（{targets.Count} 张）";
+    }
+
     private async void DuplicateCheck_Click(object s, RoutedEventArgs e)
     {
         if (_allPhotos.Count < 2) { StatusText.Text = "照片太少，无需查重"; return; }

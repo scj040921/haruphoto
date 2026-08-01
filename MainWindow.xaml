@@ -233,6 +233,8 @@
                                     FontSize="12" Padding="12,6" CornerRadius="6"/>
                             <Button Content="❤️ 全选收藏" Click="BatchFav_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6"/>
+                            <Button Content="💔 取消收藏" Click="BatchUnfav_Click"
+                                    FontSize="12" Padding="12,6" CornerRadius="6"/>
                             <Button Content="🏷 批量分类" Click="BatchClassify_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6"/>
                             <Button Content="❌ 取消分类" Click="BatchUncategorize_Click"
