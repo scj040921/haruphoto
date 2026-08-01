@@ -274,35 +274,37 @@ public sealed partial class MainWindow : Window
             if (dark)
             {
                 // 深色：Pane 同款（透明面板 → 透出根背景），顶部略亮（玻璃边缘）
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb((byte)Math.Min(a + 20, 255), 30, 30, 32), Offset = 0 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb((byte)Math.Min(a + 30, 255), 30, 30, 32), Offset = 0 });
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(a, 24, 24, 26), Offset = 0.4 });
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb((byte)(a * 0.6), 24, 24, 26), Offset = 1 });
             }
             else
             {
-                // 浅色：SPW 亚克力磨砂（半透明 tint 顶部 → 底部渐透，卡片滑过可见）
-                var lt = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255) + 60, 90, 245);
-                var lm = (byte)(lt * 0.7);
-                var lb = (byte)(lt * 0.4);
+                // 浅色：SPW 亚克力面板（tint 加实 ~80% 白 → 磨砂面板观感，
+                // 非透明玻璃；底部渐透让卡片滑过仍可见）
+                var lt = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255) + 100, 150, 250);
+                var lm = (byte)(lt * 0.8);
+                var lb = (byte)(lt * 0.5);
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(lt, 252, 252, 253), Offset = 0 });
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(lm, 247, 247, 248), Offset = 0.4 });
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(lb, 247, 247, 248), Offset = 1 });
             }
-            // 液态玻璃模式：tint 大幅调淡（扭曲层不被白白化盖住）
+            // 液态玻璃模式：tint 压暗（用户建议）—— 深色更深、浅色转灰调，
+            // 让毛玻璃层更沉稳（扭曲层仍不被白白化盖住）
             if (_settings.TopBarStyle == 1)
             {
                 g.GradientStops.Clear();
                 if (dark)
                 {
-                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x59, 40, 40, 44), Offset = 0 });
-                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x26, 24, 24, 26), Offset = 0.5 });
-                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 24, 24, 26), Offset = 1 });
+                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x80, 36, 36, 40), Offset = 0 });
+                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x40, 22, 22, 24), Offset = 0.5 });
+                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x1A, 22, 22, 24), Offset = 1 });
                 }
                 else
                 {
-                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x80, 255, 255, 255), Offset = 0 });
-                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x33, 247, 247, 248), Offset = 0.5 });
-                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 247, 247, 248), Offset = 1 });
+                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x66, 232, 232, 234), Offset = 0 });
+                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x26, 236, 236, 238), Offset = 0.5 });
+                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 236, 236, 238), Offset = 1 });
                 }
             }
             TopBarTint.Background = g;
@@ -323,13 +325,42 @@ public sealed partial class MainWindow : Window
         catch { }
     }
 
-    /// <summary>磨砂模式（SPW 亚克力）：与侧边栏完全同款 —— 纯 tint 渐变 +
-    /// 窗口级 DWM 亚克力（模糊窗口背后）。不挂 Composition sprite：
-    /// BackdropBrush 模糊元素背后内容会产生「脏玻璃」观感（用户否决）。</summary>
+    /// <summary>磨砂模式（SPW 亚克力）：Composition 实时模糊 + tint 白面板。
+    /// BackdropBrush 采样顶栏背后内容（滚动的卡片）→ GaussianBlur 磨砂
+    /// → 55% 半透明 sprite；tint 渐变（TopBarTint）在 sprite 之上。
+    /// = 微软 Acrylic 标准结构（下层实时模糊 + 上层 tint 面板）。
+    /// 上次「脏玻璃」教训：模糊层 92% 太实会把内容糊成灰块；
+    /// 55% + 明显 tint 才有磨砂面板层次。</summary>
     private void ApplyTopBarFrostedGlass()
     {
-        // 无操作：材质 = BuildTopBarGradient 的 tint 渐变 + 窗口级 DWM 亚克力
-        ElementCompositionPreview.SetElementChildVisual(TopBarGradient, null);
+        if (TopBarGradient == null) return;
+        try
+        {
+            var compositor = ElementCompositionPreview.GetElementVisual(TopBarGradient).Compositor;
+            var blur = new Microsoft.Graphics.Canvas.Effects.GaussianBlurEffect
+            {
+                Name = "frost",
+                BlurAmount = 12f,
+                Source = new CompositionEffectSourceParameter("backdrop")
+            };
+            var factory = compositor.CreateEffectFactory(blur);
+            var brush = factory.CreateBrush();
+            brush.SetSourceParameter("backdrop", compositor.CreateBackdropBrush());
+            var sprite = compositor.CreateSpriteVisual();
+            sprite.Brush = brush;
+            sprite.Opacity = 0.55f;   // 半透明模糊（内容模糊可见，不糊死）
+            sprite.Size = new System.Numerics.Vector2(
+                (float)Math.Max(TopBarGradient.ActualWidth, 1),
+                (float)Math.Max(TopBarGradient.ActualHeight, 1));
+            ElementCompositionPreview.SetElementChildVisual(TopBarGradient, sprite);
+            _topBarSprite = sprite;
+        }
+        catch (Exception ex)
+        {
+            try { System.IO.File.AppendAllText(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "haruphoto_liquid.log"),
+                $"[{DateTime.Now:HH:mm:ss}] 磨砂层创建失败: {ex}\n"); } catch { }
+        }
     }
 
     /// <summary>顶栏液态玻璃模式：Composition 磨砂 + 高光折射。
@@ -458,6 +489,7 @@ public sealed partial class MainWindow : Window
                     root.Background = imgBrush;
                 ApplyTranslucentSurfaces();
                 AcrylicHelper.Disable(hwnd);
+                AcrylicHelper.DisableSystemBackdrop(hwnd);
                 return;
             }
 
