@@ -266,7 +266,8 @@ public sealed partial class MainWindow : Window
                 TintOpacity = _settings.TopBarStyle == 1
                     ? Math.Max(_settings.AcrylicOpacity, 0.35)
                     : Math.Max(_settings.AcrylicOpacity, 0.55),
-                TintLuminosityOpacity = 0.7,
+                // 液态玻璃：更低 TintLuminosityOpacity = 更亮的玻璃通透感（苹果质感）
+                TintLuminosityOpacity = _settings.TopBarStyle == 1 ? 0.45 : 0.7,
                 FallbackColor = dark
                     ? Windows.UI.Color.FromArgb(255, 24, 24, 26)
                     : Windows.UI.Color.FromArgb(255, 247, 247, 248),
@@ -276,8 +277,31 @@ public sealed partial class MainWindow : Window
             };
             TopBarTint.Background = acrylic;
 
-            // 高光描边：液态玻璃模式 = 四周 1px 玻璃边缘光（顶部+底部+两侧），
-            // 侧边栏同款模式 = 仅底部 1px 折射边缘光
+            // 状态栏（底栏）同款材质 —— 与顶栏一致的 AcrylicBrush + 顶部 1px 边缘光
+            if (StatusBarGlass != null)
+            {
+                StatusBarGlass.Background = new Microsoft.UI.Xaml.Media.AcrylicBrush
+                {
+                    TintOpacity = _settings.TopBarStyle == 1
+                        ? Math.Max(_settings.AcrylicOpacity, 0.35)
+                        : Math.Max(_settings.AcrylicOpacity, 0.55),
+                    TintLuminosityOpacity = 0.7,
+                    FallbackColor = dark
+                        ? Windows.UI.Color.FromArgb(255, 24, 24, 26)
+                        : Windows.UI.Color.FromArgb(255, 247, 247, 248),
+                    TintColor = dark
+                        ? Windows.UI.Color.FromArgb(255, 24, 24, 26)
+                        : Windows.UI.Color.FromArgb(255, 247, 247, 248),
+                };
+                // 液态玻璃模式：顶部边缘光更亮（玻璃上沿高光）
+                StatusBarGlass.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                    _settings.TopBarStyle == 1
+                        ? Windows.UI.Color.FromArgb(dark ? (byte)0x80 : (byte)0xCC, 255, 255, 255)
+                        : Windows.UI.Color.FromArgb(dark ? (byte)0x40 : (byte)0x99, 255, 255, 255));
+            }
+
+            // 高光描边：液态玻璃模式 = 四周 1px + 顶部 2px 边缘光（苹果 Liquid
+            // Glass 顶部高光）；磨砂模式 = 仅底部 1px 折射边缘光
             if (TopBarGradient != null)
             {
                 var edge = dark
@@ -285,7 +309,7 @@ public sealed partial class MainWindow : Window
                     : Windows.UI.Color.FromArgb(0xB3, 255, 255, 255);  // 浅色：70% 白
                 TopBarGradient.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(edge);
                 TopBarGradient.BorderThickness = _settings.TopBarStyle == 1
-                    ? new Microsoft.UI.Xaml.Thickness(1)
+                    ? new Microsoft.UI.Xaml.Thickness(1, 2, 1, 1)   // 液态：顶部 2px 边缘光
                     : new Microsoft.UI.Xaml.Thickness(0, 0, 0, 1);
             }
         }

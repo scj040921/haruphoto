@@ -44,18 +44,11 @@
 
             <!-- 主内容 -->
             <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*"/>      <!-- 内容区：滚动网格 + 悬浮顶栏 -->
-                    <RowDefinition Height="Auto"/>   <!-- 状态栏（保持在底部）-->
-                </Grid.RowDefinitions>
-
-
-
-                <!-- 照片网格（占满内容区）。注意：顶部留白必须用内容 Margin 而非
-                     ScrollViewer Padding —— Padding 是固定内边距，内容永远滚不进去；
-                     Margin 属于内容，随滚动移动 → 卡片才能滑入顶栏渐变下方透出 -->
-                <ScrollViewer x:Name="MainScroll" Grid.Row="0" HorizontalScrollBarVisibility="Disabled"
+                <!-- 单行内容区：滚动网格 + 悬浮顶栏 + 悬浮底栏（玻璃条）-->
+                <ScrollViewer x:Name="MainScroll" HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Auto" Padding="24,0,24,16">
+                    <!-- 内容 Grid：顶部 132 留白（悬浮顶栏高度）+ 底部 0
+                         （卡片可滚入悬浮底栏玻璃下方透出）-->
                     <Grid Margin="0,132,0,0">
                         <!-- ThemeShadow 阴影接收层（在卡片后面；须有可见背景才能投射阴影）-->
                         <Border x:Name="PhotoShadowReceiver" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
@@ -206,9 +199,10 @@
                 </Grid>  <!-- 悬浮顶栏结束 -->
 
 
-                <!-- 状态栏 -->
-                <Border Grid.Row="1" Padding="24,9"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <!-- 悬浮底栏（玻璃条）：与顶栏同格（Row0）+ 底部对齐 +
+                     声明在 ScrollViewer 之后（Z 在上）→ 卡片滚动经过其下方透出 -->
+                <Border x:Name="StatusBarGlass" VerticalAlignment="Bottom" Padding="24,9"
+                        BorderBrush="{ThemeResource HighlightLineBrush}" BorderThickness="0,1,0,0">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
