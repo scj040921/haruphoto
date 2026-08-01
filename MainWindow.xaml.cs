@@ -67,7 +67,12 @@ public sealed partial class MainWindow : Window
 
         // 模板加载完成后重新应用外观（ContentGrid 此时才可查找）
         if (Content is FrameworkElement rootEl)
+        {
             rootEl.Loaded += (_, _) => ApplyAppearance();
+            // 顶栏液态玻璃 sprite 尺寸随窗口布局更新
+            // （初始 ActualWidth=0 → sprite 1x1 不可见，必须 SizeChanged 修正）
+            rootEl.SizeChanged += (_, _) => ResizeTopBarSprite();
+        }
 
         // 设置窗口图标
         try
@@ -258,6 +263,19 @@ public sealed partial class MainWindow : Window
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xA6, 247, 247, 248), Offset = 1 });
             }
             TopBarGradient.Background = g;
+
+            // 高光描边：液态玻璃模式 = 四周 1px 玻璃边缘光（顶部+底部+两侧），
+            // 侧边栏同款模式 = 仅底部 1px 折射边缘光
+            if (TopBarGradient != null)
+            {
+                var edge = dark
+                    ? Windows.UI.Color.FromArgb(0x59, 255, 255, 255)   // 深色：35% 白
+                    : Windows.UI.Color.FromArgb(0xB3, 255, 255, 255);  // 浅色：70% 白
+                TopBarGradient.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(edge);
+                TopBarGradient.BorderThickness = _settings.TopBarStyle == 1
+                    ? new Microsoft.UI.Xaml.Thickness(1)
+                    : new Microsoft.UI.Xaml.Thickness(0, 0, 0, 1);
+            }
         }
         catch { }
     }
@@ -286,17 +304,17 @@ public sealed partial class MainWindow : Window
                     ds, Microsoft.UI.Colors.White, Microsoft.UI.Colors.Gray)
                 {
                     Center = new System.Numerics.Vector2(128, 128),
-                    RadiusX = 88f,
-                    RadiusY = 88f
+                    RadiusX = 130f,
+                    RadiusY = 130f
                 };
-                ds.FillEllipse(128f, 128f, 88f, 88f, radial);
+                ds.FillEllipse(128f, 128f, 130f, 130f, radial);
             }
 
             // 2. 效果链：扭曲（位移映射）→ 磨砂
             var effect = new Microsoft.Graphics.Canvas.Effects.DisplacementMapEffect
             {
                 Name = "liquid",
-                Amount = 26f,
+                Amount = 32f,
                 XChannelSelect = Microsoft.Graphics.Canvas.Effects.EffectChannelSelect.Red,
                 YChannelSelect = Microsoft.Graphics.Canvas.Effects.EffectChannelSelect.Green,
                 Displacement = displacementMap,
@@ -323,6 +341,17 @@ public sealed partial class MainWindow : Window
             _topBarLiquidSprite = sprite;
         }
         catch { /* 合成不支持时静默回退纯渐变 */ }
+    }
+
+    /// <summary>窗口尺寸变化时同步顶栏液态玻璃 sprite 尺寸
+    /// （sprite 初始 1x1，布局完成前不可见）</summary>
+    private void ResizeTopBarSprite()
+    {
+        if (_topBarLiquidSprite == null || TopBarGradient == null) return;
+        var w = (float)Math.Max(TopBarGradient.ActualWidth, 1);
+        var h = (float)Math.Max(TopBarGradient.ActualHeight, 1);
+        if (_topBarLiquidSprite.Size.X != w || _topBarLiquidSprite.Size.Y != h)
+            _topBarLiquidSprite.Size = new System.Numerics.Vector2(w, h);
     }
 
     /// <summary>应用主题（深/浅色）与外观设置，即时生效无需重启</summary>
