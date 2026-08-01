@@ -71,6 +71,9 @@ public sealed partial class MainWindow : Window
         // 应用毛玻璃效果
         ApplyGlassEffects();
 
+        // 应用外观设置（主题色/亚克力，SPW 风格可选）
+        ApplyAppearance();
+
         // 设置窗口图标
         try
         {
@@ -155,6 +158,42 @@ public sealed partial class MainWindow : Window
             DetailPanel.BorderBrush = new SolidColorBrush(
                 Windows.UI.Color.FromArgb(50, 255, 255, 255));
         }
+    }
+
+    /// <summary>应用外观设置：主题色 + 亚克力（SPW 风格可选模式，默认关闭保留原界面）</summary>
+    private void ApplyAppearance()
+    {
+        // 1. 主题色资源（ThemeResource 引用处即时更新）
+        try
+        {
+            var c = _settings.GetAccentColor();
+            Application.Current.Resources["AppAccentBrush"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(c);
+        }
+        catch { }
+
+        // 2. 亚克力（仅 Windows 10 1803+，失败时静默保持原界面）
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            if (_settings.AcrylicEnabled)
+            {
+                var tint = _settings.GetAccentColor();
+                var ok = AcrylicHelper.Enable(hwnd, tint, _settings.AcrylicOpacity);
+                if (ok && Content is Grid root)
+                {
+                    // 根背景改为半透明色调，透出亚克力磨砂
+                    var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 20, 230);
+                    root.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(a, tint.R, tint.G, tint.B));
+                }
+            }
+            else
+            {
+                AcrylicHelper.Disable(hwnd);
+                if (Content is Grid root)
+                    root.ClearValue(Grid.BackgroundProperty);
+            }
+        }
+        catch { }
     }
 
     // ══════════ 分类 ══════════
@@ -671,6 +710,47 @@ public sealed partial class MainWindow : Window
         var themeLabel = new TextBlock { Text = "外观主题", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15 };
         var darkToggle = new ToggleSwitch { Header = "深色模式", IsOn = _settings.DarkMode, OnContent = "🌙 深色", OffContent = "☀️ 浅色" };
 
+        // ── SPW 风格外观（可选，默认关闭保留原界面）──
+        var lookLabel = new TextBlock { Text = "外观风格（SPW 风格 · 可选）", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15, Margin = new Microsoft.UI.Xaml.Thickness(0, 8, 0, 0) };
+
+        var acrylicToggle = new ToggleSwitch { Header = "亚克力毛玻璃", IsOn = _settings.AcrylicEnabled, OnContent = "已开启", OffContent = "已关闭" };
+        var acrylicSlider = new Slider { Header = "亚克力透明度", Minimum = 0.3, Maximum = 0.9, StepFrequency = 0.05, Value = _settings.AcrylicOpacity, IsEnabled = _settings.AcrylicEnabled };
+        acrylicToggle.Toggled += (_, _) => acrylicSlider.IsEnabled = acrylicToggle.IsOn;
+
+        // 主题色：预设色板 + ColorPicker
+        var accentRow = new StackPanel { Spacing = 6 };
+        accentRow.Children.Add(new TextBlock { Text = "主题色", FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        var presetPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var presets = new[] { "#5B6EAE", "#5B9EAE", "#5B9C6B", "#AE8A5B", "#AE6B9C", "#8A6BAE", "#C45B5B" };
+        var colorPicker = new ColorPicker { Color = _settings.GetAccentColor(), IsAlphaEnabled = false, IsColorChannelTextInputVisible = true, IsHexInputVisible = true, ColorSpectrumShape = ColorSpectrumShape.Ring };
+        foreach (var hex in presets)
+        {
+            var c = ParseColor(hex);
+            var swatch = new Button
+            {
+                Width = 28, Height = 28, Padding = new Thickness(0),
+                Background = new SolidColorBrush(c),
+                CornerRadius = new CornerRadius(6),
+                Tag = hex,
+            };
+            ToolTipService.SetToolTip(swatch, hex);
+            swatch.Click += (_, _) => colorPicker.Color = ParseColor(hex);
+            presetPanel.Children.Add(swatch);
+        }
+        accentRow.Children.Add(presetPanel);
+        accentRow.Children.Add(colorPicker);
+
+        // 圆角
+        var radiusCombo = new ComboBox { Header = "卡片圆角", SelectedIndex = RadiusIndex(_settings.CardCornerRadius), MinWidth = 140 };
+        radiusCombo.Items.Add(new ComboBoxItem { Content = "小圆角 (8)" });
+        radiusCombo.Items.Add(new ComboBoxItem { Content = "圆角 (14)" });
+        radiusCombo.Items.Add(new ComboBoxItem { Content = "大圆角 (20)" });
+
+        // 动画
+        var animToggle = new ToggleSwitch { Header = "入场动画", IsOn = _settings.AnimationsEnabled, OnContent = "已开启", OffContent = "已关闭" };
+        var animSlider = new Slider { Header = "动画时长（毫秒）", Minimum = 150, Maximum = 600, StepFrequency = 25, Value = _settings.AnimationDurationMs, IsEnabled = _settings.AnimationsEnabled };
+        animToggle.Toggled += (_, _) => animSlider.IsEnabled = animToggle.IsOn;
+
         var autoLabel = new TextBlock { Text = "自动扫描", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15, Margin = new Microsoft.UI.Xaml.Thickness(0, 8, 0, 0) };
         var autoToggle = new ToggleSwitch { Header = "自动检测新增图片", IsOn = _settings.AutoScan, OnContent = "已开启", OffContent = "已关闭" };
         var intervalBox = new NumberBox { Header = "扫描间隔（分钟）", Value = _settings.AutoScanIntervalMinutes, Minimum = 1, Maximum = 60, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline, IsEnabled = _settings.AutoScan };
@@ -680,6 +760,13 @@ public sealed partial class MainWindow : Window
 
         panel.Children.Add(themeLabel);
         panel.Children.Add(darkToggle);
+        panel.Children.Add(lookLabel);
+        panel.Children.Add(acrylicToggle);
+        panel.Children.Add(acrylicSlider);
+        panel.Children.Add(accentRow);
+        panel.Children.Add(radiusCombo);
+        panel.Children.Add(animToggle);
+        panel.Children.Add(animSlider);
         panel.Children.Add(autoLabel);
         panel.Children.Add(autoToggle);
         panel.Children.Add(intervalBox);
@@ -693,7 +780,20 @@ public sealed partial class MainWindow : Window
             _settings.DarkMode = darkToggle.IsOn;
             _settings.AutoScan = autoToggle.IsOn;
             _settings.AutoScanIntervalMinutes = Math.Max(1, (int)intervalBox.Value);
+
+            // ── 外观设置（SPW 风格）──
+            _settings.AcrylicEnabled = acrylicToggle.IsOn;
+            _settings.AcrylicOpacity = acrylicSlider.Value;
+            _settings.AccentColor = ColorToHex(colorPicker.Color);
+            _settings.CardCornerRadius = radiusCombo.SelectedIndex switch { 0 => 8.0, 2 => 20.0, _ => 14.0 };
+            _settings.AnimationsEnabled = animToggle.IsOn;
+            _settings.AnimationDurationMs = animSlider.Value;
             _settings.Save();
+
+            // 即时应用外观（亚克力/主题色无需重启）
+            ApplyAppearance();
+            if (radiusCombo.SelectedIndex != RadiusIndex(_settings.CardCornerRadius) || !_settings.AnimationsEnabled)
+                RefreshPhotos();
 
             if (_settings.DarkMode != oldDark)
             {
@@ -714,6 +814,23 @@ public sealed partial class MainWindow : Window
     }
 
     // ══════════ 照片卡片 ══════════
+
+    private static Windows.UI.Color ParseColor(string hex)
+    {
+        try
+        {
+            var h = hex.TrimStart('#');
+            return Windows.UI.Color.FromArgb(255,
+                Convert.ToByte(h[..2], 16), Convert.ToByte(h[2..4], 16), Convert.ToByte(h[4..6], 16));
+        }
+        catch { return Windows.UI.Color.FromArgb(255, 91, 110, 174); }
+    }
+
+    private static string ColorToHex(Windows.UI.Color c)
+        => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+
+    private static int RadiusIndex(double r)
+        => r <= 8 ? 0 : r >= 20 ? 2 : 1;
 
     private void PhotoCard_Tapped(object sender, TappedRoutedEventArgs e)
     {
@@ -792,15 +909,32 @@ public sealed partial class MainWindow : Window
 
     private void PhotoGrid_ElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
     {
-        // 卡片入场：渐入动画
+        // 卡片入场：渐入动画（可配置时长/开关）
         if (args.Element is UIElement element)
         {
-            element.Opacity = 0;
-            var sb = new Storyboard();
-            var fade = new DoubleAnimation { From = 0, To = 1, Duration = TimeSpan.FromMilliseconds(350), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }, EnableDependentAnimation = true };
-            Storyboard.SetTarget(fade, element); Storyboard.SetTargetProperty(fade, "Opacity");
-            sb.Children.Add(fade);
-            sb.Begin();
+            if (_settings.AnimationsEnabled)
+            {
+                element.Opacity = 0;
+                var sb = new Storyboard();
+                var fade = new DoubleAnimation { From = 0, To = 1, Duration = TimeSpan.FromMilliseconds(_settings.AnimationDurationMs), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }, EnableDependentAnimation = true };
+                Storyboard.SetTarget(fade, element); Storyboard.SetTargetProperty(fade, "Opacity");
+                sb.Children.Add(fade);
+                sb.Begin();
+            }
+            else
+            {
+                element.Opacity = 1;
+            }
+
+            // 自定义圆角（SPW 风格外观设置）
+            if (element is Border card && _settings.CardCornerRadius > 0)
+            {
+                var r = _settings.CardCornerRadius;
+                card.CornerRadius = new CornerRadius(r);
+                // 同步内层图片容器圆角（避免溢出）
+                if (card.Child is Grid g && g.Children.Count > 0 && g.Children[0] is Border imgBorder)
+                    imgBorder.CornerRadius = new CornerRadius(r, r, 0, 0);
+            }
         }
     }
 

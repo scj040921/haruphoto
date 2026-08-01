@@ -20,6 +20,13 @@ public sealed class AppSettings
     public string AccentColor { get; set; } = "#5B6EAE";  // 柔和蓝紫（低饱和度）
     public double Saturation { get; set; } = 0.55;         // 全局饱和度系数
 
+    // ── 外观（SPW 风格）──
+    public bool AcrylicEnabled { get; set; } = false;      // 亚克力毛玻璃
+    public double AcrylicOpacity { get; set; } = 0.55;     // 亚克力透明度 0.3-0.9
+    public double CardCornerRadius { get; set; } = 14;     // 卡片圆角
+    public bool AnimationsEnabled { get; set; } = true;    // 动画总开关
+    public double AnimationDurationMs { get; set; } = 350; // 入场动画时长
+
     // ── 自动扫描 ──
     public bool AutoScan { get; set; } = true;
     public int AutoScanIntervalMinutes { get; set; } = 5;

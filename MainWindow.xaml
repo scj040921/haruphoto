@@ -34,7 +34,8 @@
                     <TextBlock x:Name="StatsText" Text="0 张照片" FontSize="11"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="Clip"/>
                     <Button Content="＋ 导入文件夹" Click="ImportButton_Click"
-                            HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"/>
+                            HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"
+                            Background="{ThemeResource AppAccentBrush}"/>
                     <Button Content="⚙ 设置" Click="SettingsButton_Click"
                             HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"
                             Background="Transparent"
@@ -201,7 +202,8 @@
                             <Button Content="❤️ 全选收藏" Click="BatchFav_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6"/>
                             <Button Content="🏷 批量分类" Click="BatchClassify_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6"/>
+                                    FontSize="12" Padding="12,6" CornerRadius="6"
+                                    Background="{ThemeResource AppAccentBrush}"/>
                             <Button Content="❌ 取消分类" Click="BatchUncategorize_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6"/>
                             <Button Content="🗑 清空图库" Click="BatchDelete_Click"
