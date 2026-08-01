@@ -59,20 +59,8 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         Title = "haruphoto";
 
-        // 应用深色模式主题
-        try
-        {
-            var root = Content as FrameworkElement;
-            if (root != null)
-                root.RequestedTheme = _settings.DarkMode ? ElementTheme.Dark : ElementTheme.Light;
-        }
-        catch { }
-
-        // 应用毛玻璃效果
-        ApplyGlassEffects();
-
-        // 应用外观设置（主题色/亚克力，SPW 风格可选）
-        ApplyAppearance();
+        // 应用主题 + 外观（深色/浅色即时生效）
+        ApplyTheme();
 
         // 设置窗口图标
         try
@@ -160,6 +148,25 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>应用主题（深/浅色）与外观设置，即时生效无需重启</summary>
+    private void ApplyTheme()
+    {
+        // 1. 主题（ThemeResource 引用处即时更新）
+        try
+        {
+            var root = Content as FrameworkElement;
+            if (root != null)
+                root.RequestedTheme = _settings.DarkMode ? ElementTheme.Dark : ElementTheme.Light;
+        }
+        catch { }
+
+        // 2. 毛玻璃面板颜色（代码硬编码，需手动刷新）
+        ApplyGlassEffects();
+
+        // 3. 外观设置（主题色/亚克力）
+        ApplyAppearance();
+    }
+
     /// <summary>应用外观设置：主题色 + 亚克力（SPW 风格可选模式，默认关闭保留原界面）</summary>
     private void ApplyAppearance()
     {
@@ -177,28 +184,45 @@ public sealed partial class MainWindow : Window
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             if (_settings.AcrylicEnabled)
             {
-                var tint = _settings.GetAccentColor();
-                var ok = AcrylicHelper.Enable(hwnd, tint, _settings.AcrylicOpacity);
-                if (ok && Content is Grid root)
+                // 亚克力 tint 跟随深浅模式：浅色用浅色磨砂，深色用深色磨砂，
+                // 避免浅色模式下半透明 Pane 透出深色磨砂导致发黑
+                var acrylicTint = _settings.DarkMode
+                    ? Windows.UI.Color.FromArgb(255, 24, 24, 26)
+                    : Windows.UI.Color.FromArgb(255, 240, 240, 242);
+                var ok = AcrylicHelper.Enable(hwnd, acrylicTint, _settings.AcrylicOpacity);
+                if (Content is Grid root)
                 {
-                    // 根背景改为半透明色调，透出亚克力磨砂（下限 110 保证可读性）
-                    var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 110, 230);
-                    root.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(a, tint.R, tint.G, tint.B));
-                }
+                    // 半透明基底色（深/浅），透过它看到窗口背后的图层
+                    var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 90, 220);
+                    var baseColor = _settings.DarkMode
+                        ? Windows.UI.Color.FromArgb(a, 24, 24, 26)      // 深色基底
+                        : Windows.UI.Color.FromArgb(a, 247, 247, 248);  // 浅色基底
+                    root.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(baseColor);
 
-                // 侧边栏保持不透明底色，避免亚克力模式下文字看不清
-                // （NavigationView 模板使用 NavigationViewDefaultPaneBackground 资源）
-                NavView.Resources["NavigationViewDefaultPaneBackground"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                    _settings.DarkMode
-                        ? Windows.UI.Color.FromArgb(255, 28, 28, 30)
-                        : Windows.UI.Color.FromArgb(255, 247, 247, 248));
+                    // 侧边栏 Pane 背景：比基底略不透明（下限 210），保证文字可读，
+                    // 同时保持半透明可看到亚克力磨砂
+                    var paneAlpha = (byte)Math.Clamp(a + 45, 210, 255);
+                    var paneColor = _settings.DarkMode
+                        ? Windows.UI.Color.FromArgb(paneAlpha, 28, 28, 30)
+                        : Windows.UI.Color.FromArgb(paneAlpha, 245, 245, 246);
+                    var paneBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(paneColor);
+                    // 展开模式实际使用 NavigationViewExpandedPaneBackground；
+                    // 收起模式使用 NavigationViewDefaultPaneBackground
+                    NavView.Resources["NavigationViewExpandedPaneBackground"] = paneBrush;
+                    NavView.Resources["NavigationViewDefaultPaneBackground"] = paneBrush;
+                    // 内容区也保持半透明，让亚克力透出
+                    NavView.Resources["NavigationViewContentBackground"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                        Windows.UI.Color.FromArgb(a, baseColor.R, baseColor.G, baseColor.B));
+                }
             }
             else
             {
                 AcrylicHelper.Disable(hwnd);
                 if (Content is Grid root)
                     root.ClearValue(Grid.BackgroundProperty);
+                NavView.Resources.Remove("NavigationViewExpandedPaneBackground");
                 NavView.Resources.Remove("NavigationViewDefaultPaneBackground");
+                NavView.Resources.Remove("NavigationViewContentBackground");
             }
         }
         catch { }
@@ -780,11 +804,45 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(intervalBox);
         panel.Children.Add(watchLabel);
 
-        var dlg = new ContentDialog { Title = "⚙ 设置", Content = panel, PrimaryButtonText = "保存", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, XamlRoot = Content.XamlRoot };
+        var dlg = new ContentDialog { Title = "⚙ 设置", Content = panel, PrimaryButtonText = "保存", SecondaryButtonText = "恢复默认", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, XamlRoot = Content.XamlRoot };
 
-        if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+        var result = await dlg.ShowAsync();
+        if (result == ContentDialogResult.Secondary)
         {
-            var oldDark = _settings.DarkMode;
+            // ── 一键恢复默认设置 ──
+            var rd = new ContentDialog
+            {
+                Title = "恢复默认设置",
+                Content = "将恢复所有设置为默认值（主题、外观、自动扫描）。",
+                PrimaryButtonText = "恢复",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = Content.XamlRoot,
+            };
+            if (await rd.ShowAsync() == ContentDialogResult.Primary)
+            {
+                _settings.DarkMode = false;
+                _settings.AccentColor = "#5B6EAE";
+                _settings.Saturation = 0.55;
+                _settings.AcrylicEnabled = false;
+                _settings.AcrylicOpacity = 0.55;
+                _settings.CardCornerRadius = 14;
+                _settings.AnimationsEnabled = true;
+                _settings.AnimationDurationMs = 350;
+                _settings.AutoScan = true;
+                _settings.AutoScanIntervalMinutes = 5;
+                _settings.Save();
+                ApplyTheme();
+                RefreshPhotos();
+                if (_settings.AutoScan) _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
+                else _folderWatcher.Stop();
+                StatusText.Text = "已恢复默认设置";
+            }
+            return;
+        }
+
+        if (result == ContentDialogResult.Primary)
+        {
             _settings.DarkMode = darkToggle.IsOn;
             _settings.AutoScan = autoToggle.IsOn;
             _settings.AutoScanIntervalMinutes = Math.Max(1, (int)intervalBox.Value);
@@ -798,22 +856,10 @@ public sealed partial class MainWindow : Window
             _settings.AnimationDurationMs = animSlider.Value;
             _settings.Save();
 
-            // 即时应用外观（亚克力/主题色无需重启）
-            ApplyAppearance();
+            // 即时应用全部外观（深/浅色切换无需重启）
+            ApplyTheme();
             if (radiusCombo.SelectedIndex != RadiusIndex(_settings.CardCornerRadius) || !_settings.AnimationsEnabled)
                 RefreshPhotos();
-
-            if (_settings.DarkMode != oldDark)
-            {
-                var rd = new ContentDialog { Title = "主题已更改", Content = "需要重启应用以应用新主题。", PrimaryButtonText = "立即重启", CloseButtonText = "稍后", XamlRoot = Content.XamlRoot };
-                if (await rd.ShowAsync() == ContentDialogResult.Primary)
-                {
-                    var newWin = new MainWindow();
-                    newWin.Activate();
-                    Close();
-                    return;
-                }
-            }
 
             if (_settings.AutoScan) _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
             else _folderWatcher.Stop();
