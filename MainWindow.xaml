@@ -54,7 +54,7 @@
                 <!-- 照片网格（占满内容区）。注意：顶部留白必须用内容 Margin 而非
                      ScrollViewer Padding —— Padding 是固定内边距，内容永远滚不进去；
                      Margin 属于内容，随滚动移动 → 卡片才能滑入顶栏渐变下方透出 -->
-                <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled"
+                <ScrollViewer x:Name="MainScroll" Grid.Row="0" HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Auto" Padding="24,0,24,16">
                     <Grid Margin="0,132,0,0">
                         <!-- ThemeShadow 阴影接收层（在卡片后面；须有可见背景才能投射阴影）-->
@@ -131,9 +131,14 @@
                      避免 XAML ThemeResource 解析问题 -->
                 <Grid x:Name="TopBarOverlay" Grid.Row="0" VerticalAlignment="Top">
                     <!-- 渐变背景层不拦截鼠标事件（下层卡片可正常悬停/点击）。
-                         底部 1px 高光线 = 玻璃底部折射边缘光 -->
+                         底部 1px 高光线 = 玻璃底部折射边缘光。
+                         承载 Composition 模糊 sprite（BackdropBrush 实时模糊背后卡片）；
+                         Background 保持透明，tint 渐变在 TopBarTint 层（声明在后=在上）-->
                     <Border x:Name="TopBarGradient" IsHitTestVisible="False"
                             BorderBrush="{ThemeResource HighlightLineBrush}" BorderThickness="0,0,0,1"/>
+                    <!-- tint 渐变层：位于模糊 sprite 之上（Acrylic 结构 =
+                         下层实时模糊 + 上层半透明 tint），液态玻璃模式自动调淡 -->
+                    <Border x:Name="TopBarTint" IsHitTestVisible="False"/>
 
                     <!-- 标题栏 -->
                     <Grid Padding="24,18,24,8">

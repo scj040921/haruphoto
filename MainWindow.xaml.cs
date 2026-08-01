@@ -32,7 +32,7 @@ public sealed partial class MainWindow : Window
     private CancellationTokenSource? _thumbCts;
     private readonly FolderWatcherService _folderWatcher = new();
     private readonly AppSettings _settings = AppSettings.Load();
-    private Microsoft.UI.Composition.SpriteVisual? _topBarLiquidSprite;
+    private Microsoft.UI.Composition.SpriteVisual? _topBarSprite;
 
     private readonly DispatcherTimer _searchTimer;
     private readonly DispatcherTimer _saveTimer;
@@ -69,7 +69,7 @@ public sealed partial class MainWindow : Window
         if (Content is FrameworkElement rootEl)
         {
             rootEl.Loaded += (_, _) => ApplyAppearance();
-            // 顶栏液态玻璃 sprite 尺寸随窗口布局更新
+            // 顶栏 Composition sprite 尺寸随窗口布局更新
             // （初始 ActualWidth=0 → sprite 1x1 不可见，必须 SizeChanged 修正）
             rootEl.SizeChanged += (_, _) => ResizeTopBarSprite();
         }
@@ -254,13 +254,14 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
-    /// <summary>构建悬浮顶栏渐变背景 —— 与侧边栏同款材质：
-    /// 浅色 = Pane 自带白底同款（高不透明白面板，底部渐透让卡片滑过）；
+    /// <summary>构建悬浮顶栏 tint 渐变层（Acrylic 结构的上层）：
+    /// 浅色 = SPW 亚克力磨砂（半透明白，顶部亮 → 底部渐透让卡片滑过）；
     /// 深色 = Pane 同款（透明 → 透出根背景基底，alpha 跟随亚克力透明度）。
-    /// 模糊由窗口级 DWM 亚克力统一提供（与侧边栏一致）。</summary>
+    /// 下层实时模糊由 ApplyTopBarFrostedGlass / ApplyTopBarLiquidGlass
+    /// 的 Composition sprite（BackdropBrush）提供。</summary>
     private void BuildTopBarGradient()
     {
-        if (TopBarGradient == null) return;
+        if (TopBarTint == null) return;
         try
         {
             var dark = _settings.DarkMode;
@@ -304,7 +305,7 @@ public sealed partial class MainWindow : Window
                     g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 247, 247, 248), Offset = 1 });
                 }
             }
-            TopBarGradient.Background = g;
+            TopBarTint.Background = g;
 
             // 高光描边：液态玻璃模式 = 四周 1px 玻璃边缘光（顶部+底部+两侧），
             // 侧边栏同款模式 = 仅底部 1px 折射边缘光
@@ -320,6 +321,15 @@ public sealed partial class MainWindow : Window
             }
         }
         catch { }
+    }
+
+    /// <summary>磨砂模式（SPW 亚克力）：与侧边栏完全同款 —— 纯 tint 渐变 +
+    /// 窗口级 DWM 亚克力（模糊窗口背后）。不挂 Composition sprite：
+    /// BackdropBrush 模糊元素背后内容会产生「脏玻璃」观感（用户否决）。</summary>
+    private void ApplyTopBarFrostedGlass()
+    {
+        // 无操作：材质 = BuildTopBarGradient 的 tint 渐变 + 窗口级 DWM 亚克力
+        ElementCompositionPreview.SetElementChildVisual(TopBarGradient, null);
     }
 
     /// <summary>顶栏液态玻璃模式：Composition 磨砂 + 高光折射。
@@ -353,7 +363,7 @@ public sealed partial class MainWindow : Window
                 (float)Math.Max(TopBarGradient.ActualWidth, 1),
                 (float)Math.Max(TopBarGradient.ActualHeight, 1));
             ElementCompositionPreview.SetElementChildVisual(TopBarGradient, sprite);
-            _topBarLiquidSprite = sprite;
+            _topBarSprite = sprite;
             // 诊断：效果链激活确认（LibraryNameText 在标题下方）
             if (LibraryNameText != null)
                 LibraryNameText.Text = "照片库 · 液态玻璃已启用";
@@ -369,15 +379,15 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// <summary>窗口尺寸变化时同步顶栏液态玻璃 sprite 尺寸
+    /// <summary>窗口尺寸变化时同步顶栏 Composition sprite 尺寸
     /// （sprite 初始 1x1，布局完成前不可见）</summary>
     private void ResizeTopBarSprite()
     {
-        if (_topBarLiquidSprite == null || TopBarGradient == null) return;
+        if (_topBarSprite == null || TopBarGradient == null) return;
         var w = (float)Math.Max(TopBarGradient.ActualWidth, 1);
         var h = (float)Math.Max(TopBarGradient.ActualHeight, 1);
-        if (_topBarLiquidSprite.Size.X != w || _topBarLiquidSprite.Size.Y != h)
-            _topBarLiquidSprite.Size = new System.Numerics.Vector2(w, h);
+        if (_topBarSprite.Size.X != w || _topBarSprite.Size.Y != h)
+            _topBarSprite.Size = new System.Numerics.Vector2(w, h);
     }
 
     /// <summary>应用主题（深/浅色）与外观设置，即时生效无需重启</summary>
@@ -398,12 +408,13 @@ public sealed partial class MainWindow : Window
         // 3. 外观设置（主题色/亚克力）
         ApplyAppearance();
 
-        // 4. 顶栏材质：0=侧边栏同款（仅渐变） 1=液态玻璃（渐变 + 扭曲折射）
+        // 4. 顶栏材质：0=SPW 亚克力（tint + DWM，与侧边栏同款）
+        //    1=液态玻璃（BackdropBrush 毛玻璃 + 淡 tint + 描边）
         BuildTopBarGradient();
         if (_settings.TopBarStyle == 1)
             ApplyTopBarLiquidGlass();
         else
-            ElementCompositionPreview.SetElementChildVisual(TopBarGradient, null);
+            ApplyTopBarFrostedGlass();
     }
 
     /// <summary>应用外观设置：主题色 + 亚克力（SPW 风格可选模式，默认关闭保留原界面）</summary>
