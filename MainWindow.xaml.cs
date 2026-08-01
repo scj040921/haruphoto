@@ -1187,21 +1187,11 @@ public sealed partial class MainWindow : Window
                 element.Opacity = 1;
             }
 
-            // 卡片阴影（ThemeShadow）+ 悬停交互：无条件执行（不依赖圆角设置）
-            // 模板根现在是 Grid：子 0 = 伪阴影层 CardShadowLayer，子 1 = 卡片 CardRoot
-            if (element is Grid cardHost && cardHost.Children.Count >= 2
-                && cardHost.Children[0] is Border shadowLayer && cardHost.Children[1] is Border card)
+            // 卡片：ThemeShadow 阴影 + 抬起交互（Margin 动画，非打包安全；
+            // 禁止 RenderTransform —— 含 Image 的容器缩放/位移会崩溃）
+            if (element is Grid cardHost && cardHost.Children.Count >= 1
+                && cardHost.Children[0] is Border card)
             {
-                var dark = _settings.DarkMode;
-                var acrylic = _settings.AcrylicEnabled;
-
-                // 伪阴影层：深色=白色亮边（深色背景上看不到黑阴影），浅色=黑色投影
-                var shadowColor = dark
-                    ? Windows.UI.Color.FromArgb(45, 255, 255, 255)
-                    : Windows.UI.Color.FromArgb(35, 0, 0, 0);
-                var shadowBrush = new SolidColorBrush(shadowColor);
-                shadowLayer.Background = shadowBrush;
-
                 try
                 {
                     var shadow = new Microsoft.UI.Xaml.Media.ThemeShadow();
@@ -1211,53 +1201,47 @@ public sealed partial class MainWindow : Window
                 }
                 catch { /* 阴影不可用时不影响卡片 */ }
 
-                // 自定义圆角（SPW 风格外观设置），同步伪阴影层
+                // 自定义圆角（SPW 风格外观设置）
                 if (_settings.CardCornerRadius > 0)
                 {
                     var r = _settings.CardCornerRadius;
                     card.CornerRadius = new CornerRadius(r);
-                    shadowLayer.CornerRadius = new CornerRadius(r);
                     // 同步内层图片容器圆角（避免溢出）
                     if (card.Child is Grid g && g.Children.Count > 0 && g.Children[0] is Border imgBorder)
                         imgBorder.CornerRadius = new CornerRadius(r, r, 0, 0);
                 }
 
-                // 卡片背景：亚克力模式 = 玻璃效果（半透明，透明度与整体一致，可透出背后）；
-                // 普通模式 = 主题背景（XAML ThemeResource 自适应），hover 时微亮。
-                // 所有颜色动态读取当前主题（快照会在主题切换后残留 → 信息区全白）
-                void ApplyCardBackground(bool hover)
+                // 抬起交互：hover 时卡片上移 6px（Margin 动画自动让相邻卡片
+                // 微微避让 —— UniformGridLayout 单元格随元素 Margin 变化），
+                // 移走回弹。BackEase 弹性插值 → q 弹灵动。
+                // 说明：WinUI3 无 ThicknessAnimation，且禁止 RenderTransform，
+                // 故用 DispatcherTimer 手动插值 Margin（布局属性，非打包安全）
+                if (_settings.AnimationsEnabled)
                 {
-                    var isDark = _settings.DarkMode;
-                    if (acrylic)
+                    var liftFrom = new Thickness(0);
+                    var liftTo = new Thickness(0, -6, 0, 6);
+                    void AnimateMargin(Thickness from, Thickness to)
                     {
-                        // 玻璃卡片：比整体透明度略实一点（+35），保证文字可读
-                        var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255) + 35, 90, 240);
-                        var c = isDark ? (byte)26 : (byte)250;
-                        var alpha = hover ? (byte)Math.Min(a + 25, 255) : a;
-                        card.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(alpha, c, c, isDark ? (byte)30 : (byte)252));
-                        shadowLayer.Background = new SolidColorBrush(hover
-                            ? Windows.UI.Color.FromArgb(70, 255, 255, 255)
-                            : Windows.UI.Color.FromArgb(45, 255, 255, 255));
+                        var ease = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.45 };
+                        var sw = new System.Diagnostics.Stopwatch();
+                        sw.Start();
+                        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+                        timer.Tick += (_, _) =>
+                        {
+                            var t = sw.Elapsed.TotalMilliseconds / 300.0;
+                            if (t >= 1.0) { timer.Stop(); cardHost.Margin = to; return; }
+                            var k = ease.Ease((float)t);
+                            cardHost.Margin = new Thickness(
+                                from.Left + (to.Left - from.Left) * k,
+                                from.Top + (to.Top - from.Top) * k,
+                                from.Right + (to.Right - from.Right) * k,
+                                from.Bottom + (to.Bottom - from.Bottom) * k);
+                        };
+                        timer.Start();
                     }
-                    else
-                    {
-                        if (hover)
-                            card.Background = new SolidColorBrush(isDark
-                                ? Windows.UI.Color.FromArgb(255, 58, 58, 64)
-                                : Windows.UI.Color.FromArgb(255, 255, 255, 255));
-                        else
-                            card.ClearValue(Border.BackgroundProperty);   // 恢复 ThemeResource
-                        shadowLayer.Background = hover
-                            ? new SolidColorBrush(isDark
-                                ? Windows.UI.Color.FromArgb(70, 255, 255, 255)
-                                : Windows.UI.Color.FromArgb(60, 0, 0, 0))
-                            : shadowBrush;
-                    }
+                    cardHost.PointerEntered += (_, _) => AnimateMargin(liftFrom, liftTo);
+                    cardHost.PointerExited += (_, _) => AnimateMargin(liftTo, liftFrom);
                 }
-
-                ApplyCardBackground(false);
-                card.PointerEntered += (_, _) => ApplyCardBackground(true);
-                card.PointerExited += (_, _) => ApplyCardBackground(false);
             }
         }
     }

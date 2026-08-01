@@ -129,10 +129,6 @@
                         <ItemsRepeater.ItemTemplate>
                             <DataTemplate>
                                 <Grid>
-                                    <!-- 伪阴影层：只露出底部 10px 边缘（深色=亮边 / 浅色=投影）。
-                                        注意：不能铺满整卡 —— 会蒙住卡片主体导致信息区发白 -->
-                                    <Border x:Name="CardShadowLayer" CornerRadius="14" Margin="0,4,0,0"
-                                            VerticalAlignment="Bottom" Height="10"/>
                                     <Border x:Name="CardRoot" CornerRadius="14" Tapped="PhotoCard_Tapped" RightTapped="PhotoCard_RightTapped" CanDrag="True" DragStarting="PhotoCard_DragStarting"
                                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                                         <Grid>
@@ -169,7 +165,11 @@
                                                            Foreground="#CCFFFFFF"/>
                                             </Border>
 
-                                            <StackPanel Grid.Row="1" Padding="12,10,12,12">
+                                            <!-- 信息区：灰色亚克力质感（半透明灰 + 顶部细分隔线）-->
+                                            <StackPanel Grid.Row="1" Padding="12,10,12,12"
+                                                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                                        BorderThickness="0,1,0,0">
                                                 <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
                                                            FontSize="13" TextTrimming="CharacterEllipsis"
                                                            Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
