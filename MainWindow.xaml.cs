@@ -181,16 +181,24 @@ public sealed partial class MainWindow : Window
                 var ok = AcrylicHelper.Enable(hwnd, tint, _settings.AcrylicOpacity);
                 if (ok && Content is Grid root)
                 {
-                    // 根背景改为半透明色调，透出亚克力磨砂
-                    var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 20, 230);
+                    // 根背景改为半透明色调，透出亚克力磨砂（下限 110 保证可读性）
+                    var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 110, 230);
                     root.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(a, tint.R, tint.G, tint.B));
                 }
+
+                // 侧边栏保持不透明底色，避免亚克力模式下文字看不清
+                // （NavigationView 模板使用 NavigationViewDefaultPaneBackground 资源）
+                NavView.Resources["NavigationViewDefaultPaneBackground"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                    _settings.DarkMode
+                        ? Windows.UI.Color.FromArgb(255, 28, 28, 30)
+                        : Windows.UI.Color.FromArgb(255, 247, 247, 248));
             }
             else
             {
                 AcrylicHelper.Disable(hwnd);
                 if (Content is Grid root)
                     root.ClearValue(Grid.BackgroundProperty);
+                NavView.Resources.Remove("NavigationViewDefaultPaneBackground");
             }
         }
         catch { }
