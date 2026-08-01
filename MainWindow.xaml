@@ -104,7 +104,7 @@
                         </ItemsRepeater.Layout>
                         <ItemsRepeater.ItemTemplate>
                             <DataTemplate>
-                                <Border CornerRadius="14" Tapped="PhotoCard_Tapped" CanDrag="True" DragStarting="PhotoCard_DragStarting">
+                                <Border CornerRadius="14" Tapped="PhotoCard_Tapped" RightTapped="PhotoCard_RightTapped" CanDrag="True" DragStarting="PhotoCard_DragStarting">
                                     <Grid>
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="180"/>

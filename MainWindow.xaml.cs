@@ -1,3 +1,4 @@
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -14,6 +15,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Windows.Storage.Pickers;
 using Windows.System;
+using Windows.UI.Core;
 
 namespace PhotoAlbum;
 
@@ -653,6 +655,75 @@ public sealed partial class MainWindow : Window
             OpenPreview(photo);
     }
 
+    private void PhotoCard_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not PhotoItem photo) return;
+
+        var menu = new MenuFlyout();
+        menu.Items.Add(new MenuFlyoutItem { Text = "🖼 打开预览", Tag = "open" });
+
+        var fav = new MenuFlyoutItem { Text = photo.IsFavorite ? "☆ 取消收藏" : "★ 收藏", Tag = "fav" };
+        menu.Items.Add(fav);
+
+        // 分类子菜单
+        var catMenu = new MenuFlyoutSubItem { Text = "🏷 分类" };
+        catMenu.Items.Add(new MenuFlyoutItem { Text = "（未分类）", Tag = "cat:" });
+        foreach (var c in _categories)
+            catMenu.Items.Add(new MenuFlyoutItem { Text = c, Tag = "cat:" + c });
+        menu.Items.Add(catMenu);
+
+        // 评分子菜单
+        var ratingMenu = new MenuFlyoutSubItem { Text = "⭐ 评分" };
+        for (int i = 1; i <= 5; i++)
+            ratingMenu.Items.Add(new MenuFlyoutItem { Text = i + " 星" + (photo.Rating == i ? " ✓" : ""), Tag = "rate:" + i });
+        menu.Items.Add(ratingMenu);
+
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(new MenuFlyoutItem { Text = "📂 打开所在文件夹", Tag = "folder" });
+        menu.Items.Add(new MenuFlyoutItem { Text = "🗑 从图库移除", Tag = "remove" });
+
+        foreach (var item in menu.Items.OfType<MenuFlyoutItem>())
+            item.Click += (s, args) => ContextMenuAction(photo, (s as MenuFlyoutItem)?.Tag as string ?? "");
+        foreach (var sub in menu.Items.OfType<MenuFlyoutSubItem>())
+            foreach (var item in sub.Items.OfType<MenuFlyoutItem>())
+                item.Click += (s, args) => ContextMenuAction(photo, (s as MenuFlyoutItem)?.Tag as string ?? "");
+
+        menu.ShowAt(sender as FrameworkElement, e.GetPosition(sender as FrameworkElement));
+        e.Handled = true;
+    }
+
+    private async void ContextMenuAction(PhotoItem photo, string action)
+    {
+        switch (action)
+        {
+            case "open": OpenPreview(photo); break;
+            case "fav":
+                photo.IsFavorite = !photo.IsFavorite;
+                ScheduleSave(); UpdateStats();
+                if (_favoritesOnly && !photo.IsFavorite) RefreshPhotos();
+                break;
+            case "folder":
+                try { Process.Start("explorer.exe", $"/select,\"{photo.FilePath}\""); }
+                catch { StatusText.Text = "无法打开文件夹"; }
+                break;
+            case "remove": await RemoveFromLibraryAsync(photo); break;
+            default:
+                if (action.StartsWith("cat:"))
+                {
+                    var newCat = action[4..];
+                    if (newCat == "（未分类）") newCat = "";
+                    photo.Category = newCat;
+                    RebuildCategories(); RefreshPhotos(); ScheduleSave();
+                }
+                else if (action.StartsWith("rate:"))
+                {
+                    photo.Rating = int.Parse(action[5..]);
+                    ScheduleSave(); RefreshPhotos();
+                }
+                break;
+        }
+    }
+
     private void PhotoGrid_ElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
     {
         // 卡片入场：渐入动画
@@ -852,12 +923,57 @@ public sealed partial class MainWindow : Window
 
     private void Root_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (PreviewOverlay.Visibility != Visibility.Visible) return;
+        // 焦点在输入框时不拦截按键（搜索/分类输入）
+        if (FocusManager.GetFocusedElement() is TextBox or PasswordBox)
+            return;
+
+        // ── 预览模式下 ──
+        if (PreviewOverlay.Visibility == Visibility.Visible)
+        {
+            switch (e.Key)
+            {
+                case VirtualKey.Escape: ClosePreview(); e.Handled = true; break;
+                case VirtualKey.Left: if (PreviewPrevBtn.IsEnabled) { ShowPreviewAt(_previewIndex - 1); e.Handled = true; } break;
+                case VirtualKey.Right: if (PreviewNextBtn.IsEnabled) { ShowPreviewAt(_previewIndex + 1); e.Handled = true; } break;
+                case VirtualKey.Delete:
+                    if (_previewIndex >= 0 && _previewIndex < _currentView.Count)
+                    {
+                        RemoveFromLibraryAsync(_currentView[_previewIndex]);
+                        e.Handled = true;
+                    }
+                    break;
+            }
+            return;
+        }
+
+        // ── 主界面快捷键 ──
+        var ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
+                   .HasFlag(CoreVirtualKeyStates.Down);
+
         switch (e.Key)
         {
-            case VirtualKey.Escape: ClosePreview(); e.Handled = true; break;
-            case VirtualKey.Left: if (PreviewPrevBtn.IsEnabled) { ShowPreviewAt(_previewIndex - 1); e.Handled = true; } break;
-            case VirtualKey.Right: if (PreviewNextBtn.IsEnabled) { ShowPreviewAt(_previewIndex + 1); e.Handled = true; } break;
+            case VirtualKey.Left:
+                if (PrevPageBtn.IsEnabled) { PrevPage_Click(this, new RoutedEventArgs()); e.Handled = true; }
+                break;
+            case VirtualKey.Right:
+                if (NextPageBtn.IsEnabled) { NextPage_Click(this, new RoutedEventArgs()); e.Handled = true; }
+                break;
+            case VirtualKey.F5:
+                RefreshPhotos(); StatusText.Text = "已刷新"; e.Handled = true;
+                break;
+            case VirtualKey.Space:
+                if (_photos.Count > 0) OpenPreview(_photos[0]); e.Handled = true;
+                break;
+            case VirtualKey.A when ctrl:
+                if (_batchMode) { SelectAllPage_Click(this, new RoutedEventArgs()); e.Handled = true; }
+                else { EnterBatchMode(); SelectAllPage_Click(this, new RoutedEventArgs()); e.Handled = true; }
+                break;
+            case VirtualKey.Delete:
+                if (_selectedPaths.Count > 0) { RemoveSelectedAsync(); e.Handled = true; }
+                break;
+            case VirtualKey.Escape:
+                if (_batchMode) { ExitBatchMode(); e.Handled = true; }
+                break;
         }
     }
 
@@ -941,7 +1057,12 @@ public sealed partial class MainWindow : Window
     private async void RemoveFromLibrary_Click(object sender, RoutedEventArgs e)
     {
         if (_previewIndex < 0 || _previewIndex >= _currentView.Count) return;
-        var p = _currentView[_previewIndex];
+        await RemoveFromLibraryAsync(_currentView[_previewIndex]);
+    }
+
+    /// <summary>从图库移除（仅移除图库记录，绝不删除磁盘文件），带确认对话框。</summary>
+    private async Task RemoveFromLibraryAsync(PhotoItem p)
+    {
         var dlg = new ContentDialog { Title = "从图库移除", Content = $"将「{p.Filename}」从图库移除？\n磁盘上的文件不会被删除。", PrimaryButtonText = "移除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close, XamlRoot = Content.XamlRoot };
         if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
 
@@ -950,6 +1071,26 @@ public sealed partial class MainWindow : Window
         ScheduleSave();
         StatusText.Text = $"已移除 {p.Filename}（文件仍在磁盘上）";
         ShowPreviewAt(_previewIndex);
+    }
+
+    /// <summary>批量移除选中的照片（仅图库记录，不删磁盘文件）。</summary>
+    private async Task RemoveSelectedAsync()
+    {
+        var targets = _allPhotos.Where(p => _selectedPaths.Contains(p.FilePath)).ToList();
+        if (targets.Count == 0) return;
+
+        var dlg = new ContentDialog { Title = "批量移除", Content = $"将选中的 {targets.Count} 张照片从图库移除？\n磁盘上的文件不会被删除。", PrimaryButtonText = "移除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close, XamlRoot = Content.XamlRoot };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+
+        foreach (var p in targets)
+        {
+            _allPhotos.Remove(p);
+            _selectedPaths.Remove(p.FilePath);
+        }
+        ExitBatchMode();
+        RefreshPhotos();
+        ScheduleSave();
+        StatusText.Text = $"已移除 {targets.Count} 张（文件仍在磁盘上）";
     }
 
     // ══════════ 批量操作 ══════════
