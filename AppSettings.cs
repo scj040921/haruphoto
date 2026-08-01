@@ -27,6 +27,11 @@ public sealed class AppSettings
     public bool AnimationsEnabled { get; set; } = true;    // 动画总开关
     public double AnimationDurationMs { get; set; } = 350; // 入场动画时长
 
+    // ── 背景 ──
+    public int BackgroundMode { get; set; } = 0;           // 0=默认 1=纯色 2=图片
+    public string BackgroundColor { get; set; } = "#2A2A32";
+    public string BackgroundImagePath { get; set; } = "";
+
     // ── 自动扫描 ──
     public bool AutoScan { get; set; } = true;
     public int AutoScanIntervalMinutes { get; set; } = 5;

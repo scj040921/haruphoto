@@ -148,6 +148,29 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>背景透出模式下，将侧边栏/内容区设为半透明基底（保证文字可读 + 看到背景）</summary>
+    private void ApplyTranslucentSurfaces()
+    {
+        try
+        {
+            var dark = _settings.DarkMode;
+            // 内容区半透明基底（深 0xCC / 浅 0xE6）
+            var contentColor = dark
+                ? Windows.UI.Color.FromArgb(0xCC, 20, 20, 24)
+                : Windows.UI.Color.FromArgb(0xE6, 250, 250, 251);
+            NavView.Resources["NavigationViewContentBackground"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(contentColor);
+
+            // 侧边栏比内容区略不透明（保证文字可读）
+            var paneColor = dark
+                ? Windows.UI.Color.FromArgb(0xD9, 24, 24, 28)
+                : Windows.UI.Color.FromArgb(0xF2, 248, 248, 249);
+            var paneBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(paneColor);
+            NavView.Resources["NavigationViewExpandedPaneBackground"] = paneBrush;
+            NavView.Resources["NavigationViewDefaultPaneBackground"] = paneBrush;
+        }
+        catch { }
+    }
+
     /// <summary>应用主题（深/浅色）与外观设置，即时生效无需重启</summary>
     private void ApplyTheme()
     {
@@ -178,10 +201,39 @@ public sealed partial class MainWindow : Window
         }
         catch { }
 
-        // 2. 亚克力（仅 Windows 10 1803+，失败时静默保持原界面）
+        // 2. 背景 + 亚克力
         try
         {
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+
+            // 2a. 自定义背景（纯色/图片）优先于主题默认
+            if (_settings.BackgroundMode == 1)
+            {
+                // 纯色背景
+                var c = ParseColor(_settings.BackgroundColor);
+                if (Content is Grid root)
+                    root.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(c);
+                ApplyTranslucentSurfaces();   // 内容区半透明让背景透出
+                AcrylicHelper.Disable(hwnd);
+                return;
+            }
+            if (_settings.BackgroundMode == 2 && !string.IsNullOrEmpty(_settings.BackgroundImagePath)
+                && System.IO.File.Exists(_settings.BackgroundImagePath))
+            {
+                // 图片背景
+                var imgBrush = new Microsoft.UI.Xaml.Media.ImageBrush
+                {
+                    ImageSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(_settings.BackgroundImagePath)),
+                    Stretch = Microsoft.UI.Xaml.Media.Stretch.UniformToFill,
+                };
+                if (Content is Grid root)
+                    root.Background = imgBrush;
+                ApplyTranslucentSurfaces();
+                AcrylicHelper.Disable(hwnd);
+                return;
+            }
+
+            // 2b. 亚克力（仅 Windows 10 1803+，失败时静默保持原界面）
             if (_settings.AcrylicEnabled)
             {
                 // 亚克力 tint 跟随深浅模式：浅色用浅色磨砂，深色用深色磨砂，
@@ -753,24 +805,90 @@ public sealed partial class MainWindow : Window
         var accentRow = new StackPanel { Spacing = 6 };
         accentRow.Children.Add(new TextBlock { Text = "主题色", FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         var presetPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        var presets = new[] { "#5B6EAE", "#5B9EAE", "#5B9C6B", "#AE8A5B", "#AE6B9C", "#8A6BAE", "#C45B5B" };
+        // 主题预设（低饱和度色系）
+        var presets = new (string Name, string Hex)[]
+        {
+            ("晴空蓝", "#5B6EAE"), ("湖水青", "#5B9EAE"), ("薄荷绿", "#5B9C6B"),
+            ("暖沙橙", "#AE8A5B"), ("樱粉", "#AE6B9C"), ("黛紫", "#8A6BAE"), ("绯红", "#C45B5B"),
+        };
         var colorPicker = new ColorPicker { Color = _settings.GetAccentColor(), IsAlphaEnabled = false, IsColorChannelTextInputVisible = true, IsHexInputVisible = true, ColorSpectrumShape = ColorSpectrumShape.Ring };
-        foreach (var hex in presets)
+        foreach (var (name, hex) in presets)
         {
             var c = ParseColor(hex);
             var swatch = new Button
             {
-                Width = 28, Height = 28, Padding = new Thickness(0),
+                Width = 30, Height = 30, Padding = new Thickness(0),
                 Background = new SolidColorBrush(c),
-                CornerRadius = new CornerRadius(6),
+                CornerRadius = new CornerRadius(7),
                 Tag = hex,
             };
-            ToolTipService.SetToolTip(swatch, hex);
+            ToolTipService.SetToolTip(swatch, name);
             swatch.Click += (_, _) => colorPicker.Color = ParseColor(hex);
             presetPanel.Children.Add(swatch);
         }
         accentRow.Children.Add(presetPanel);
         accentRow.Children.Add(colorPicker);
+
+        // ── 背景设置 ──
+        var bgLabel = new TextBlock { Text = "背景", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15, Margin = new Microsoft.UI.Xaml.Thickness(0, 8, 0, 0) };
+        var bgModeCombo = new ComboBox { Header = "背景模式", SelectedIndex = Math.Clamp(_settings.BackgroundMode, 0, 2), MinWidth = 160 };
+        bgModeCombo.Items.Add(new ComboBoxItem { Content = "默认（跟随主题）" });
+        bgModeCombo.Items.Add(new ComboBoxItem { Content = "纯色背景" });
+        bgModeCombo.Items.Add(new ComboBoxItem { Content = "图片背景" });
+
+        var bgColorPicker = new ColorPicker
+        {
+            Color = ParseColor(_settings.BackgroundColor),
+            IsAlphaEnabled = false,
+            ColorSpectrumShape = ColorSpectrumShape.Ring,
+            Visibility = _settings.BackgroundMode == 1 ? Visibility.Visible : Visibility.Collapsed,
+        };
+
+        var bgImageRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Visibility = _settings.BackgroundMode == 2 ? Visibility.Visible : Visibility.Collapsed };
+        var bgPickBtn = new Button { Content = "选择图片…", Padding = new Thickness(10, 6, 10, 6), CornerRadius = new CornerRadius(6), FontSize = 12 };
+        var bgImageName = new TextBlock
+        {
+            Text = string.IsNullOrEmpty(_settings.BackgroundImagePath) ? "未选择" : System.IO.Path.GetFileName(_settings.BackgroundImagePath),
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 12,
+            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+        };
+        var bgClearBtn = new Button { Content = "清除", Padding = new Thickness(10, 6, 10, 6), CornerRadius = new CornerRadius(6), FontSize = 12, Visibility = string.IsNullOrEmpty(_settings.BackgroundImagePath) ? Visibility.Collapsed : Visibility.Visible };
+        bgImageRow.Children.Add(bgPickBtn);
+        bgImageRow.Children.Add(bgImageName);
+        bgImageRow.Children.Add(bgClearBtn);
+
+        bgModeCombo.SelectionChanged += (_, _) =>
+        {
+            var mode = bgModeCombo.SelectedIndex;
+            bgColorPicker.Visibility = mode == 1 ? Visibility.Visible : Visibility.Collapsed;
+            bgImageRow.Visibility = mode == 2 ? Visibility.Visible : Visibility.Collapsed;
+        };
+        bgPickBtn.Click += async (_, _) =>
+        {
+            var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
+            picker.FileTypeFilter.Add(".jpg"); picker.FileTypeFilter.Add(".jpeg");
+            picker.FileTypeFilter.Add(".png"); picker.FileTypeFilter.Add(".bmp");
+            picker.FileTypeFilter.Add(".webp"); picker.FileTypeFilter.Add(".gif");
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+            var file = await picker.PickSingleFileAsync();
+            if (file != null)
+            {
+                _settings.BackgroundImagePath = file.Path;
+                _settings.Save();
+                bgImageName.Text = file.Name;
+                bgClearBtn.Visibility = Visibility.Visible;
+                ApplyAppearance();
+            }
+        };
+        bgClearBtn.Click += (_, _) =>
+        {
+            _settings.BackgroundImagePath = "";
+            _settings.Save();
+            bgImageName.Text = "未选择";
+            bgClearBtn.Visibility = Visibility.Collapsed;
+            ApplyAppearance();
+        };
 
         // 圆角
         var radiusCombo = new ComboBox { Header = "卡片圆角", SelectedIndex = RadiusIndex(_settings.CardCornerRadius), MinWidth = 140 };
@@ -799,6 +917,10 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(radiusCombo);
         panel.Children.Add(animToggle);
         panel.Children.Add(animSlider);
+        panel.Children.Add(bgLabel);
+        panel.Children.Add(bgModeCombo);
+        panel.Children.Add(bgColorPicker);
+        panel.Children.Add(bgImageRow);
         panel.Children.Add(autoLabel);
         panel.Children.Add(autoToggle);
         panel.Children.Add(intervalBox);
@@ -829,6 +951,9 @@ public sealed partial class MainWindow : Window
                 _settings.CardCornerRadius = 14;
                 _settings.AnimationsEnabled = true;
                 _settings.AnimationDurationMs = 350;
+                _settings.BackgroundMode = 0;
+                _settings.BackgroundColor = "#2A2A32";
+                _settings.BackgroundImagePath = "";
                 _settings.AutoScan = true;
                 _settings.AutoScanIntervalMinutes = 5;
                 _settings.Save();
@@ -854,6 +979,10 @@ public sealed partial class MainWindow : Window
             _settings.CardCornerRadius = radiusCombo.SelectedIndex switch { 0 => 8.0, 2 => 20.0, _ => 14.0 };
             _settings.AnimationsEnabled = animToggle.IsOn;
             _settings.AnimationDurationMs = animSlider.Value;
+
+            // ── 背景 ──
+            _settings.BackgroundMode = bgModeCombo.SelectedIndex;
+            _settings.BackgroundColor = ColorToHex(bgColorPicker.Color);
             _settings.Save();
 
             // 即时应用全部外观（深/浅色切换无需重启）
