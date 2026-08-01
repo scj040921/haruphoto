@@ -16,6 +16,8 @@ using System.Threading.Tasks;
 using Windows.Storage.Pickers;
 using Windows.System;
 using Windows.UI.Core;
+using Microsoft.UI.Xaml.Hosting; // ElementCompositionPreview
+using Microsoft.UI.Composition;  // SpriteVisual / CompositionEffectSourceParameter
 
 namespace PhotoAlbum;
 
@@ -30,6 +32,7 @@ public sealed partial class MainWindow : Window
     private CancellationTokenSource? _thumbCts;
     private readonly FolderWatcherService _folderWatcher = new();
     private readonly AppSettings _settings = AppSettings.Load();
+    private Microsoft.UI.Composition.SpriteVisual? _topBarBlurSprite;
 
     private readonly DispatcherTimer _searchTimer;
     private readonly DispatcherTimer _saveTimer;
@@ -64,7 +67,10 @@ public sealed partial class MainWindow : Window
 
         // 模板加载完成后重新应用外观（ContentGrid 此时才可查找）
         if (Content is FrameworkElement rootEl)
+        {
             rootEl.Loaded += (_, _) => ApplyAppearance();
+            rootEl.SizeChanged += (_, _) => ResizeTopBarBlur();
+        }
 
         // 设置窗口图标
         try
@@ -256,6 +262,47 @@ public sealed partial class MainWindow : Window
         catch { }
     }
 
+    /// <summary>顶栏毛玻璃：Composition 模糊层（BackdropBrush 实时模糊顶栏背后的
+    /// 滚动卡片）+ 渐变 tint。非打包模式验证可用则启用，失败静默回退纯渐变。</summary>
+    private void ApplyTopBarFrostedGlass()
+    {
+        if (TopBarGradient == null) return;
+        try
+        {
+            var compositor = ElementCompositionPreview.GetElementVisual(TopBarGradient).Compositor;
+            var effect = new Microsoft.Graphics.Canvas.Effects.GaussianBlurEffect
+            {
+                Name = "topbar_blur",
+                BlurAmount = 14f,
+                BorderMode = Microsoft.Graphics.Canvas.Effects.EffectBorderMode.Hard,
+                Optimization = Microsoft.Graphics.Canvas.Effects.EffectOptimization.Speed,
+                Source = new CompositionEffectSourceParameter("source")
+            };
+            var factory = compositor.CreateEffectFactory(effect);
+            var brush = factory.CreateBrush();
+            brush.SetSourceParameter("source", compositor.CreateBackdropBrush());
+
+            var sprite = compositor.CreateSpriteVisual();
+            sprite.Brush = brush;
+            sprite.Opacity = 0.55f;   // 模糊层半透明：下层卡片若隐若现
+            sprite.Size = new System.Numerics.Vector2(
+                (float)Math.Max(TopBarGradient.ActualWidth, 1),
+                (float)Math.Max(TopBarGradient.ActualHeight, 1));
+            ElementCompositionPreview.SetElementChildVisual(TopBarGradient, sprite);
+            _topBarBlurSprite = sprite;
+        }
+        catch { /* 非打包/合成不支持时静默回退纯渐变 */ }
+    }
+
+    /// <summary>窗口尺寸变化时同步顶栏模糊层尺寸</summary>
+    private void ResizeTopBarBlur()
+    {
+        if (_topBarBlurSprite != null && TopBarGradient != null)
+            _topBarBlurSprite.Size = new System.Numerics.Vector2(
+                (float)Math.Max(TopBarGradient.ActualWidth, 1),
+                (float)Math.Max(TopBarGradient.ActualHeight, 1));
+    }
+
     /// <summary>应用主题（深/浅色）与外观设置，即时生效无需重启</summary>
     private void ApplyTheme()
     {
@@ -276,6 +323,9 @@ public sealed partial class MainWindow : Window
 
         // 4. 悬浮顶栏渐变（代码构建，跟随主题）
         BuildTopBarGradient();
+
+        // 5. 顶栏毛玻璃（Composition 模糊，失败自动回退渐变）
+        ApplyTopBarFrostedGlass();
     }
 
     /// <summary>应用外观设置：主题色 + 亚克力（SPW 风格可选模式，默认关闭保留原界面）</summary>
