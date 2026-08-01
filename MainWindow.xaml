@@ -27,6 +27,11 @@
                     <NavigationViewItem.Icon><FontIcon Glyph="&#xE178;" FontSize="16"/></NavigationViewItem.Icon>
                 </NavigationViewItem>
 
+                <!-- 统计概览（P2 延伸功能）-->
+                <NavigationViewItem Content="统计" Tag="Stats">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE9D2;" FontSize="16"/></NavigationViewItem.Icon>
+                </NavigationViewItem>
+
             </NavigationView.MenuItems>
 
             <NavigationView.FooterMenuItems>
@@ -35,6 +40,10 @@
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="Clip"/>
                     <Button Content="＋ 导入文件夹" Click="ImportButton_Click"
                             HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"/>
+                    <Button Content="＋ 导入文件" Click="ImportFiles_Click"
+                            HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"
+                            Background="Transparent"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <Button Content="⚙ 设置" Click="SettingsButton_Click"
                             HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"
                             Background="Transparent"
@@ -228,11 +237,37 @@
                                     FontSize="12" Padding="12,6" CornerRadius="6"/>
                             <Button Content="❌ 取消分类" Click="BatchUncategorize_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6"/>
+                            <Button x:Name="RenameBtn" Content="✎ 重命名" Click="BatchRename_Click"
+                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
+                            <Button x:Name="ExportBtn" Content="⤴ 导出" Click="BatchExport_Click"
+                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
                             <Button Content="🗑 清空图库" Click="BatchDelete_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6"/>
                         </StackPanel>
                     </Grid>
                 </Border>
+
+                <!-- 统计概览面板（侧边栏「统计」选中时显示）-->
+                <ScrollViewer x:Name="StatsScroll" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto" Padding="24,24,24,24">
+                    <StackPanel x:Name="StatsPanel" Spacing="12" MaxWidth="720" HorizontalAlignment="Left">
+                        <TextBlock Text="📊 照片统计" FontSize="22" FontWeight="SemiBold"/>
+                        <Border Padding="20,16" CornerRadius="14"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                            <StackPanel x:Name="StatsGrid" Spacing="8"/>
+                        </Border>
+                        <TextBlock Text="年度分布" FontSize="15" FontWeight="SemiBold" Margin="0,8,0,0"/>
+                        <Border Padding="20,16" CornerRadius="14"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                            <StackPanel x:Name="StatsYears" Spacing="6"/>
+                        </Border>
+                        <TextBlock Text="分类分布" FontSize="15" FontWeight="SemiBold" Margin="0,8,0,0"/>
+                        <Border Padding="20,16" CornerRadius="14"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                            <StackPanel x:Name="StatsCats" Spacing="6"/>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
             </Grid>
         </NavigationView>
 

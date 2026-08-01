@@ -11,6 +11,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.IO.Compression;   // ZipFile / CreateEntryFromFile
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Storage.Pickers;
@@ -66,7 +67,14 @@ public sealed partial class MainWindow : Window
 
         // 模板加载完成后重新应用外观（ContentGrid 此时才可查找）
         if (Content is FrameworkElement rootEl)
+        {
             rootEl.Loaded += (_, _) => ApplyAppearance();
+            // 跟随系统模式：系统深浅切换时自动刷新所有硬编码材质
+            rootEl.ActualThemeChanged += (_, _) =>
+            {
+                if (_settings.ThemeMode == -1) ApplyTheme();
+            };
+        }
 
         // 设置窗口图标
         try
@@ -148,7 +156,7 @@ public sealed partial class MainWindow : Window
         // 预览详情面板毛玻璃 — 永远在深色遮罩上，使用固定半透明白色
         if (DetailPanel != null)
         {
-            var isDark = _settings.DarkMode;
+            var isDark = IsDark();
             DetailPanel.Background = new SolidColorBrush(
                 Windows.UI.Color.FromArgb(isDark ? (byte)153 : (byte)180, isDark ? (byte)20 : (byte)245, isDark ? (byte)20 : (byte)245, isDark ? (byte)30 : (byte)255));
             // 边框：半透明白色（在深色遮罩上始终可见）
@@ -162,7 +170,7 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            var dark = _settings.DarkMode;
+            var dark = IsDark();
             // 内容区透明化（属性级赋值，切主题即时生效），让背景图/纯色背景透出
             var contentGrid = FindNavContentGrid();
             if (contentGrid != null)
@@ -259,7 +267,7 @@ public sealed partial class MainWindow : Window
         if (TopBarTint == null) return;
         try
         {
-            var dark = _settings.DarkMode;
+            var dark = IsDark();
             var acrylic = new Microsoft.UI.Xaml.Media.AcrylicBrush
             {
                 // tint 下限 0.55：即使滑块拉到 0 也不会纯透明（磨砂面板底线）
@@ -333,6 +341,14 @@ public sealed partial class MainWindow : Window
         // 材质 = BuildTopBarGradient 的液态玻璃 tint（压暗版）+ TopBarGradient 描边
     }
 
+    /// <summary>当前是否为深色（跟随系统时读 ActualTheme）</summary>
+    private bool IsDark()
+    {
+        if (_settings.ThemeMode == -1)
+            return (Content as FrameworkElement)?.ActualTheme == ElementTheme.Dark;
+        return _settings.ThemeMode == 1;
+    }
+
     /// <summary>应用主题（深/浅色）与外观设置，即时生效无需重启</summary>
     private void ApplyTheme()
     {
@@ -341,7 +357,12 @@ public sealed partial class MainWindow : Window
         {
             var root = Content as FrameworkElement;
             if (root != null)
-                root.RequestedTheme = _settings.DarkMode ? ElementTheme.Dark : ElementTheme.Light;
+                root.RequestedTheme = _settings.ThemeMode switch
+                {
+                    -1 => ElementTheme.Default,   // 跟随系统
+                    1 => ElementTheme.Dark,
+                    _ => ElementTheme.Light,
+                };
         }
         catch { }
 
@@ -425,7 +446,7 @@ public sealed partial class MainWindow : Window
                 if (!ok && !dwmOk)
                 {
                     // 回退：Win32 SetWindowCompositionAttribute（tint 跟随深浅模式）
-                    var acrylicTint = _settings.DarkMode
+                    var acrylicTint = IsDark()
                         ? Windows.UI.Color.FromArgb(255, 24, 24, 26)
                         : Windows.UI.Color.FromArgb(255, 240, 240, 242);
                     AcrylicHelper.Enable(hwnd, acrylicTint, _settings.AcrylicOpacity);
@@ -435,7 +456,7 @@ public sealed partial class MainWindow : Window
                 {
                     // 半透明基底色（深/浅），透过它看到窗口背后的图层
                     var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 8, 250);
-                    var baseColor = _settings.DarkMode
+                    var baseColor = IsDark()
                         ? Windows.UI.Color.FromArgb(a, 24, 24, 26)      // 深色基底
                         : Windows.UI.Color.FromArgb(a, 247, 247, 248);  // 浅色基底
                     root.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(baseColor);
@@ -455,11 +476,11 @@ public sealed partial class MainWindow : Window
                     // （浅色 半透明白 / 深色 半透明深灰），透出 DWM 亚克力模糊。
                     // 绝不设置 NavView.Background —— 它会盖住整个控件区域，
                     // 把亚克力挡成实心。
-                    var paneA = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255) + (_settings.DarkMode ? 0 : 45), 60, 245);
+                    var paneA = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255) + (IsDark() ? 0 : 45), 60, 245);
                     var pane = FindNavPane();
                     if (pane != null)
                         pane.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                            _settings.DarkMode
+                            IsDark()
                                 ? Windows.UI.Color.FromArgb(paneA, 24, 24, 26)
                                 : Windows.UI.Color.FromArgb(paneA, 247, 247, 248));
                     NavView.ClearValue(Microsoft.UI.Xaml.Controls.Control.BackgroundProperty);
@@ -475,7 +496,7 @@ public sealed partial class MainWindow : Window
                 // 内容区恢复主题默认背景（跟随深浅色，属性级即时生效）
                 var contentGrid = FindNavContentGrid();
                 if (contentGrid != null)
-                    contentGrid.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(_settings.DarkMode
+                    contentGrid.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(IsDark()
                         ? Windows.UI.Color.FromArgb(255, 32, 32, 36)
                         : Windows.UI.Color.FromArgb(255, 252, 252, 253));
                 // 阴影接收层恢复默认（ThemeResource 主题背景）
@@ -928,12 +949,123 @@ public sealed partial class MainWindow : Window
                 _favoritesOnly = false;
                 FavOnlyCheckBox.IsChecked = false;
             }
+            else if (tag == "Stats")
+            {
+                // 统计概览视图（P2 延伸功能）
+                MainScroll.Visibility = Visibility.Collapsed;
+                StatsScroll.Visibility = Visibility.Visible;
+                UpdateStatsView();
+                return;
+            }
             else return;
 
+            MainScroll.Visibility = Visibility.Visible;
+            StatsScroll.Visibility = Visibility.Collapsed;
             _currentPage = 0;
             RefreshPhotos();
             UpdateCategoryButtons();
         }
+    }
+
+    /// <summary>填充统计概览：总数/存储/收藏/评分/无日期 + 年度分布 + 分类分布</summary>
+    private void UpdateStatsView()
+    {
+        if (StatsGrid == null) return;
+        var photos = _allPhotos;
+
+        var total = photos.Count;
+        var totalSize = photos.Sum(p => p.FileSize);
+        var favCount = photos.Count(p => p.IsFavorite);
+        var rated = photos.Count(p => p.Rating >= 4);
+        var noDate = photos.Count(p => !p.DateTaken.HasValue);
+        var catCount = photos.GroupBy(p => p.Category, StringComparer.OrdinalIgnoreCase)
+                             .Count(g => !string.IsNullOrEmpty(g.Key));
+
+        StatsGrid.Children.Clear();
+        void AddRow(string label, string value)
+        {
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var l = new TextBlock { Text = label, FontSize = 14, Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] };
+            var v = new TextBlock { Text = value, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
+            Grid.SetColumn(v, 1);
+            row.Children.Add(l);
+            row.Children.Add(v);
+            StatsGrid.Children.Add(row);
+        }
+
+        AddRow("照片总数", $"{total} 张");
+        AddRow("总存储占用", totalSize > 1073741824 ? $"{totalSize / 1073741824.0:F1} GB" : totalSize > 1048576 ? $"{totalSize / 1048576.0:F0} MB" : $"{totalSize / 1024.0:F0} KB");
+        AddRow("收藏", $"{favCount} 张");
+        AddRow("高评分（≥4★）", $"{rated} 张");
+        AddRow("无拍摄日期（EXIF）", $"{noDate} 张");
+        AddRow("分类数", $"{catCount} 个");
+
+        // 年度分布
+        StatsYears.Children.Clear();
+        var years = photos
+            .GroupBy(p => (p.DateTaken ?? p.DateAdded).Year)
+            .OrderBy(g => g.Key)
+            .ToList();
+        var maxYear = Math.Max(1, years.Count == 0 ? 1 : years.Max(g => g.Count()));
+        foreach (var g in years)
+        {
+            var row = new Grid { ColumnSpacing = 10 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var yearLabel = new TextBlock { Text = $"{g.Key} 年", FontSize = 13, MinWidth = 70 };
+            var bar = new Border
+            {
+                Height = 14,
+                CornerRadius = new CornerRadius(4),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Background = (Brush)Application.Current.Resources["AppAccentBrush"],
+                Opacity = 0.35 + 0.65 * (g.Count() / (double)maxYear)
+            };
+            var countLabel = new TextBlock { Text = $"{g.Count()} 张", FontSize = 13, Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] };
+            Grid.SetColumn(bar, 1);
+            Grid.SetColumn(countLabel, 2);
+            row.Children.Add(yearLabel);
+            row.Children.Add(bar);
+            row.Children.Add(countLabel);
+            StatsYears.Children.Add(row);
+        }
+        if (years.Count == 0) StatsYears.Children.Add(new TextBlock { Text = "暂无照片", FontSize = 13 });
+
+        // 分类分布
+        StatsCats.Children.Clear();
+        var cats = photos
+            .Where(p => !string.IsNullOrEmpty(p.Category))
+            .GroupBy(p => p.Category, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(g => g.Count())
+            .ToList();
+        var maxCat = Math.Max(1, cats.Count == 0 ? 1 : cats.Max(g => g.Count()));
+        foreach (var g in cats)
+        {
+            var row = new Grid { ColumnSpacing = 10 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var catLabel = new TextBlock { Text = g.Key, FontSize = 13, MinWidth = 100, TextTrimming = TextTrimming.CharacterEllipsis };
+            var bar = new Border
+            {
+                Height = 12,
+                CornerRadius = new CornerRadius(4),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Background = (Brush)Application.Current.Resources["AppAccentBrush"],
+                Opacity = 0.3 + 0.7 * (g.Count() / (double)maxCat)
+            };
+            var countLabel = new TextBlock { Text = $"{g.Count()} 张", FontSize = 13, Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] };
+            Grid.SetColumn(bar, 1);
+            Grid.SetColumn(countLabel, 2);
+            row.Children.Add(catLabel);
+            row.Children.Add(bar);
+            row.Children.Add(countLabel);
+            StatsCats.Children.Add(row);
+        }
+        if (cats.Count == 0) StatsCats.Children.Add(new TextBlock { Text = "暂无分类", FontSize = 13 });
     }
 
     private void SearchBox_TextChanged(AutoSuggestBox s, AutoSuggestBoxTextChangedEventArgs e)
@@ -999,7 +1131,17 @@ public sealed partial class MainWindow : Window
         };
 
         var themeLabel = new TextBlock { Text = "外观主题", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15 };
-        var darkToggle = new ToggleSwitch { Header = "深色模式", IsOn = _settings.DarkMode, OnContent = "🌙 深色", OffContent = "☀️ 浅色" };
+        // 主题三模式（SPW 借鉴）：跟随系统 / 浅色 / 深色
+        var themeCombo = new ComboBox
+        {
+            Header = "主题模式",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 6, 0, 0),
+            SelectedIndex = _settings.ThemeMode switch { -1 => 0, 0 => 1, _ => 2 }
+        };
+        themeCombo.Items.Add(new ComboBoxItem { Content = "🖥 跟随系统" });
+        themeCombo.Items.Add(new ComboBoxItem { Content = "☀️ 浅色" });
+        themeCombo.Items.Add(new ComboBoxItem { Content = "🌙 深色" });
 
         // ── SPW 风格外观（可选，默认关闭保留原界面）──
         var lookLabel = new TextBlock { Text = "外观风格（SPW 风格 · 可选）", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15, Margin = new Microsoft.UI.Xaml.Thickness(0, 8, 0, 0) };
@@ -1127,7 +1269,7 @@ public sealed partial class MainWindow : Window
         var watchLabel = new TextBlock { Text = $"已监控 {_settings.WatchedFolders.Count} 个文件夹", FontSize = 12, Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorTertiaryBrush"] };
 
         panel.Children.Add(themeLabel);
-        panel.Children.Add(darkToggle);
+        panel.Children.Add(themeCombo);
         panel.Children.Add(lookLabel);
         panel.Children.Add(acrylicToggle);
         panel.Children.Add(acrylicSlider);
@@ -1165,6 +1307,7 @@ public sealed partial class MainWindow : Window
             };
             if (await rd.ShowAsync() == ContentDialogResult.Primary)
             {
+                _settings.ThemeMode = 0;
                 _settings.DarkMode = false;
                 _settings.AccentColor = "#5B6EAE";
                 _settings.Saturation = 0.55;
@@ -1190,7 +1333,8 @@ public sealed partial class MainWindow : Window
 
         if (result == ContentDialogResult.Primary)
         {
-            _settings.DarkMode = darkToggle.IsOn;
+            _settings.ThemeMode = themeCombo.SelectedIndex switch { 0 => -1, 1 => 0, _ => 1 };
+            _settings.DarkMode = _settings.ThemeMode == 1;   // 兼容字段同步
             _settings.AutoScan = autoToggle.IsOn;
             _settings.AutoScanIntervalMinutes = Math.Max(1, (int)intervalBox.Value);
 
@@ -1487,6 +1631,171 @@ public sealed partial class MainWindow : Window
         UpdateStats();
     }
 
+    /// <summary>批量重命名：规则 = 拍摄日期+序号 / 原名+序号（P2 延伸功能）</summary>
+    private async void BatchRename_Click(object s, RoutedEventArgs e)
+    {
+        if (!_batchMode) return;
+        var targets = _selectedPaths.Count > 0
+            ? _allPhotos.Where(p => _selectedPaths.Contains(p.FilePath)).ToList()
+            : _currentView.ToList();
+        if (targets.Count == 0) { StatusText.Text = "没有可重命名的照片"; return; }
+
+        var ruleCombo = new ComboBox
+        {
+            Header = "命名规则",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            SelectedIndex = 0
+        };
+        ruleCombo.Items.Add(new ComboBoxItem { Content = "拍摄日期 + 序号（如 20240801_001）" });
+        ruleCombo.Items.Add(new ComboBoxItem { Content = "原文件名 + 序号（如 草原_001）" });
+        var startBox = new NumberBox { Header = "起始序号", Minimum = 0, Maximum = 9999, Value = 1, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(ruleCombo);
+        panel.Children.Add(startBox);
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"将对 {targets.Count} 张照片重命名（选中 {_selectedPaths.Count} 张；无选中则作用于当前筛选结果）",
+            FontSize = 12, Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"], TextWrapping = TextWrapping.Wrap
+        });
+
+        var dlg = new ContentDialog
+        {
+            Title = "✎ 批量重命名",
+            Content = panel,
+            PrimaryButtonText = "重命名",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var useDate = ruleCombo.SelectedIndex == 0;
+        var startIdx = (int)startBox.Value;
+        BusyRing.Visibility = Visibility.Visible;
+        StatusText.Text = "正在重命名…";
+
+        try
+        {
+            var renamed = 0;
+            var skipped = 0;
+            var counter = startIdx;
+            await Task.Run(() =>
+            {
+                foreach (var p in targets)
+                {
+                    var dir = Path.GetDirectoryName(p.FilePath);
+                    var ext = Path.GetExtension(p.FilePath);
+                    var baseName = useDate
+                        ? (p.DateTaken ?? p.DateAdded).ToString("yyyyMMdd")
+                        : Path.GetFileNameWithoutExtension(p.Filename);
+                    var newName = $"{baseName}_{counter:D3}{ext}";
+                    counter++;
+                    var newPath = Path.Combine(dir!, newName);
+                    if (string.Equals(newPath, p.FilePath, StringComparison.OrdinalIgnoreCase)) { renamed++; continue; }
+                    if (File.Exists(newPath)) { skipped++; continue; }
+                    try
+                    {
+                        File.Move(p.FilePath, newPath);
+                        p.FilePath = newPath;
+                        p.Filename = newName;
+                        renamed++;
+                    }
+                    catch { skipped++; }
+                }
+            });
+            ScheduleSave();
+            RefreshPhotos();
+            StatusText.Text = $"重命名完成：成功 {renamed} 张" + (skipped > 0 ? $"，跳过 {skipped} 张（重名）" : "");
+        }
+        catch (Exception ex) { StatusText.Text = "重命名失败：" + ex.Message; }
+        finally { BusyRing.Visibility = Visibility.Collapsed; }
+    }
+
+    /// <summary>批量导出：复制到文件夹 / ZIP 打包（P2 延伸功能）</summary>
+    private async void BatchExport_Click(object s, RoutedEventArgs e)
+    {
+        if (!_batchMode) return;
+        var targets = _selectedPaths.Count > 0
+            ? _allPhotos.Where(p => _selectedPaths.Contains(p.FilePath)).ToList()
+            : _currentView.ToList();
+        if (targets.Count == 0) { StatusText.Text = "没有可导出的照片"; return; }
+
+        var modeCombo = new ComboBox
+        {
+            Header = "导出方式",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            SelectedIndex = 0
+        };
+        modeCombo.Items.Add(new ComboBoxItem { Content = "复制到文件夹" });
+        modeCombo.Items.Add(new ComboBoxItem { Content = "ZIP 打包" });
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(modeCombo);
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"将导出 {targets.Count} 张照片（选中 {_selectedPaths.Count} 张；无选中则作用于当前筛选结果）",
+            FontSize = 12, Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"], TextWrapping = TextWrapping.Wrap
+        });
+
+        var dlg = new ContentDialog
+        {
+            Title = "⤴ 导出照片",
+            Content = panel,
+            PrimaryButtonText = "选择目标…",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var picker = new FolderPicker { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder == null) return;
+
+        var zipMode = modeCombo.SelectedIndex == 1;
+        BusyRing.Visibility = Visibility.Visible;
+        StatusText.Text = "正在导出…";
+        try
+        {
+            var exported = 0;
+            await Task.Run(() =>
+            {
+                if (zipMode)
+                {
+                    var zipPath = Path.Combine(folder.Path, $"haruphoto_导出_{DateTime.Now:yyyyMMdd_HHmmss}.zip");
+                    using var zip = System.IO.Compression.ZipFile.Open(zipPath, System.IO.Compression.ZipArchiveMode.Create);
+                    foreach (var p in targets)
+                    {
+                        if (!File.Exists(p.FilePath)) continue;
+                        zip.CreateEntryFromFile(p.FilePath, p.Filename);
+                        exported++;
+                    }
+                }
+                else
+                {
+                    foreach (var p in targets)
+                    {
+                        if (!File.Exists(p.FilePath)) continue;
+                        var dest = Path.Combine(folder.Path, p.Filename);
+                        var n = 1;
+                        while (File.Exists(dest))
+                        {
+                            var ext = Path.GetExtension(p.Filename);
+                            dest = Path.Combine(folder.Path, $"{Path.GetFileNameWithoutExtension(p.Filename)}_{n}{ext}");
+                            n++;
+                        }
+                        File.Copy(p.FilePath, dest);
+                        exported++;
+                    }
+                }
+            });
+            StatusText.Text = $"导出完成：{exported} 张 → {folder.Path}" + (zipMode ? "（ZIP）" : "");
+        }
+        catch (Exception ex) { StatusText.Text = "导出失败：" + ex.Message; }
+        finally { BusyRing.Visibility = Visibility.Collapsed; }
+    }
+
     private void EnterBatchMode()
     {
         _batchMode = true;
@@ -1494,6 +1803,8 @@ public sealed partial class MainWindow : Window
         foreach (var p in _allPhotos) p.SelectVisible = true;
         ExitBatchBtn.Visibility = Visibility.Visible;
         SelectAllPageBtn.Visibility = Visibility.Visible;
+        RenameBtn.Visibility = Visibility.Visible;
+        ExportBtn.Visibility = Visibility.Visible;
         StatusText.Text = "多选模式：点击卡片左上角 ☐ 选择照片";
     }
 
@@ -1507,6 +1818,8 @@ public sealed partial class MainWindow : Window
         SelectAllPageBtn.Visibility = Visibility.Collapsed;
         RemoveFromCatBtn.Visibility = Visibility.Collapsed;
         DissolveCatBtn.Visibility = Visibility.Collapsed;
+        RenameBtn.Visibility = Visibility.Collapsed;
+        ExportBtn.Visibility = Visibility.Collapsed;
         UpdateStats();
     }
 
@@ -2065,6 +2378,47 @@ public sealed partial class MainWindow : Window
             RefreshPhotos();
             ScheduleSave();
             StatusText.Text = $"导入完成：新增 {found.Count} 张";
+        }
+        catch (Exception ex) { StatusText.Text = "导入失败：" + ex.Message; }
+        finally { BusyRing.Visibility = Visibility.Collapsed; _importing = false; }
+    }
+
+    /// <summary>导入单个/多个图片文件（SPW 借鉴：导入文件模式，FolderPicker 之外的另一入口）</summary>
+    private async void ImportFiles_Click(object s, RoutedEventArgs e)
+    {
+        if (_importing) return;
+
+        var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
+        var exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".heic", ".tif", ".tiff" };
+        foreach (var ex in exts) picker.FileTypeFilter.Add(ex);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+        var files = await picker.PickMultipleFilesAsync();
+        if (files == null || files.Count == 0) return;
+
+        _importing = true;
+        BusyRing.Visibility = Visibility.Visible;
+        StatusText.Text = "正在导入文件…";
+
+        var known = new HashSet<string>(_allPhotos.Select(p => p.FilePath), StringComparer.OrdinalIgnoreCase);
+        var imported = new List<PhotoItem>();
+        try
+        {
+            foreach (var f in files)
+            {
+                if (known.Contains(f.Path)) continue;
+                var p = new PhotoItem { Filename = f.Name, FilePath = f.Path, FileSize = 0, DateAdded = DateTime.Now };
+                try { p.FileSize = new FileInfo(f.Path).Length; } catch { }
+                _allPhotos.Add(p);
+                imported.Add(p);
+            }
+            if (imported.Count > 0)
+                _ = EnrichDateTakenAsync(imported);
+
+            RebuildCategories();
+            RefreshPhotos();
+            ScheduleSave();
+            StatusText.Text = $"导入完成：新增 {imported.Count} 张";
         }
         catch (Exception ex) { StatusText.Text = "导入失败：" + ex.Message; }
         finally { BusyRing.Visibility = Visibility.Collapsed; _importing = false; }

@@ -17,6 +17,8 @@ public sealed class AppSettings
 
     // ── 主题 ──
     public bool DarkMode { get; set; } = false;
+    // 主题模式（SPW 借鉴三模式）：-1=跟随系统 0=浅色 1=深色；DarkMode 保留兼容
+    public int ThemeMode { get; set; } = 0;
     public string AccentColor { get; set; } = "#5B6EAE";  // 柔和蓝紫（低饱和度）
     public double Saturation { get; set; } = 0.55;         // 全局饱和度系数
 
