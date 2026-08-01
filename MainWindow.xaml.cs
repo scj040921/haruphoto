@@ -62,6 +62,10 @@ public sealed partial class MainWindow : Window
         // 应用主题 + 外观（深色/浅色即时生效）
         ApplyTheme();
 
+        // 模板加载完成后重新应用外观（ContentGrid 此时才可查找）
+        if (Content is FrameworkElement rootEl)
+            rootEl.Loaded += (_, _) => ApplyAppearance();
+
         // 设置窗口图标
         try
         {
@@ -157,11 +161,12 @@ public sealed partial class MainWindow : Window
         try
         {
             var dark = _settings.DarkMode;
-            // 内容区透明化（模板 key，启动时设置生效），让背景图/纯色背景透出
-            var contentColor = dark
-                ? Windows.UI.Color.FromArgb(0xA0, 20, 20, 24)
-                : Windows.UI.Color.FromArgb(0xCC, 250, 250, 251);
-            NavView.Resources["NavigationViewContentBackground"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(contentColor);
+            // 内容区透明化（属性级赋值，切主题即时生效），让背景图/纯色背景透出
+            var contentGrid = FindNavContentGrid();
+            if (contentGrid != null)
+                contentGrid.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(dark
+                    ? Windows.UI.Color.FromArgb(0xA0, 20, 20, 24)
+                    : Windows.UI.Color.FromArgb(0xCC, 250, 250, 251));
 
             // 侧边栏半透明基底（直接赋值 NavView.Background，属性级动态生效）
             var paneColor = dark
@@ -170,6 +175,48 @@ public sealed partial class MainWindow : Window
             NavView.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(paneColor);
         }
         catch { }
+    }
+
+    /// <summary>查找 NavigationView 模板内的内容区 ContentGrid（SplitView.Content 的宿主）。
+    /// 直接设置其 Background（属性级，切主题即时生效），绕开模板 Setter 静态解析问题</summary>
+    private Microsoft.UI.Xaml.Controls.Grid FindNavContentGrid()
+    {
+        try
+        {
+            return FindContentGridIn(NavView);
+        }
+        catch { return null; }
+    }
+
+    private Microsoft.UI.Xaml.Controls.Grid FindContentGridIn(DependencyObject parent)
+    {
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is Microsoft.UI.Xaml.Controls.SplitView sv)
+            {
+                var g = FindGridNamed(sv.Content as DependencyObject, "ContentGrid");
+                if (g != null) return g;
+            }
+            var deep = FindContentGridIn(child);
+            if (deep != null) return deep;
+        }
+        return null;
+    }
+
+    private Microsoft.UI.Xaml.Controls.Grid FindGridNamed(DependencyObject parent, string name)
+    {
+        if (parent == null) return null;
+        if (parent is Microsoft.UI.Xaml.Controls.Grid g && g.Name == name) return g;
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            var result = FindGridNamed(child, name);
+            if (result != null) return result;
+        }
+        return null;
     }
 
     /// <summary>应用主题（深/浅色）与外观设置，即时生效无需重启</summary>
@@ -234,15 +281,27 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            // 2b. 亚克力（仅 Windows 10 1803+，失败时静默保持原界面）
+            // 2b. 亚克力（SPW 同款 SystemBackdrop，非打包模式已验证可用）
             if (_settings.AcrylicEnabled)
             {
-                // 亚克力 tint 跟随深浅模式：浅色用浅色磨砂，深色用深色磨砂，
-                // 避免浅色模式下半透明 Pane 透出深色磨砂导致发黑
-                var acrylicTint = _settings.DarkMode
-                    ? Windows.UI.Color.FromArgb(255, 24, 24, 26)
-                    : Windows.UI.Color.FromArgb(255, 240, 240, 242);
-                var ok = AcrylicHelper.Enable(hwnd, acrylicTint, _settings.AcrylicOpacity);
+                var ok = false;
+                try
+                {
+                    // 官方亚克力：tint 跟随系统深浅主题自动切换（WinAppSDK 1.8）
+                    SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
+                    ok = true;
+                }
+                catch { }
+
+                if (!ok)
+                {
+                    // 回退：Win32 SetWindowCompositionAttribute（tint 跟随深浅模式）
+                    var acrylicTint = _settings.DarkMode
+                        ? Windows.UI.Color.FromArgb(255, 24, 24, 26)
+                        : Windows.UI.Color.FromArgb(255, 240, 240, 242);
+                    AcrylicHelper.Enable(hwnd, acrylicTint, _settings.AcrylicOpacity);
+                }
+
                 if (Content is Grid root)
                 {
                     // 半透明基底色（深/浅），透过它看到窗口背后的图层
@@ -252,14 +311,14 @@ public sealed partial class MainWindow : Window
                         : Windows.UI.Color.FromArgb(a, 247, 247, 248);  // 浅色基底
                     root.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(baseColor);
 
-                    // 内容区透明化：覆盖模板的 NavigationViewContentBackground
-                    // （默认 80% 不透明，会把亚克力挡成实心）。
-                    // 构造函数/启动时设置 → 模板首次加载时即解析到该值，有效。
-                    // 运行时切换：尽力更新（模板已加载时可能不生效，重启应用即恢复）。
-                    NavView.Resources["NavigationViewContentBackground"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                        Windows.UI.Color.FromArgb(a, baseColor.R, baseColor.G, baseColor.B));
+                    // 内容区（ContentGrid）直接透明化：属性级赋值，切主题即时生效，
+                    // 绕开模板 Setter 静态解析（默认 80% 不透明会把亚克力挡成实心）
+                    var contentGrid = FindNavContentGrid();
+                    if (contentGrid != null)
+                        contentGrid.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                            Windows.UI.Color.FromArgb(a, baseColor.R, baseColor.G, baseColor.B));
 
-                    // 侧边栏/内容区：保持模板默认（浅色 Pane 自带白底，
+                    // 侧边栏：保持模板默认（浅色 Pane 自带白底，
                     // 深色 Pane 透明 → 透出半透明根背景 → 亚克力可见）。
                     // 绝不设置 NavView.Background —— 它会盖住整个控件区域，
                     // 把亚克力挡成实心。
@@ -268,10 +327,16 @@ public sealed partial class MainWindow : Window
             }
             else
             {
+                SystemBackdrop = null;   // 移除官方亚克力
                 AcrylicHelper.Disable(hwnd);
                 if (Content is Grid root)
                     root.ClearValue(Grid.BackgroundProperty);
-                NavView.Resources.Remove("NavigationViewContentBackground");
+                // 内容区恢复主题默认背景（跟随深浅色，属性级即时生效）
+                var contentGrid = FindNavContentGrid();
+                if (contentGrid != null)
+                    contentGrid.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(_settings.DarkMode
+                        ? Windows.UI.Color.FromArgb(255, 32, 32, 36)
+                        : Windows.UI.Color.FromArgb(255, 252, 252, 253));
                 NavView.ClearValue(Microsoft.UI.Xaml.Controls.Control.BackgroundProperty);
             }
         }
