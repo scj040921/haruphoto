@@ -274,9 +274,10 @@ public sealed partial class MainWindow : Window
             }
             else
             {
-                // 浅色：SPW 亚克力面板（tint 加实 ~80% 白 → 磨砂面板观感，
-                // 非透明玻璃；底部渐透让卡片滑过仍可见）
-                var lt = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255) + 100, 150, 250);
+                // 浅色：SPW 亚克力面板 —— 与侧边栏 Pane 完全同款 tint（+45，
+                // ~60% 半透明），透出 DWM 亚克力模糊 = 磨砂感来源。
+                // 教训：之前 +100 加实到 80% 会把 DWM 模糊完全挡住 → 白板。
+                var lt = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255) + 45, 60, 245);
                 var lm = (byte)(lt * 0.8);
                 var lb = (byte)(lt * 0.5);
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(lt, 252, 252, 253), Offset = 0 });
