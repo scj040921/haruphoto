@@ -30,6 +30,36 @@
             <SolidColorBrush x:Key="SoftOrangeBrush" Color="#C47E3E"/>
             <SolidColorBrush x:Key="SoftRedBrush" Color="#C45B5B"/>
             <SolidColorBrush x:Key="SoftGreenBrush" Color="#5B9C6B"/>
+
+            <!-- 主题自适应资源（深浅模式）-->
+            <ResourceDictionary.ThemeDictionaries>
+                <!-- 浅色 -->
+                <ResourceDictionary x:Key="Light">
+                    <!-- 顶栏渐变：顶部较实 → 底部透明（滚动时卡片从渐变区透出）-->
+                    <LinearGradientBrush x:Key="TopBarGradientBrush" StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#F4F7F7F8" Offset="0"/>
+                        <GradientStop Color="#E8F7F7F8" Offset="0.65"/>
+                        <GradientStop Color="#00F7F7F8" Offset="1"/>
+                    </LinearGradientBrush>
+                    <!-- 信息区亚克力渐变：顶部高光（模拟折射）+ 渐深底色（与卡片区分）-->
+                    <LinearGradientBrush x:Key="InfoAreaGradientBrush" StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#F2F2F2F4" Offset="0"/>
+                        <GradientStop Color="#E4ECECEF" Offset="1"/>
+                    </LinearGradientBrush>
+                </ResourceDictionary>
+                <!-- 深色 -->
+                <ResourceDictionary x:Key="Dark">
+                    <LinearGradientBrush x:Key="TopBarGradientBrush" StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#F21C1C1E" Offset="0"/>
+                        <GradientStop Color="#E01C1C1E" Offset="0.65"/>
+                        <GradientStop Color="#001C1C1E" Offset="1"/>
+                    </LinearGradientBrush>
+                    <LinearGradientBrush x:Key="InfoAreaGradientBrush" StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#E828282C" Offset="0"/>
+                        <GradientStop Color="#DC242428" Offset="1"/>
+                    </LinearGradientBrush>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

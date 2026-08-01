@@ -45,24 +45,27 @@
             <!-- 主内容 -->
             <Grid>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>   <!-- 状态栏 -->
+                    <RowDefinition Height="*"/>      <!-- 内容区：滚动网格 + 悬浮顶栏 -->
                 </Grid.RowDefinitions>
 
-                <!-- 标题栏 -->
-                <Grid Grid.Row="0" Padding="24,18,24,8">
-                    <StackPanel Spacing="2">
-                        <TextBlock Text="haruphoto" FontSize="26" FontWeight="SemiBold"
-                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                        <TextBlock x:Name="LibraryNameText" Text="照片库" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                    </StackPanel>
-                </Grid>
+                <!-- 悬浮顶栏（内容区覆盖层，VerticalAlignment=Top）：
+                     渐变半透明背景，滚动时下方卡片从渐变区透出 -->
+                <Grid Grid.Row="1" VerticalAlignment="Top">
+                    <Border Background="{ThemeResource TopBarGradientBrush}"/>
 
-                <!-- 工具栏 -->
-                <Grid Grid.Row="1" Padding="24,6,24,14">
+                    <!-- 标题栏 -->
+                    <Grid Padding="24,18,24,8">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="haruphoto" FontSize="26" FontWeight="SemiBold"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                            <TextBlock x:Name="LibraryNameText" Text="照片库" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- 工具栏 -->
+                    <Grid Margin="0,64,0,0" Padding="24,6,24,14">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -114,10 +117,11 @@
                         </Button>
                     </StackPanel>
                 </Grid>
+                </Grid>  <!-- 悬浮顶栏结束 -->
 
-                <!-- 照片网格 -->
-                <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled"
-                              VerticalScrollBarVisibility="Auto" Padding="24,0,24,16">
+                <!-- 照片网格（占满内容区；顶部留出悬浮顶栏高度，滚动时卡片滑入顶栏下方）-->
+                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto" Padding="24,132,24,16">
                     <Grid>
                         <!-- ThemeShadow 阴影接收层（在卡片后面；须有可见背景才能投射阴影）-->
                         <Border x:Name="PhotoShadowReceiver" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
@@ -165,9 +169,9 @@
                                                            Foreground="#CCFFFFFF"/>
                                             </Border>
 
-                                            <!-- 信息区：灰色亚克力质感（半透明灰 + 顶部细分隔线）-->
+                                            <!-- 信息区：亚克力渐变（顶部高光模拟折射 + 与卡片底色区分）-->
                                             <StackPanel Grid.Row="1" Padding="12,10,12,12"
-                                                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                                        Background="{ThemeResource InfoAreaGradientBrush}"
                                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                                                         BorderThickness="0,1,0,0">
                                                 <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
@@ -188,7 +192,7 @@
                 </ScrollViewer>
 
                 <!-- 状态栏 -->
-                <Border Grid.Row="3" Padding="24,9"
+                <Border Grid.Row="0" Padding="24,9"
                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                     <Grid>
                         <Grid.ColumnDefinitions>
