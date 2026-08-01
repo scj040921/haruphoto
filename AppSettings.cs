@@ -31,6 +31,7 @@ public sealed class AppSettings
     public int BackgroundMode { get; set; } = 0;           // 0=默认 1=纯色 2=图片
     public string BackgroundColor { get; set; } = "#2A2A32";
     public string BackgroundImagePath { get; set; } = "";
+    public int TopBarStyle { get; set; } = 0;              // 顶栏材质：0=侧边栏同款 1=液态玻璃（扭曲折射）
 
     // ── 自动扫描 ──
     public bool AutoScan { get; set; } = true;

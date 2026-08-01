@@ -16,6 +16,8 @@ using System.Threading.Tasks;
 using Windows.Storage.Pickers;
 using Windows.System;
 using Windows.UI.Core;
+using Microsoft.UI.Xaml.Hosting; // ElementCompositionPreview
+using Microsoft.UI.Composition;  // CompositionEffectSourceParameter 等
 
 namespace PhotoAlbum;
 
@@ -30,6 +32,7 @@ public sealed partial class MainWindow : Window
     private CancellationTokenSource? _thumbCts;
     private readonly FolderWatcherService _folderWatcher = new();
     private readonly AppSettings _settings = AppSettings.Load();
+    private Microsoft.UI.Composition.SpriteVisual? _topBarLiquidSprite;
 
     private readonly DispatcherTimer _searchTimer;
     private readonly DispatcherTimer _saveTimer;
@@ -259,6 +262,69 @@ public sealed partial class MainWindow : Window
         catch { }
     }
 
+    /// <summary>顶栏液态玻璃：Composition 折射扭曲（苹果 Liquid Glass 风格）。
+    /// 链：BackdropBrush（背后滚动卡片）→ DisplacementMapEffect（径向位移
+    /// 扭曲 = 折射）→ GaussianBlurEffect（磨砂）→ 半透明层。
+    /// 位移图 = 程序生成径向渐变（中心亮边缘暗 → 内容向外膨胀的透镜感）。
+    /// 非打包模式失败时静默回退纯渐变（BuildTopBarGradient）。</summary>
+    private void ApplyTopBarLiquidGlass()
+    {
+        if (TopBarGradient == null) return;
+        try
+        {
+            var compositor = ElementCompositionPreview.GetElementVisual(TopBarGradient).Compositor;
+
+            // 1. 位移图（256x256 径向渐变：中心白 → 边缘灰 128 → 透镜折射场）。
+            // CanvasRenderTarget 直接作效果输入（实现 IGraphicsEffectSource，
+            // 绕开 WinUI3 CompositionSurfaceBrush 不实现该接口的问题）
+            using var device = Microsoft.Graphics.Canvas.CanvasDevice.GetSharedDevice();
+            using var displacementMap = new Microsoft.Graphics.Canvas.CanvasRenderTarget(device, 256, 256, 96);
+            using (var ds = displacementMap.CreateDrawingSession())
+            {
+                ds.Clear(Microsoft.UI.Colors.Gray);
+                using var radial = new Microsoft.Graphics.Canvas.Brushes.CanvasRadialGradientBrush(
+                    ds, Microsoft.UI.Colors.White, Microsoft.UI.Colors.Gray)
+                {
+                    Center = new System.Numerics.Vector2(128, 128),
+                    RadiusX = 88f,
+                    RadiusY = 88f
+                };
+                ds.FillEllipse(128f, 128f, 88f, 88f, radial);
+            }
+
+            // 2. 效果链：扭曲（位移映射）→ 磨砂
+            var effect = new Microsoft.Graphics.Canvas.Effects.DisplacementMapEffect
+            {
+                Name = "liquid",
+                Amount = 26f,
+                XChannelSelect = Microsoft.Graphics.Canvas.Effects.EffectChannelSelect.Red,
+                YChannelSelect = Microsoft.Graphics.Canvas.Effects.EffectChannelSelect.Green,
+                Displacement = displacementMap,
+                Source = new CompositionEffectSourceParameter("backdrop")
+            };
+            var blur = new Microsoft.Graphics.Canvas.Effects.GaussianBlurEffect
+            {
+                Name = "frost",
+                BlurAmount = 12f,
+                Source = effect
+            };
+
+            // 3. 挂到顶栏渐变层（不拦截鼠标，滚动态实时扭曲）
+            var factory = compositor.CreateEffectFactory(blur);
+            var brush = factory.CreateBrush();
+            brush.SetSourceParameter("backdrop", compositor.CreateBackdropBrush());
+            var sprite = compositor.CreateSpriteVisual();
+            sprite.Brush = brush;
+            sprite.Opacity = 0.6f;
+            sprite.Size = new System.Numerics.Vector2(
+                (float)Math.Max(TopBarGradient.ActualWidth, 1),
+                (float)Math.Max(TopBarGradient.ActualHeight, 1));
+            ElementCompositionPreview.SetElementChildVisual(TopBarGradient, sprite);
+            _topBarLiquidSprite = sprite;
+        }
+        catch { /* 合成不支持时静默回退纯渐变 */ }
+    }
+
     /// <summary>应用主题（深/浅色）与外观设置，即时生效无需重启</summary>
     private void ApplyTheme()
     {
@@ -277,8 +343,12 @@ public sealed partial class MainWindow : Window
         // 3. 外观设置（主题色/亚克力）
         ApplyAppearance();
 
-        // 4. 悬浮顶栏渐变（与侧边栏同款亚克力，跟随主题/透明度）
+        // 4. 顶栏材质：0=侧边栏同款（仅渐变） 1=液态玻璃（渐变 + 扭曲折射）
         BuildTopBarGradient();
+        if (_settings.TopBarStyle == 1)
+            ApplyTopBarLiquidGlass();
+        else
+            ElementCompositionPreview.SetElementChildVisual(TopBarGradient, null);
     }
 
     /// <summary>应用外观设置：主题色 + 亚克力（SPW 风格可选模式，默认关闭保留原界面）</summary>
@@ -914,6 +984,17 @@ public sealed partial class MainWindow : Window
         var acrylicSlider = new Slider { Header = "亚克力透明度", Minimum = 0.0, Maximum = 1.0, StepFrequency = 0.05, Value = _settings.AcrylicOpacity, IsEnabled = _settings.AcrylicEnabled };
         acrylicToggle.Toggled += (_, _) => acrylicSlider.IsEnabled = acrylicToggle.IsOn;
 
+        // 顶栏材质：0=侧边栏同款 1=液态玻璃（扭曲折射）
+        var topBarCombo = new ComboBox
+        {
+            Header = "顶栏材质",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 6, 0, 0),
+            SelectedIndex = _settings.TopBarStyle
+        };
+        topBarCombo.Items.Add(new ComboBoxItem { Content = "侧边栏同款（磨砂）" });
+        topBarCombo.Items.Add(new ComboBoxItem { Content = "液态玻璃（扭曲折射）" });
+
         // 主题色：预设色板 + ColorPicker
         var accentRow = new StackPanel { Spacing = 6 };
         accentRow.Children.Add(new TextBlock { Text = "主题色", FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
@@ -1026,6 +1107,7 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(lookLabel);
         panel.Children.Add(acrylicToggle);
         panel.Children.Add(acrylicSlider);
+        panel.Children.Add(topBarCombo);
         panel.Children.Add(accentRow);
         panel.Children.Add(radiusCombo);
         panel.Children.Add(animToggle);
@@ -1091,6 +1173,7 @@ public sealed partial class MainWindow : Window
             // ── 外观设置（SPW 风格）──
             _settings.AcrylicEnabled = acrylicToggle.IsOn;
             _settings.AcrylicOpacity = acrylicSlider.Value;
+            _settings.TopBarStyle = topBarCombo.SelectedIndex;  // 0=侧边栏同款 1=液态玻璃
             _settings.AccentColor = ColorToHex(colorPicker.Color);
             _settings.CardCornerRadius = radiusCombo.SelectedIndex switch { 0 => 8.0, 2 => 20.0, _ => 14.0 };
             _settings.AnimationsEnabled = animToggle.IsOn;
