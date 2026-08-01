@@ -232,6 +232,28 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
+    /// <summary>视觉树定位侧边栏 Pane 宿主（SplitView.Pane = Grid/Panel）</summary>
+    private Microsoft.UI.Xaml.Controls.Panel? FindNavPane()
+    {
+        try { return FindPaneIn(NavView); }
+        catch { return null; }
+    }
+
+    private Microsoft.UI.Xaml.Controls.Panel? FindPaneIn(DependencyObject parent)
+    {
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is Microsoft.UI.Xaml.Controls.SplitView sv
+                && sv.Pane is Microsoft.UI.Xaml.Controls.Panel pane)
+                return pane;
+            var deep = FindPaneIn(child);
+            if (deep != null) return deep;
+        }
+        return null;
+    }
+
     /// <summary>构建悬浮顶栏渐变背景 —— 与侧边栏同款材质：
     /// 浅色 = Pane 自带白底同款（高不透明白面板，底部渐透让卡片滑过）；
     /// 深色 = Pane 同款（透明 → 透出根背景基底，alpha 跟随亚克力透明度）。
@@ -257,10 +279,30 @@ public sealed partial class MainWindow : Window
             }
             else
             {
-                // 浅色：Pane 自带白底同款（94% 白面板）→ 底部渐透（65% → 卡片滑过可见）
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xF0, 252, 252, 253), Offset = 0 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xE6, 247, 247, 248), Offset = 0.4 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xA6, 247, 247, 248), Offset = 1 });
+                // 浅色：SPW 亚克力磨砂（半透明 tint 顶部 → 底部渐透，卡片滑过可见）
+                var lt = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255) + 60, 90, 245);
+                var lm = (byte)(lt * 0.7);
+                var lb = (byte)(lt * 0.4);
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(lt, 252, 252, 253), Offset = 0 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(lm, 247, 247, 248), Offset = 0.4 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(lb, 247, 247, 248), Offset = 1 });
+            }
+            // 液态玻璃模式：tint 大幅调淡（扭曲层不被白白化盖住）
+            if (_settings.TopBarStyle == 1)
+            {
+                g.GradientStops.Clear();
+                if (dark)
+                {
+                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x59, 40, 40, 44), Offset = 0 });
+                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x26, 24, 24, 26), Offset = 0.5 });
+                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 24, 24, 26), Offset = 1 });
+                }
+                else
+                {
+                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x80, 255, 255, 255), Offset = 0 });
+                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x33, 247, 247, 248), Offset = 0.5 });
+                    g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 247, 247, 248), Offset = 1 });
+                }
             }
             TopBarGradient.Background = g;
 
@@ -280,11 +322,11 @@ public sealed partial class MainWindow : Window
         catch { }
     }
 
-    /// <summary>顶栏液态玻璃：Composition 折射扭曲（苹果 Liquid Glass 风格）。
-    /// 链：BackdropBrush（背后滚动卡片）→ DisplacementMapEffect（径向位移
-    /// 扭曲 = 折射）→ GaussianBlurEffect（磨砂）→ 半透明层。
-    /// 位移图 = 程序生成径向渐变（中心亮边缘暗 → 内容向外膨胀的透镜感）。
-    /// 非打包模式失败时静默回退纯渐变（BuildTopBarGradient）。</summary>
+    /// <summary>顶栏液态玻璃模式：Composition 磨砂 + 高光折射。
+    /// 注：DisplacementMapEffect 扭曲被 WinUI3 桌面版 CompositionEffectFactory
+    /// 拒绝（Unsupported effect type，诊断日志证实）→ 退化为平台支持的
+    /// GaussianBlur 磨砂 + 描边高光（近似液态玻璃质感）。
+    /// 失败时静默回退纯渐变（BuildTopBarGradient）。</summary>
     private void ApplyTopBarLiquidGlass()
     {
         if (TopBarGradient == null) return;
@@ -292,55 +334,39 @@ public sealed partial class MainWindow : Window
         {
             var compositor = ElementCompositionPreview.GetElementVisual(TopBarGradient).Compositor;
 
-            // 1. 位移图（256x256 径向渐变：中心白 → 边缘灰 128 → 透镜折射场）。
-            // CanvasRenderTarget 直接作效果输入（实现 IGraphicsEffectSource，
-            // 绕开 WinUI3 CompositionSurfaceBrush 不实现该接口的问题）
-            using var device = Microsoft.Graphics.Canvas.CanvasDevice.GetSharedDevice();
-            using var displacementMap = new Microsoft.Graphics.Canvas.CanvasRenderTarget(device, 256, 256, 96);
-            using (var ds = displacementMap.CreateDrawingSession())
-            {
-                ds.Clear(Microsoft.UI.Colors.Gray);
-                using var radial = new Microsoft.Graphics.Canvas.Brushes.CanvasRadialGradientBrush(
-                    ds, Microsoft.UI.Colors.White, Microsoft.UI.Colors.Gray)
-                {
-                    Center = new System.Numerics.Vector2(128, 128),
-                    RadiusX = 130f,
-                    RadiusY = 130f
-                };
-                ds.FillEllipse(128f, 128f, 130f, 130f, radial);
-            }
-
-            // 2. 效果链：扭曲（位移映射）→ 磨砂
-            var effect = new Microsoft.Graphics.Canvas.Effects.DisplacementMapEffect
-            {
-                Name = "liquid",
-                Amount = 32f,
-                XChannelSelect = Microsoft.Graphics.Canvas.Effects.EffectChannelSelect.Red,
-                YChannelSelect = Microsoft.Graphics.Canvas.Effects.EffectChannelSelect.Green,
-                Displacement = displacementMap,
-                Source = new CompositionEffectSourceParameter("backdrop")
-            };
+            // 效果链：BackdropBrush（背后滚动卡片实时）→ 高斯磨砂
             var blur = new Microsoft.Graphics.Canvas.Effects.GaussianBlurEffect
             {
-                Name = "frost",
-                BlurAmount = 12f,
-                Source = effect
+                Name = "liquid_frost",
+                BlurAmount = 14f,
+                Source = new CompositionEffectSourceParameter("backdrop")
             };
 
-            // 3. 挂到顶栏渐变层（不拦截鼠标，滚动态实时扭曲）
+            // 挂到顶栏渐变层（不拦截鼠标，滚动态实时磨砂）
             var factory = compositor.CreateEffectFactory(blur);
             var brush = factory.CreateBrush();
             brush.SetSourceParameter("backdrop", compositor.CreateBackdropBrush());
             var sprite = compositor.CreateSpriteVisual();
             sprite.Brush = brush;
-            sprite.Opacity = 0.6f;
+            sprite.Opacity = 0.7f;   // 液态玻璃层：磨砂清晰可见
             sprite.Size = new System.Numerics.Vector2(
                 (float)Math.Max(TopBarGradient.ActualWidth, 1),
                 (float)Math.Max(TopBarGradient.ActualHeight, 1));
             ElementCompositionPreview.SetElementChildVisual(TopBarGradient, sprite);
             _topBarLiquidSprite = sprite;
+            // 诊断：效果链激活确认（LibraryNameText 在标题下方）
+            if (LibraryNameText != null)
+                LibraryNameText.Text = "照片库 · 液态玻璃已启用";
         }
-        catch { /* 合成不支持时静默回退纯渐变 */ }
+        catch (Exception ex)
+        {
+            // 合成不支持时静默回退纯渐变，但留下可见诊断 + 文件日志
+            try { System.IO.File.AppendAllText(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "haruphoto_liquid.log"),
+                $"[{DateTime.Now:HH:mm:ss}] 液态玻璃创建失败: {ex}\n"); } catch { }
+            if (LibraryNameText != null)
+                LibraryNameText.Text = "照片库 · 液态玻璃不可用（已回退）";
+        }
     }
 
     /// <summary>窗口尺寸变化时同步顶栏液态玻璃 sprite 尺寸
@@ -464,10 +490,17 @@ public sealed partial class MainWindow : Window
                         PhotoShadowReceiver.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
                             Windows.UI.Color.FromArgb(a, baseColor.R, baseColor.G, baseColor.B));
 
-                    // 侧边栏：保持模板默认（浅色 Pane 自带白底，
-                    // 深色 Pane 透明 → 透出半透明根背景 → 亚克力可见）。
+                    // 侧边栏：SPW 亚克力磨砂 —— Pane 宿主半透明 tint
+                    // （浅色 半透明白 / 深色 半透明深灰），透出 DWM 亚克力模糊。
                     // 绝不设置 NavView.Background —— 它会盖住整个控件区域，
                     // 把亚克力挡成实心。
+                    var paneA = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255) + (_settings.DarkMode ? 0 : 45), 60, 245);
+                    var pane = FindNavPane();
+                    if (pane != null)
+                        pane.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                            _settings.DarkMode
+                                ? Windows.UI.Color.FromArgb(paneA, 24, 24, 26)
+                                : Windows.UI.Color.FromArgb(paneA, 247, 247, 248));
                     NavView.ClearValue(Microsoft.UI.Xaml.Controls.Control.BackgroundProperty);
                 }
             }
