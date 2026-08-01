@@ -245,16 +245,16 @@ public sealed partial class MainWindow : Window
             };
             if (dark)
             {
-                // 深色：顶部 68% 亮灰（毛玻璃基底）→ 35% → 全透明（卡片若隐若现）
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xAD, 40, 40, 44), Offset = 0 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x59, 40, 40, 44), Offset = 0.4 });
+                // 深色：顶部 35% 亮灰（玻璃边缘高光）→ 15% → 全透明（磨砂由模糊层主导）
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x59, 40, 40, 44), Offset = 0 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x26, 40, 40, 44), Offset = 0.35 });
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 28, 28, 30), Offset = 1 });
             }
             else
             {
-                // 浅色：顶部 68% 白（毛玻璃基底）→ 35% → 全透明（卡片若隐若现）
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xAD, 255, 255, 255), Offset = 0 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x59, 247, 247, 248), Offset = 0.4 });
+                // 浅色：顶部 35% 白（玻璃边缘高光）→ 15% → 全透明（磨砂由模糊层主导）
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x59, 255, 255, 255), Offset = 0 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x26, 247, 247, 248), Offset = 0.35 });
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 247, 247, 248), Offset = 1 });
             }
             TopBarGradient.Background = g;
@@ -273,7 +273,7 @@ public sealed partial class MainWindow : Window
             var effect = new Microsoft.Graphics.Canvas.Effects.GaussianBlurEffect
             {
                 Name = "topbar_blur",
-                BlurAmount = 14f,
+                BlurAmount = 28f,
                 BorderMode = Microsoft.Graphics.Canvas.Effects.EffectBorderMode.Hard,
                 Optimization = Microsoft.Graphics.Canvas.Effects.EffectOptimization.Speed,
                 Source = new CompositionEffectSourceParameter("source")
@@ -284,7 +284,7 @@ public sealed partial class MainWindow : Window
 
             var sprite = compositor.CreateSpriteVisual();
             sprite.Brush = brush;
-            sprite.Opacity = 0.55f;   // 模糊层半透明：下层卡片若隐若现
+            sprite.Opacity = 0.62f;   // 模糊层 62%：磨砂剪影更实，卡片细节不可辨
             sprite.Size = new System.Numerics.Vector2(
                 (float)Math.Max(TopBarGradient.ActualWidth, 1),
                 (float)Math.Max(TopBarGradient.ActualHeight, 1));
