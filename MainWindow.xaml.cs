@@ -248,10 +248,10 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
-    /// <summary>构建悬浮顶栏 tint 层（Acrylic 结构的上层）：
-    /// 使用官方 AcrylicBrush（BackgroundSource=Backdrop 采样窗口内
-    /// 元素背后内容 → 滚动卡片实时模糊 = 真磨砂；不是自建 BackdropBrush
-    /// 链，后者像素实证只采样窗口背后）。
+    /// <summary>构建悬浮顶栏 tint 层：官方 AcrylicBrush。
+    /// WinUI3 桌面版 AcrylicBrush 无 BackgroundSource 属性
+    /// （UWP 才有 Backdrop/HostBackdrop 之分）→ 固定采样窗口背后；
+    /// 窗口内内容实时模糊在桌面版无官方 API（BackdropBrush 同限）。
     /// 浅色 = SPW 亚克力白面板；深色 = 深灰面板。
     /// 液态玻璃模式 = 更低 TintOpacity（更透）+ 描边高光。</summary>
     private void BuildTopBarGradient()
@@ -262,8 +262,6 @@ public sealed partial class MainWindow : Window
             var dark = _settings.DarkMode;
             var acrylic = new Microsoft.UI.Xaml.Media.AcrylicBrush
             {
-                // 注：WinUI3 桌面版 AcrylicBrush 无 BackgroundSource 属性
-                // （UWP 才有 Backdrop/HostBackdrop 之分）→ 固定采样窗口背后。
                 // tint 下限 0.55：即使滑块拉到 0 也不会纯透明（磨砂面板底线）
                 TintOpacity = _settings.TopBarStyle == 1
                     ? Math.Max(_settings.AcrylicOpacity, 0.35)
