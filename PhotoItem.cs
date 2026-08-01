@@ -16,6 +16,10 @@ public sealed class PhotoItem : INotifyPropertyChanged
     public string FilePath { get; set; } = "";
     public long FileSize { get; set; }
     public DateTime DateAdded { get; set; } = DateTime.Now;
+    public DateTime? DateTaken { get; set; }   // EXIF 拍摄时间，无则 null
+
+    /// <summary>时间线使用的日期：优先拍摄日期，退化到添加日期。</summary>
+    public DateTime TimelineDate => DateTaken ?? DateAdded;
 
     private string _category = "";
     public string Category

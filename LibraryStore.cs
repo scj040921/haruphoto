@@ -21,6 +21,7 @@ public static class LibraryStore
         [JsonPropertyName("rating")] public int Rating { get; set; }
         [JsonPropertyName("added")] public DateTime Added { get; set; }
         [JsonPropertyName("category")] public string Category { get; set; } = "";
+        [JsonPropertyName("taken")] public DateTime? Taken { get; set; }
     }
 
     private sealed class LibraryFile
@@ -70,6 +71,7 @@ public static class LibraryStore
                         FilePath = fi.FullName,
                         FileSize = fi.Length,
                         DateAdded = e.Added,
+                        DateTaken = e.Taken,
                         IsFavorite = e.Favorite,
                         Rating = e.Rating,
                         Category = e.Category ?? "",
@@ -93,6 +95,7 @@ public static class LibraryStore
                 Rating = p.Rating,
                 Added = p.DateAdded,
                 Category = p.Category ?? "",
+                Taken = p.DateTaken,
             }).ToList(),
         };
 

@@ -17,6 +17,11 @@
                     <NavigationViewItem.Icon><FontIcon Glyph="&#xE734;" FontSize="16"/></NavigationViewItem.Icon>
                 </NavigationViewItem>
 
+                <!-- 时间线（代码动态添加年份子项）-->
+                <NavigationViewItem Content="时间线" Tag="Timeline" IsExpanded="True">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE787;" FontSize="16"/></NavigationViewItem.Icon>
+                </NavigationViewItem>
+
                 <!-- 分类（代码动态添加子项）-->
                 <NavigationViewItem Content="分类" IsExpanded="True">
                     <NavigationViewItem.Icon><FontIcon Glyph="&#xE178;" FontSize="16"/></NavigationViewItem.Icon>
@@ -72,6 +77,22 @@
                             <ComboBoxItem Content="📅 最近添加"/>
                             <ComboBoxItem Content="📝 文件名"/>
                             <ComboBoxItem Content="⭐ 评分"/>
+                        </ComboBox>
+                        <ComboBox x:Name="FilterRatingCombo" SelectedIndex="0" MinWidth="100"
+                                  SelectionChanged="FilterCombo_Changed" FontSize="13">
+                            <ComboBoxItem Content="⭐ 评分不限"/>
+                            <ComboBoxItem Content="★1 以上"/>
+                            <ComboBoxItem Content="★2 以上"/>
+                            <ComboBoxItem Content="★3 以上"/>
+                            <ComboBoxItem Content="★4 以上"/>
+                            <ComboBoxItem Content="★5 满分"/>
+                        </ComboBox>
+                        <ComboBox x:Name="FilterDateCombo" SelectedIndex="0" MinWidth="110"
+                                  SelectionChanged="FilterCombo_Changed" FontSize="13">
+                            <ComboBoxItem Content="🗓 全部时间"/>
+                            <ComboBoxItem Content="最近 7 天"/>
+                            <ComboBoxItem Content="最近 30 天"/>
+                            <ComboBoxItem Content="最近 90 天"/>
                         </ComboBox>
                         <CheckBox x:Name="FavOnlyCheckBox" Content="❤️ 仅收藏"
                                   Checked="FavOnly_Changed" Unchecked="FavOnly_Changed"
@@ -175,6 +196,8 @@
                             <Button x:Name="DissolveCatBtn" Content="💥 解散分类" Click="DissolveCategory_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"
                                     Foreground="{StaticResource SoftRedBrush}"/>
+                            <Button Content="🔄 查重" Click="DuplicateCheck_Click"
+                                    FontSize="12" Padding="12,6" CornerRadius="6"/>
                             <Button Content="❤️ 全选收藏" Click="BatchFav_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6"/>
                             <Button Content="🏷 批量分类" Click="BatchClassify_Click"
@@ -275,6 +298,17 @@
                                     <TextBlock x:Name="PreviewPath" FontSize="11" TextWrapping="Wrap"
                                                Opacity="0.6"
                                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                </StackPanel>
+
+                                <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" Opacity="0.5"/>
+
+                                <!-- 拍摄信息 (EXIF) -->
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="拍摄信息" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                    <TextBlock x:Name="PreviewExif" FontSize="12" LineHeight="20"
+                                               TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                 </StackPanel>
 
                                 <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" Opacity="0.5"/>

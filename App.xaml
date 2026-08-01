@@ -29,6 +29,7 @@
             <SolidColorBrush x:Key="SoftYellowBrush" Color="#C4A93E"/>
             <SolidColorBrush x:Key="SoftOrangeBrush" Color="#C47E3E"/>
             <SolidColorBrush x:Key="SoftRedBrush" Color="#C45B5B"/>
+            <SolidColorBrush x:Key="SoftGreenBrush" Color="#5B9C6B"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

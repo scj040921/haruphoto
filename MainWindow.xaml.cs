@@ -41,6 +41,9 @@ public sealed partial class MainWindow : Window
     private string _searchKeyword = "";
     private bool _favoritesOnly;
     private string _categoryFilter = "";  // "" = 不筛选
+    private string _timelineFilter = "";  // "yyyy-MM"，"" = 不限
+    private int _minRatingFilter;          // 0 = 不限
+    private int _dateFilterDays;           // 0 = 不限
     private bool _uiReady;
     private bool _importing;
 
@@ -212,6 +215,7 @@ public sealed partial class MainWindow : Window
             .ToList();
         _categories.AddRange(cats);
         RebuildCategoryNavItems();
+        RebuildTimelineNavItems();
     }
 
     /// <summary>刷新预览面板分类 ComboBox</summary>
@@ -256,6 +260,33 @@ public sealed partial class MainWindow : Window
             };
             item.IsSelected = _categoryFilter == cat;
             catParent.MenuItems.Add(item);
+        }
+    }
+
+    /// <summary>重建导航栏中的时间线子项（按年月分组）</summary>
+    private void RebuildTimelineNavItems()
+    {
+        var tlParent = NavView.MenuItems
+            .OfType<NavigationViewItem>()
+            .FirstOrDefault(nvi => nvi.Content?.ToString() == "时间线");
+        if (tlParent == null) return;
+
+        tlParent.MenuItems.Clear();
+
+        var groups = _allPhotos
+            .GroupBy(p => p.TimelineDate.ToString("yyyy-MM"))
+            .OrderByDescending(g => g.Key);
+
+        foreach (var g in groups)
+        {
+            var month = g.Key;
+            var item = new NavigationViewItem
+            {
+                Content = $"{month}（{g.Count()}）",
+                Tag = "T:" + month,
+            };
+            item.IsSelected = _timelineFilter == month;
+            tlParent.MenuItems.Add(item);
         }
     }
 
@@ -439,6 +470,15 @@ public sealed partial class MainWindow : Window
         if (_favoritesOnly) q = q.Where(p => p.IsFavorite);
         if (!string.IsNullOrEmpty(_categoryFilter))
             q = q.Where(p => p.Category == _categoryFilter);
+        if (!string.IsNullOrEmpty(_timelineFilter))
+            q = q.Where(p => p.TimelineDate.ToString("yyyy-MM") == _timelineFilter);
+        if (_minRatingFilter > 0)
+            q = q.Where(p => p.Rating >= _minRatingFilter);
+        if (_dateFilterDays > 0)
+        {
+            var cutoff = DateTime.Now.AddDays(-_dateFilterDays);
+            q = q.Where(p => p.DateAdded >= cutoff);
+        }
         if (!string.IsNullOrWhiteSpace(_searchKeyword))
             q = q.Where(p => p.Filename.Contains(_searchKeyword, StringComparison.OrdinalIgnoreCase)
                           || p.Category.Contains(_searchKeyword, StringComparison.OrdinalIgnoreCase));
@@ -520,23 +560,41 @@ public sealed partial class MainWindow : Window
             {
                 _favoritesOnly = false;
                 _categoryFilter = "";
+                _timelineFilter = "";
                 FavOnlyCheckBox.IsChecked = false;
             }
             else if (tag == "Favorites")
             {
                 _favoritesOnly = true;
                 _categoryFilter = "";
+                _timelineFilter = "";
                 FavOnlyCheckBox.IsChecked = true;
+            }
+            else if (tag == "Timeline")
+            {
+                _timelineFilter = "";
+                _categoryFilter = "";
+                _favoritesOnly = false;
+                FavOnlyCheckBox.IsChecked = false;
+            }
+            else if (tag.StartsWith("T:"))
+            {
+                _timelineFilter = tag[2..];
+                _categoryFilter = "";
+                _favoritesOnly = false;
+                FavOnlyCheckBox.IsChecked = false;
             }
             else if (tag == "CatAll")
             {
                 _categoryFilter = "";
+                _timelineFilter = "";
                 _favoritesOnly = false;
                 FavOnlyCheckBox.IsChecked = false;
             }
             else if (tag.StartsWith("Cat:"))
             {
                 _categoryFilter = tag[4..];
+                _timelineFilter = "";
                 _favoritesOnly = false;
                 FavOnlyCheckBox.IsChecked = false;
             }
@@ -559,7 +617,15 @@ public sealed partial class MainWindow : Window
     private void SortCombo_SelectionChanged(object s, SelectionChangedEventArgs e)
     {
         if (!_uiReady) return;
-        _sortBy = Math.Max(0, SortCombo.SelectedIndex);
+        _sortBy = SortCombo.SelectedIndex;
+        RefreshPhotos();
+    }
+
+    private void FilterCombo_Changed(object s, SelectionChangedEventArgs e)
+    {
+        if (!_uiReady) return;
+        _minRatingFilter = FilterRatingCombo.SelectedIndex;         // 0=不限, 1..5
+        _dateFilterDays = FilterDateCombo.SelectedIndex switch { 1 => 7, 2 => 30, 3 => 90, _ => 0 };
         _currentPage = 0;
         RefreshPhotos();
     }
@@ -888,6 +954,8 @@ public sealed partial class MainWindow : Window
         PreviewInfo.Text = $"{p.SizeText} · 添加于 {p.DateText}";
         PreviewPath.Text = p.FilePath;
         PreviewFavButton.Content = p.IsFavorite ? "★ 取消收藏" : "☆ 收藏";
+        PreviewExif.Text = "读取中…";
+        _ = LoadExifAsync(p.FilePath);
 
         _suppressRatingEvent = true;
         PreviewRating.Value = p.Rating;
@@ -914,6 +982,15 @@ public sealed partial class MainWindow : Window
         bmp.ImageFailed += (_, _) => PreviewLoading.Visibility = Visibility.Collapsed;
         PreviewImage.Source = bmp;
         bmp.UriSource = new Uri(p.FilePath);
+    }
+
+    private int _exifRequestSeq;
+    private async Task LoadExifAsync(string filePath)
+    {
+        var seq = ++_exifRequestSeq;
+        var text = await ExifReader.LoadExifTextAsync(filePath);
+        if (seq != _exifRequestSeq) return; // 已切换到其他照片，丢弃过期结果
+        PreviewExif.Text = text ?? "（无 EXIF 信息）";
     }
 
     private void ClosePreview()
@@ -1104,6 +1181,127 @@ public sealed partial class MainWindow : Window
         StatusText.Text = $"已收藏当前筛选结果（{_currentView.Count} 张）";
     }
 
+    private async void DuplicateCheck_Click(object s, RoutedEventArgs e)
+    {
+        if (_allPhotos.Count < 2) { StatusText.Text = "照片太少，无需查重"; return; }
+
+        BusyRing.Visibility = Visibility.Visible;
+        StatusText.Text = "正在计算文件哈希…";
+        var progress = new Progress<int>(n => StatusText.Text = $"正在检查重复… {n} 个文件");
+        var groups = await DuplicateScanner.FindDuplicatesAsync(_allPhotos, progress);
+        BusyRing.Visibility = Visibility.Collapsed;
+
+        if (groups.Count == 0)
+        {
+            StatusText.Text = "✅ 未发现重复照片";
+            return;
+        }
+
+        // 构建结果对话框
+        var panel = new StackPanel { Spacing = 10 };
+        var totalDupes = groups.Sum(g => g.Count - 1);
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"发现 {groups.Count} 组重复（共 {totalDupes} 张冗余照片）。移除仅从图库删除记录，不会删除磁盘文件。",
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+        });
+
+        var groupIdx = 0;
+        foreach (var group in groups)
+        {
+            groupIdx++;
+            var keep = group[0];
+            var box = new Border
+            {
+                Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(14, 10, 14, 10),
+            };
+            var inner = new StackPanel { Spacing = 6 };
+
+            var header = new TextBlock
+            {
+                Text = $"组 {groupIdx} · {group.Count} 张 · {keep.SizeText}",
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                FontSize = 12,
+            };
+            inner.Children.Add(header);
+
+            foreach (var p in group)
+            {
+                var row = new Grid();
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var name = new TextBlock
+                {
+                    Text = p.Filename,
+                    FontSize = 11,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(name, 0);
+                row.Children.Add(name);
+
+                if (p != keep)
+                {
+                    var rmBtn = new Button
+                    {
+                        Content = "移除",
+                        FontSize = 11,
+                        Padding = new Thickness(8, 3, 8, 3),
+                        CornerRadius = new CornerRadius(4),
+                        Tag = p,
+                    };
+                    rmBtn.Click += DupeRemove_Click;
+                    Grid.SetColumn(rmBtn, 1);
+                    row.Children.Add(rmBtn);
+                }
+                else
+                {
+                    var keepTag = new TextBlock { Text = "保留", FontSize = 11, Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SoftGreenBrush"], VerticalAlignment = VerticalAlignment.Center };
+                    Grid.SetColumn(keepTag, 1);
+                    row.Children.Add(keepTag);
+                }
+                inner.Children.Add(row);
+            }
+            box.Child = inner;
+            panel.Children.Add(box);
+        }
+
+        var scroll = new ScrollViewer { Content = panel, MaxHeight = 420, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var dlg = new ContentDialog
+        {
+            Title = "🔄 重复照片",
+            Content = scroll,
+            PrimaryButtonText = "移除全部重复",
+            CloseButtonText = "关闭",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = Content.XamlRoot,
+        };
+        if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+        {
+            var removed = 0;
+            foreach (var group in groups)
+                for (var i = 1; i < group.Count; i++)
+                    if (_allPhotos.Remove(group[i])) removed++;
+            RefreshPhotos();
+            ScheduleSave();
+            StatusText.Text = $"已移除 {removed} 张重复照片（磁盘文件保留）";
+        }
+    }
+
+    private void DupeRemove_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not PhotoItem p) return;
+        _allPhotos.Remove(p);
+        RefreshPhotos();
+        ScheduleSave();
+        StatusText.Text = $"已移除 {p.Filename}（磁盘文件保留）";
+    }
+
     private async void BatchDelete_Click(object s, RoutedEventArgs e)
     {
         if (_allPhotos.Count == 0) { StatusText.Text = "图库为空"; return; }
@@ -1257,10 +1455,17 @@ public sealed partial class MainWindow : Window
                 return list;
             });
 
+            var imported = new List<PhotoItem>();
             foreach (var f in found)
             {
-                _allPhotos.Add(new PhotoItem { Filename = Path.GetFileName(f.Path), FilePath = f.Path, FileSize = f.Size, DateAdded = DateTime.Now });
+                var p = new PhotoItem { Filename = Path.GetFileName(f.Path), FilePath = f.Path, FileSize = f.Size, DateAdded = DateTime.Now };
+                _allPhotos.Add(p);
+                imported.Add(p);
             }
+
+            // 后台读取 EXIF 拍摄时间（不阻塞 UI）
+            if (imported.Count > 0)
+                _ = EnrichDateTakenAsync(imported);
 
             if (!_settings.WatchedFolders.Contains(rootPath, StringComparer.OrdinalIgnoreCase))
             {
@@ -1280,10 +1485,36 @@ public sealed partial class MainWindow : Window
 
     // ══════════ 自动扫描 ══════════
 
+    /// <summary>后台读取照片 EXIF 拍摄时间（DateTaken），完成后刷新时间线导航</summary>
+    private async Task EnrichDateTakenAsync(List<PhotoItem> photos)
+    {
+        var results = new List<(PhotoItem P, DateTime? Date)>();
+        await Task.Run(async () =>
+        {
+            foreach (var p in photos)
+            {
+                if (p.DateTaken.HasValue) continue;
+                try
+                {
+                    var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(p.FilePath);
+                    var props = await file.Properties.GetImagePropertiesAsync();
+                    var date = props.DateTaken != DateTimeOffset.MinValue ? props.DateTaken.LocalDateTime : (DateTime?)null;
+                    results.Add((p, date));
+                }
+                catch { results.Add((p, null)); }
+            }
+        });
+        foreach (var (p, d) in results)
+            if (d.HasValue) p.DateTaken = d;
+        ScheduleSave();
+        RebuildTimelineNavItems();
+    }
+
     private void OnNewFilesFound(List<string> files)
     {
         var known = new HashSet<string>(_allPhotos.Select(p => p.FilePath), StringComparer.OrdinalIgnoreCase);
         var added = 0;
+        var pending = new List<PhotoItem>();
 
         foreach (var path in files)
         {
@@ -1292,7 +1523,9 @@ public sealed partial class MainWindow : Window
             {
                 var fi = new FileInfo(path);
                 if (!fi.Exists) continue;
-                _allPhotos.Add(new PhotoItem { Filename = fi.Name, FilePath = fi.FullName, FileSize = fi.Length, DateAdded = DateTime.Now });
+                var p = new PhotoItem { Filename = fi.Name, FilePath = fi.FullName, FileSize = fi.Length, DateAdded = DateTime.Now };
+                _allPhotos.Add(p);
+                pending.Add(p);
                 added++;
             }
             catch { }
@@ -1303,6 +1536,8 @@ public sealed partial class MainWindow : Window
             RebuildCategories();
             RefreshPhotos();
             ScheduleSave();
+            if (pending.Count > 0)
+                _ = EnrichDateTakenAsync(pending);
             StatusText.Text = $"🔍 自动发现 {added} 张新照片";
         }
     }
