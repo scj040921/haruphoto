@@ -310,7 +310,7 @@ public sealed partial class MainWindow : Window
                 if (Content is Grid root)
                 {
                     // 半透明基底色（深/浅），透过它看到窗口背后的图层
-                    var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 30, 220);
+                    var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255), 15, 230);
                     var baseColor = _settings.DarkMode
                         ? Windows.UI.Color.FromArgb(a, 24, 24, 26)      // 深色基底
                         : Windows.UI.Color.FromArgb(a, 247, 247, 248);  // 浅色基底
@@ -1193,6 +1193,7 @@ public sealed partial class MainWindow : Window
                 && cardHost.Children[0] is Border shadowLayer && cardHost.Children[1] is Border card)
             {
                 var dark = _settings.DarkMode;
+                var acrylic = _settings.AcrylicEnabled;
 
                 // 伪阴影层：深色=白色亮边（深色背景上看不到黑阴影），浅色=黑色投影
                 var shadowColor = dark
@@ -1221,26 +1222,42 @@ public sealed partial class MainWindow : Window
                         imgBorder.CornerRadius = new CornerRadius(r, r, 0, 0);
                 }
 
-                // 悬停交互：动态读取当前主题（快照会在主题切换后残留 →
-                // 浅色 hoverBrush + 深色白字 = 信息区全白）；退出恢复主题背景
-                card.PointerEntered += (_, _) =>
+                // 卡片背景：亚克力模式 = 玻璃效果（半透明，透明度与整体一致，可透出背后）；
+                // 普通模式 = 主题背景（XAML ThemeResource 自适应），hover 时微亮。
+                // 所有颜色动态读取当前主题（快照会在主题切换后残留 → 信息区全白）
+                void ApplyCardBackground(bool hover)
                 {
                     var isDark = _settings.DarkMode;
-                    card.Background = new SolidColorBrush(isDark
-                        ? Windows.UI.Color.FromArgb(255, 58, 58, 64)
-                        : Windows.UI.Color.FromArgb(255, 255, 255, 255));
-                    shadowLayer.Background = new SolidColorBrush(isDark
-                        ? Windows.UI.Color.FromArgb(70, 255, 255, 255)
-                        : Windows.UI.Color.FromArgb(60, 0, 0, 0));
-                };
-                card.PointerExited += (_, _) =>
-                {
-                    var isDark = _settings.DarkMode;
-                    card.ClearValue(Border.BackgroundProperty);
-                    shadowLayer.Background = new SolidColorBrush(isDark
-                        ? Windows.UI.Color.FromArgb(45, 255, 255, 255)
-                        : Windows.UI.Color.FromArgb(35, 0, 0, 0));
-                };
+                    if (acrylic)
+                    {
+                        // 玻璃卡片：比整体透明度略实一点（+35），保证文字可读
+                        var a = (byte)Math.Clamp((int)(_settings.AcrylicOpacity * 255) + 35, 90, 240);
+                        var c = isDark ? (byte)26 : (byte)250;
+                        var alpha = hover ? (byte)Math.Min(a + 25, 255) : a;
+                        card.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(alpha, c, c, isDark ? (byte)30 : (byte)252));
+                        shadowLayer.Background = new SolidColorBrush(hover
+                            ? Windows.UI.Color.FromArgb(70, 255, 255, 255)
+                            : Windows.UI.Color.FromArgb(45, 255, 255, 255));
+                    }
+                    else
+                    {
+                        if (hover)
+                            card.Background = new SolidColorBrush(isDark
+                                ? Windows.UI.Color.FromArgb(255, 58, 58, 64)
+                                : Windows.UI.Color.FromArgb(255, 255, 255, 255));
+                        else
+                            card.ClearValue(Border.BackgroundProperty);   // 恢复 ThemeResource
+                        shadowLayer.Background = hover
+                            ? new SolidColorBrush(isDark
+                                ? Windows.UI.Color.FromArgb(70, 255, 255, 255)
+                                : Windows.UI.Color.FromArgb(60, 0, 0, 0))
+                            : shadowBrush;
+                    }
+                }
+
+                ApplyCardBackground(false);
+                card.PointerEntered += (_, _) => ApplyCardBackground(true);
+                card.PointerExited += (_, _) => ApplyCardBackground(false);
             }
         }
     }
