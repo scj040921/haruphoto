@@ -1268,6 +1268,54 @@ public sealed partial class MainWindow : Window
 
         var watchLabel = new TextBlock { Text = $"已监控 {_settings.WatchedFolders.Count} 个文件夹", FontSize = 12, Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorTertiaryBrush"] };
 
+        // 监控文件夹：列表 + 添加/移除（此前只有一行文字，无法选择）
+        var watchList = new ListView
+        {
+            Height = 130,
+            SelectionMode = ListViewSelectionMode.Single,
+            Margin = new Thickness(0, 4, 0, 0),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+        foreach (var f in _settings.WatchedFolders) watchList.Items.Add(f);
+        watchList.ItemTemplate = null;
+
+        var watchRow = new Grid { ColumnSpacing = 8, Margin = new Thickness(0, 4, 0, 0) };
+        watchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        watchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var addWatchBtn = new Button { Content = "＋ 添加文件夹", HorizontalAlignment = HorizontalAlignment.Stretch };
+        var removeWatchBtn = new Button { Content = "✕ 移除选中", IsEnabled = false };
+        Grid.SetColumn(removeWatchBtn, 1);
+        watchRow.Children.Add(addWatchBtn);
+        watchRow.Children.Add(removeWatchBtn);
+
+        void RefreshWatchLabel() => watchLabel.Text = $"已监控 {_settings.WatchedFolders.Count} 个文件夹";
+        watchList.SelectionChanged += (_, _) => removeWatchBtn.IsEnabled = watchList.SelectedItem != null;
+        addWatchBtn.Click += async (_, _) =>
+        {
+            var picker = new FolderPicker { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
+            picker.FileTypeFilter.Add("*");
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+            var folder = await picker.PickSingleFolderAsync();
+            if (folder == null) return;
+            if (_settings.WatchedFolders.Contains(folder.Path, StringComparer.OrdinalIgnoreCase)) return;
+            _settings.WatchedFolders.Add(folder.Path);
+            _settings.Save();
+            _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
+            watchList.Items.Add(folder.Path);
+            RefreshWatchLabel();
+        };
+        removeWatchBtn.Click += (_, _) =>
+        {
+            if (watchList.SelectedItem is string sel)
+            {
+                _settings.WatchedFolders.Remove(sel);
+                _settings.Save();
+                _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
+                watchList.Items.Remove(sel);
+                RefreshWatchLabel();
+            }
+        };
+
         panel.Children.Add(themeLabel);
         panel.Children.Add(themeCombo);
         panel.Children.Add(lookLabel);
@@ -1286,6 +1334,8 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(autoToggle);
         panel.Children.Add(intervalBox);
         panel.Children.Add(watchLabel);
+        panel.Children.Add(watchList);
+        panel.Children.Add(watchRow);
 
         // 面板包 ScrollViewer：内容超出 ContentDialog 高度时可滚动
         // （背景设置等选项在窗口较矮时也能完整看到）
