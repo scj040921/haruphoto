@@ -239,16 +239,16 @@ public sealed partial class MainWindow : Window
             };
             if (dark)
             {
-                // 深色：顶部 40% 亮灰（玻璃边缘）→ 22% → 全透明
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x66, 40, 40, 44), Offset = 0 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x38, 40, 40, 44), Offset = 0.4 });
+                // 深色：顶部 68% 亮灰（毛玻璃基底）→ 35% → 全透明（卡片若隐若现）
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xAD, 40, 40, 44), Offset = 0 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x59, 40, 40, 44), Offset = 0.4 });
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 28, 28, 30), Offset = 1 });
             }
             else
             {
-                // 浅色：顶部 40% 白（玻璃边缘高光）→ 22% → 全透明
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x66, 255, 255, 255), Offset = 0 });
-                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x38, 247, 247, 248), Offset = 0.4 });
+                // 浅色：顶部 68% 白（毛玻璃基底）→ 35% → 全透明（卡片若隐若现）
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xAD, 255, 255, 255), Offset = 0 });
+                g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x59, 247, 247, 248), Offset = 0.4 });
                 g.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0x00, 247, 247, 248), Offset = 1 });
             }
             TopBarGradient.Background = g;
