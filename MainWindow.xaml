@@ -51,7 +51,7 @@
 
                 <!-- 悬浮顶栏（内容区覆盖层，VerticalAlignment=Top）：
                      渐变半透明背景，滚动时下方卡片从渐变区透出 -->
-                <Grid Grid.Row="1" VerticalAlignment="Top">
+                <Grid Grid.Row="0" VerticalAlignment="Top">
                     <Border Background="{ThemeResource TopBarGradientBrush}"/>
 
                     <!-- 标题栏 -->
@@ -120,7 +120,7 @@
                 </Grid>  <!-- 悬浮顶栏结束 -->
 
                 <!-- 照片网格（占满内容区；顶部留出悬浮顶栏高度，滚动时卡片滑入顶栏下方）-->
-                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled"
+                <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Auto" Padding="24,132,24,16">
                     <Grid>
                         <!-- ThemeShadow 阴影接收层（在卡片后面；须有可见背景才能投射阴影）-->
