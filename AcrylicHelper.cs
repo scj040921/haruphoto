@@ -41,7 +41,43 @@ public static class AcrylicHelper
     [DllImport("user32.dll")]
     private static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
 
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
     private const int WCA_ACCENT_POLICY = 19;
+    // Win11 22H2+ 官方：DWMWA_SYSTEMBACKDROP_TYPE = 38
+    private const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
+    private const int DWMSBT_TRANSIENTWINDOW = 3;   // Acrylic（瞬态亚克力：模糊窗口下方）
+    private const int DWMSBT_MAINWINDOW = 2;        // Mica
+    private const int DWMSBT_NONE = 1;
+
+    /// <summary>
+    /// Win11 22H2+ 官方亚克力：DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_TRANSIENTWINDOW)。
+    /// 比 SetWindowCompositionAttribute 可靠（AccentPolicy 在 Win11 24H2 已失效）。
+    /// 返回 false = 系统不支持（Win10/旧版）→ 调用方回退其他方案。
+    /// </summary>
+    public static bool EnableSystemBackdrop(IntPtr hwnd)
+    {
+        try
+        {
+            if (hwnd == IntPtr.Zero) return false;
+            int backdrop = DWMSBT_TRANSIENTWINDOW;   // Acrylic 亚克力
+            return DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, sizeof(int)) == 0;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>关闭 DWM 系统背景（恢复默认）</summary>
+    public static bool DisableSystemBackdrop(IntPtr hwnd)
+    {
+        try
+        {
+            if (hwnd == IntPtr.Zero) return false;
+            int backdrop = DWMSBT_NONE;
+            return DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, sizeof(int)) == 0;
+        }
+        catch { return false; }
+    }
 
     /// <summary>
     /// 启用亚克力。tint 为色调，opacity 0-1 为磨砂不透明度。

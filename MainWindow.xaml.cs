@@ -442,6 +442,7 @@ public sealed partial class MainWindow : Window
                     root.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(c);
                 ApplyTranslucentSurfaces();   // 内容区半透明让背景透出
                 AcrylicHelper.Disable(hwnd);
+                AcrylicHelper.DisableSystemBackdrop(hwnd);
                 return;
             }
             if (_settings.BackgroundMode == 2 && !string.IsNullOrEmpty(_settings.BackgroundImagePath)
@@ -472,7 +473,12 @@ public sealed partial class MainWindow : Window
                 }
                 catch { }
 
-                if (!ok)
+                // 双保险：Win11 22H2+ 官方 DWM 亚克力（DWMWA_SYSTEMBACKDROP_TYPE=38）
+                // AccentPolicy 在 Win11 24H2 已失效；SystemBackdrop 在非打包
+                // 模式下可能静默不生效 → DWM 38 兜底保证模糊可见。
+                var dwmOk = AcrylicHelper.EnableSystemBackdrop(hwnd);
+
+                if (!ok && !dwmOk)
                 {
                     // 回退：Win32 SetWindowCompositionAttribute（tint 跟随深浅模式）
                     var acrylicTint = _settings.DarkMode
@@ -519,6 +525,7 @@ public sealed partial class MainWindow : Window
             {
                 SystemBackdrop = null;   // 移除官方亚克力
                 AcrylicHelper.Disable(hwnd);
+                AcrylicHelper.DisableSystemBackdrop(hwnd);
                 if (Content is Grid root)
                     root.ClearValue(Grid.BackgroundProperty);
                 // 内容区恢复主题默认背景（跟随深浅色，属性级即时生效）
