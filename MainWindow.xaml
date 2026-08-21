@@ -199,6 +199,12 @@
                                       Width="18" Height="18"/>
                         <TextBlock x:Name="PageInfo" VerticalAlignment="Center" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                        <NumberBox x:Name="PageJumpBox" Width="72" Height="32" Minimum="1"
+                                   SpinButtonPlacementMode="Hidden" PlaceholderText="页码"
+                                   VerticalAlignment="Center" ToolTipService.ToolTip="输入页码后按 Enter 跳转"
+                                   KeyDown="PageJumpBox_KeyDown"/>
+                        <Button x:Name="PageJumpBtn" Content="跳转" Click="PageJump_Click"
+                                Padding="8,5" FontSize="12" CornerRadius="6"/>
                         <Button x:Name="PrevPageBtn" Click="PrevPage_Click" IsEnabled="False"
                                 Padding="10,6" CornerRadius="6">
                             <FontIcon Glyph="&#xE76B;" FontSize="12"/>
@@ -266,7 +272,7 @@
                             <Button x:Name="DuplicateBtn" Content="查重" Click="DuplicateCheck_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
                             <Button x:Name="UnfavoriteBtn" Content="取消收藏" Click="BatchUnfav_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
+                                    FontSize="12" Padding="12,6" CornerRadius="6"/>
                             <Button x:Name="UncategorizeBtn" Content="取消分类" Click="BatchUncategorize_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
                             <Button x:Name="ClearLibraryBtn" Content="清空图库" Click="BatchDelete_Click"
@@ -281,7 +287,7 @@
 
                 <!-- 统计概览面板（侧边栏「统计」选中时显示）-->
                 <ScrollViewer x:Name="StatsScroll" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled"
-                              VerticalScrollBarVisibility="Auto" Padding="24,24,24,24">
+                              VerticalScrollBarVisibility="Auto" Padding="24,132,24,96">
                     <StackPanel x:Name="StatsPanel" Spacing="12" MaxWidth="720" HorizontalAlignment="Left">
                         <TextBlock Text="📊 照片统计" FontSize="22" FontWeight="SemiBold"/>
                         <Border Padding="20,16" CornerRadius="14"
@@ -301,7 +307,7 @@
                     </StackPanel>
                 </ScrollViewer>
                 <ScrollViewer x:Name="OrganizeScroll" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled"
-                              VerticalScrollBarVisibility="Auto" Padding="24,24,24,24">
+                              VerticalScrollBarVisibility="Auto" Padding="24,132,24,96">
                     <StackPanel x:Name="OrganizePanel" Spacing="12" MaxWidth="720" HorizontalAlignment="Left">
                         <TextBlock Text="整理中心" FontSize="22" FontWeight="SemiBold"/>
                         <TextBlock Text="根据现有元数据找出值得优先处理的照片。这里的操作不会删除磁盘文件。"

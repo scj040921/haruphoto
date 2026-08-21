@@ -1263,6 +1263,28 @@ public sealed partial class MainWindow : Window
         if (_currentPage < Math.Max(0, (_currentView.Count - 1) / PageSize)) { _currentPage++; RefreshPhotos(); }
     }
 
+    private void PageJump_Click(object sender, RoutedEventArgs e) => JumpToPage();
+
+    private void PageJumpBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == VirtualKey.Enter)
+        {
+            JumpToPage();
+            e.Handled = true;
+        }
+    }
+
+    private void JumpToPage()
+    {
+        var maxPage = Math.Max(1, (_currentView.Count + PageSize - 1) / PageSize);
+        var requested = double.IsNaN(PageJumpBox.Value) ? _currentPage + 1 : (int)PageJumpBox.Value;
+        var page = Math.Clamp(requested, 1, maxPage);
+        _currentPage = page - 1;
+        PageJumpBox.Value = page;
+        RefreshPhotos();
+        StatusText.Text = page == requested ? $"已跳转到第 {page} 页" : $"页码范围为 1–{maxPage}，已跳转到第 {page} 页";
+    }
+
     /// <summary>设置按钮</summary>
     private async void SettingsButton_Click(object s, RoutedEventArgs e)
     {
@@ -2035,7 +2057,7 @@ public sealed partial class MainWindow : Window
         ExportBtn.Visibility = Visibility.Visible;
         MoreBatchBtn.Visibility = Visibility.Visible;
         DuplicateBtn.Visibility = Visibility.Collapsed;
-        UnfavoriteBtn.Visibility = Visibility.Collapsed;
+        UnfavoriteBtn.Visibility = Visibility.Visible;
         UncategorizeBtn.Visibility = Visibility.Collapsed;
         ClearLibraryBtn.Visibility = Visibility.Collapsed;
     }
@@ -2273,12 +2295,18 @@ public sealed partial class MainWindow : Window
     private void PreviewFav_Click(object sender, RoutedEventArgs e)
     {
         if (_previewIndex < 0 || _previewIndex >= _currentView.Count) return;
+        var oldIndex = _previewIndex;
         var p = _currentView[_previewIndex];
         p.IsFavorite = !p.IsFavorite;
         PreviewFavButton.Content = p.IsFavorite ? "★ 取消收藏" : "☆ 收藏";
         UpdateStats();
         ScheduleSave();
-        if (_favoritesOnly && !p.IsFavorite) { RefreshPhotos(); ShowPreviewAt(_previewIndex); }
+        if (_favoritesOnly && !p.IsFavorite)
+        {
+            RefreshPhotos();
+            if (_currentView.Count == 0) ClosePreview();
+            else ShowPreviewAt(Math.Min(oldIndex, _currentView.Count - 1));
+        }
     }
 
     private void PreviewRating_ValueChanged(RatingControl sender, object args)
@@ -2384,38 +2412,79 @@ public sealed partial class MainWindow : Window
 
     // ══════════ 批量操作 ══════════
 
-    private void BatchFav_Click(object s, RoutedEventArgs e)
+    private async void BatchFav_Click(object s, RoutedEventArgs e)
     {
-        if (_currentView.Count == 0) { StatusText.Text = "当前筛选结果为空"; return; }
-        var before = _currentView.ToDictionary(p => p, p => p.IsFavorite);
-        foreach (var p in _currentView) p.IsFavorite = true;
-        RegisterUndo($"收藏 {_currentView.Count} 张照片", () =>
-        {
-            foreach (var pair in before) pair.Key.IsFavorite = pair.Value;
-        });
-        UpdateStats();
-        ScheduleSave();
-        StatusText.Text = $"已收藏当前筛选结果（{_currentView.Count} 张）";
+        await ApplyFavoriteBatchAsync(true);
     }
 
-    /// <summary>批量取消收藏：有选中 → 只取消选中的；无选中 → 取消当前筛选结果全部</summary>
-    private void BatchUnfav_Click(object s, RoutedEventArgs e)
+    private async void BatchUnfav_Click(object s, RoutedEventArgs e)
     {
-        var targets = _selectedPaths.Count > 0
-            ? _allPhotos.Where(p => _selectedPaths.Contains(p.FilePath)).ToList()
-            : _currentView.Where(p => p.IsFavorite).ToList();
-        if (targets.Count == 0) { StatusText.Text = "没有可取消收藏的照片"; return; }
+        await ApplyFavoriteBatchAsync(false);
+    }
+
+    private async Task ApplyFavoriteBatchAsync(bool favorite)
+    {
+        var title = favorite ? "收藏照片" : "取消收藏";
+        var verb = favorite ? "收藏" : "取消收藏";
+        var selectedCount = _selectedPaths.Count;
+        var pagePhotos = _currentView.Skip(_currentPage * PageSize).Take(PageSize).ToList();
+        var scopeCombo = new ComboBox { Header = "操作范围", HorizontalAlignment = HorizontalAlignment.Stretch, SelectedIndex = selectedCount > 0 ? 0 : 1 };
+        var selectedItem = new ComboBoxItem { Content = $"选中的照片（{selectedCount} 张）", IsEnabled = selectedCount > 0 };
+        scopeCombo.Items.Add(selectedItem);
+        scopeCombo.Items.Add(new ComboBoxItem { Content = $"当前页（{pagePhotos.Count} 张）" });
+        scopeCombo.Items.Add(new ComboBoxItem { Content = $"当前筛选结果（{_currentView.Count} 张）" });
+        scopeCombo.Items.Add(new ComboBoxItem { Content = $"全部图库（{_allPhotos.Count} 张）" });
+
+        var preview = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] };
+        void UpdatePreview()
+        {
+            var targets = GetFavoriteScope(scopeCombo.SelectedIndex, pagePhotos);
+            var changed = targets.Count(p => p.IsFavorite != favorite);
+            preview.Text = changed == 0 ? $"没有需要{verb}的照片。" : $"将{verb} {changed} 张照片。\n不会修改磁盘文件。";
+        }
+        scopeCombo.SelectionChanged += (_, _) => UpdatePreview();
+        UpdatePreview();
+
+        var panel = new StackPanel { Spacing = 10, MinWidth = 320 };
+        panel.Children.Add(scopeCombo);
+        panel.Children.Add(preview);
+        var dlg = new ContentDialog
+        {
+            Title = title,
+            Content = panel,
+            PrimaryButtonText = verb,
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var targets = GetFavoriteScope(scopeCombo.SelectedIndex, pagePhotos).Where(p => p.IsFavorite != favorite).ToList();
+        if (targets.Count == 0)
+        {
+            StatusText.Text = $"没有需要{verb}的照片";
+            return;
+        }
         var before = targets.ToDictionary(p => p, p => p.IsFavorite);
-        foreach (var p in targets) p.IsFavorite = false;
-        RegisterUndo($"取消收藏 {targets.Count} 张照片", () =>
+        foreach (var p in targets) p.IsFavorite = favorite;
+        RegisterUndo($"{verb} {targets.Count} 张照片", () =>
         {
             foreach (var pair in before) pair.Key.IsFavorite = pair.Value;
         });
         UpdateStats();
         ScheduleSave();
-        StatusText.Text = _selectedPaths.Count > 0
-            ? $"已取消收藏选中照片（{targets.Count} 张）"
-            : $"已取消收藏当前筛选结果（{targets.Count} 张）";
+        StatusText.Text = $"已{verb} {targets.Count} 张照片";
+    }
+
+    private List<PhotoItem> GetFavoriteScope(int scope, List<PhotoItem> pagePhotos)
+    {
+        return scope switch
+        {
+            0 => _allPhotos.Where(p => _selectedPaths.Contains(p.FilePath)).ToList(),
+            1 => pagePhotos,
+            2 => _currentView.ToList(),
+            _ => _allPhotos.ToList(),
+        };
     }
 
     private async void DuplicateCheck_Click(object s, RoutedEventArgs e)
