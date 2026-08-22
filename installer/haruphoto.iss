@@ -1,7 +1,7 @@
 ; haruphoto Windows installer
 #define AppName "haruphoto"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1.0"
+  #define MyAppVersion "1.2.0"
 #endif
 #define AppPublisher "scj040921"
 #define AppExeName "PhotoAlbum.exe"

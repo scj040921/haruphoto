@@ -2764,44 +2764,24 @@ public sealed partial class MainWindow : Window
 
     private async void BatchClassify_Click(object s, RoutedEventArgs e)
     {
-        var selectedCount = _selectedPaths.Count;
-        var pagePhotos = _currentView.Skip(_currentPage * PageSize).Take(PageSize).ToList();
+        if (!_batchMode) { EnterBatchMode(); return; }
 
-        var scopeCombo = new ComboBox { Header = "操作范围", HorizontalAlignment = HorizontalAlignment.Stretch, SelectedIndex = selectedCount > 0 ? 0 : 1 };
-        scopeCombo.Items.Add(new ComboBoxItem { Content = $"选中的照片（{selectedCount} 张）", IsEnabled = selectedCount > 0 });
-        scopeCombo.Items.Add(new ComboBoxItem { Content = $"当前页（{pagePhotos.Count} 张）" });
-        scopeCombo.Items.Add(new ComboBoxItem { Content = $"当前筛选结果（{_currentView.Count} 张）" });
-        scopeCombo.Items.Add(new ComboBoxItem { Content = $"全部图库（{_allPhotos.Count} 张）" });
+        // 保持原有行为：常用操作只处理当前已选中的照片
+        if (_selectedPaths.Count == 0) { StatusText.Text = "请先选择照片"; return; }
+        var targets = _allPhotos.Where(p => _selectedPaths.Contains(p.FilePath)).ToList();
+        var scopeText = $"已选 {targets.Count} 张";
 
-        var catCombo = new ComboBox { Header = "选择分类", PlaceholderText = "选择一个分类…", MinWidth = 180 };
-        foreach (var cat in _categories) catCombo.Items.Add(cat);
-        if (_categories.Count > 0) catCombo.SelectedIndex = 0;
-        var newBox = new TextBox { Header = "或新建分类", PlaceholderText = "输入新分类名称…", MinWidth = 180 };
-
-        var preview = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] };
-        void UpdatePreview()
-        {
-            var targets = GetScopePhotos(scopeCombo.SelectedIndex, pagePhotos);
-            var name = newBox.Text?.Trim();
-            if (string.IsNullOrEmpty(name)) name = catCombo.SelectedItem as string ?? "";
-            preview.Text = string.IsNullOrEmpty(name)
-                ? $"将分类 {targets.Count} 张照片（请先选择或输入分类名）。\n不会修改磁盘文件。"
-                : $"将把 {targets.Count} 张照片分类为「{name}」。\n不会修改磁盘文件。";
-        }
-        scopeCombo.SelectionChanged += (_, _) => UpdatePreview();
-        catCombo.SelectionChanged += (_, _) => UpdatePreview();
-        newBox.TextChanged += (_, _) => UpdatePreview();
-        UpdatePreview();
-
-        var panel = new StackPanel { Spacing = 10, MinWidth = 320 };
-        panel.Children.Add(scopeCombo);
-        panel.Children.Add(catCombo);
+        var panel = new StackPanel { Spacing = 12, MinWidth = 300 };
+        panel.Children.Add(new TextBlock { Text = $"将为 {scopeText} 照片设置分类：", FontSize = 13 });
+        var combo = new ComboBox { MinWidth = 200, PlaceholderText = "选择分类" };
+        foreach (var cat in _categories) combo.Items.Add(cat);
+        if (_categories.Count > 0) combo.SelectedIndex = 0;
+        panel.Children.Add(combo);
+        var newBox = new TextBox { PlaceholderText = "或输入新分类名称…", MinWidth = 200 };
         panel.Children.Add(newBox);
-        panel.Children.Add(preview);
 
         var dlg = new ContentDialog { Title = "🏷 批量分类", Content = panel, PrimaryButtonText = "确定", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, XamlRoot = Content.XamlRoot };
 
-        // 入场动画
         panel.Opacity = 0;
         panel.Loaded += (_, _) =>
         {
@@ -2811,19 +2791,14 @@ public sealed partial class MainWindow : Window
             sb.Begin();
         };
 
-        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) { ExitBatchMode(); return; }
 
         var newName = newBox.Text?.Trim();
-        if (string.IsNullOrEmpty(newName)) newName = catCombo.SelectedItem as string ?? "";
-        if (string.IsNullOrEmpty(newName)) { StatusText.Text = "未指定分类"; return; }
-
-        var targets = GetScopePhotos(scopeCombo.SelectedIndex, pagePhotos).Where(p => p.Category != newName).ToList();
-        if (targets.Count == 0) { StatusText.Text = "没有需要分类的照片"; return; }
+        if (string.IsNullOrEmpty(newName)) newName = combo.SelectedItem as string ?? "";
+        if (string.IsNullOrEmpty(newName)) { StatusText.Text = "未指定分类"; ExitBatchMode(); return; }
 
         var before = targets.ToDictionary(p => p, p => p.Category);
-        if (!_categories.Contains(newName, StringComparer.OrdinalIgnoreCase))
-            _categories.Add(newName);
-
+        if (!_categories.Contains(newName, StringComparer.OrdinalIgnoreCase)) _categories.Add(newName);
         foreach (var p in targets) p.Category = newName;
         RegisterUndo($"分类 {targets.Count} 张照片", () =>
         {
@@ -2833,6 +2808,7 @@ public sealed partial class MainWindow : Window
         RebuildCategories();
         RefreshPhotos();
         ScheduleSave();
+        ExitBatchMode();
         StatusText.Text = $"已将 {targets.Count} 张照片分类为「{newName}」";
     }
 

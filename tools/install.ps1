@@ -37,7 +37,7 @@ try {
     if (-not $exe) { throw "安装包缺少 $ExeName。" }
     $payload = $exe.Directory.FullName
     $installedVersion = $exe.VersionInfo.ProductVersion
-    if ([string]::IsNullOrWhiteSpace($installedVersion)) { $installedVersion = "1.1.0" }
+    if ([string]::IsNullOrWhiteSpace($installedVersion)) { $installedVersion = "1.2.0" }
 
     Get-Process PhotoAlbum -ErrorAction SilentlyContinue | Stop-Process -Force
     if (Test-Path $BackupRoot) { Remove-Item $BackupRoot -Recurse -Force }
