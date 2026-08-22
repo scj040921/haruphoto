@@ -40,7 +40,6 @@ public sealed partial class MainWindow : Window
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
         { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".heic", ".tif", ".tiff" };
     private bool _batchMode;
-    private bool _cancelCatMode; // 取消分类模式：只允许选已分类照片
 
     private int _currentPage, _sortBy;
     private string _searchKeyword = "";
@@ -1286,6 +1285,63 @@ public sealed partial class MainWindow : Window
         StatusText.Text = page == requested ? $"已跳转到第 {page} 页" : $"页码范围为 1–{maxPage}，已跳转到第 {page} 页";
     }
 
+    private async void CheckUpdateButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button button) button.IsEnabled = false;
+        try
+        {
+            StatusText.Text = "正在检查 GitHub Release…";
+            var release = await UpdateService.CheckLatestAsync();
+            _settings.LastUpdateCheckUtc = DateTime.UtcNow;
+            _settings.Save();
+
+            if (release == null)
+            {
+                StatusText.Text = $"当前已是最新版本（{UpdateService.CurrentVersion}）";
+                var latestDialog = new ContentDialog
+                {
+                    Title = "检查更新",
+                    Content = $"当前已是最新版本：{UpdateService.CurrentVersion}",
+                    CloseButtonText = "确定",
+                    XamlRoot = Content.XamlRoot
+                };
+                await latestDialog.ShowAsync();
+                return;
+            }
+
+            var sizeText = release.PackageSize > 1048576
+                ? $"{release.PackageSize / 1048576.0:F1} MB"
+                : "安装包";
+            var updateDialog = new ContentDialog
+            {
+                Title = "发现新版本",
+                Content = $"当前版本：{UpdateService.CurrentVersion}\n最新版本：{release.Version}（{sizeText}）\n\n将下载并安全替换程序文件，照片和图库数据不会被修改。",
+                PrimaryButtonText = "下载并更新",
+                CloseButtonText = "稍后",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = Content.XamlRoot
+            };
+            if (await updateDialog.ShowAsync() == ContentDialogResult.Primary)
+                await StartUpdateAsync(release);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "更新检查失败：" + ex.Message;
+            var errorDialog = new ContentDialog
+            {
+                Title = "检查更新失败",
+                Content = "无法连接 GitHub Release。\n\n" + ex.Message,
+                CloseButtonText = "确定",
+                XamlRoot = Content.XamlRoot
+            };
+            await errorDialog.ShowAsync();
+        }
+        finally
+        {
+            if (sender is Button updateButton) updateButton.IsEnabled = true;
+        }
+    }
+
     private async Task StartUpdateAsync(ReleaseInfo release)
     {
         var installRoot = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -1908,13 +1964,6 @@ public sealed partial class MainWindow : Window
         var photo = _allPhotos.FirstOrDefault(p => p.FilePath == path);
         if (photo == null) return;
 
-        // 取消分类模式下只允许选已分类照片
-        if (_cancelCatMode && string.IsNullOrEmpty(photo.Category))
-        {
-            StatusText.Text = "此照片未分类，无法移出";
-            return;
-        }
-
         if (_selectedPaths.Contains(path))
         {
             _selectedPaths.Remove(path);
@@ -1934,15 +1983,10 @@ public sealed partial class MainWindow : Window
         if (!_batchMode) return;
         var pagePhotos = _currentView.Skip(_currentPage * PageSize).Take(PageSize).ToList();
 
-        // 筛选可选照片
-        var selectable = _cancelCatMode
-            ? pagePhotos.Where(p => !string.IsNullOrEmpty(p.Category)).ToList()
-            : pagePhotos;
-
         // 如果当前页所有可选照片已全选 → 取消全选
-        var allSelected = selectable.Count > 0 && selectable.All(p => _selectedPaths.Contains(p.FilePath));
+        var allSelected = pagePhotos.Count > 0 && pagePhotos.All(p => _selectedPaths.Contains(p.FilePath));
 
-        foreach (var p in selectable)
+        foreach (var p in pagePhotos)
         {
             if (allSelected)
             {
@@ -1961,9 +2005,7 @@ public sealed partial class MainWindow : Window
     private void SelectAllResults_Click(object s, RoutedEventArgs e)
     {
         if (!_batchMode) return;
-        var selectable = _cancelCatMode
-            ? _currentView.Where(p => !string.IsNullOrEmpty(p.Category)).ToList()
-            : _currentView;
+        var selectable = _currentView;
         var allSelected = selectable.Count > 0 && selectable.All(p => _selectedPaths.Contains(p.FilePath));
         foreach (var p in selectable)
         {
@@ -2160,14 +2202,12 @@ public sealed partial class MainWindow : Window
         MoreBatchBtn.Visibility = Visibility.Visible;
         DuplicateBtn.Visibility = Visibility.Collapsed;
         UnfavoriteBtn.Visibility = Visibility.Visible;
-        UncategorizeBtn.Visibility = Visibility.Collapsed;
         ClearLibraryBtn.Visibility = Visibility.Collapsed;
     }
 
     private void ExitBatchMode()
     {
         _batchMode = false;
-        _cancelCatMode = false;
         _selectedPaths.Clear();
         foreach (var p in _allPhotos) p.SelectVisible = false;
         ExitBatchBtn.Visibility = Visibility.Collapsed;
@@ -2180,7 +2220,6 @@ public sealed partial class MainWindow : Window
         MoreBatchBtn.Visibility = Visibility.Collapsed;
         DuplicateBtn.Visibility = Visibility.Collapsed;
         UnfavoriteBtn.Visibility = Visibility.Collapsed;
-        UncategorizeBtn.Visibility = Visibility.Collapsed;
         ClearLibraryBtn.Visibility = Visibility.Collapsed;
         UpdateStats();
     }
@@ -2194,7 +2233,7 @@ public sealed partial class MainWindow : Window
         duplicate.Click += DuplicateCheck_Click;
         var unfavorite = new MenuFlyoutItem { Text = "取消收藏" };
         unfavorite.Click += BatchUnfav_Click;
-        var uncategory = new MenuFlyoutItem { Text = "取消分类模式" };
+        var uncategory = new MenuFlyoutItem { Text = "取消分类" };
         uncategory.Click += BatchUncategorize_Click;
         var clear = new MenuFlyoutItem { Text = "清空图库", Foreground = (Brush)Application.Current.Resources["SoftRedBrush"] };
         clear.Click += BatchDelete_Click;
@@ -2215,7 +2254,6 @@ public sealed partial class MainWindow : Window
         if (isCatView && _batchMode)
         {
             MoreBatchBtn.Visibility = Visibility.Collapsed;
-            UncategorizeBtn.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -2540,7 +2578,7 @@ public sealed partial class MainWindow : Window
         var preview = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] };
         void UpdatePreview()
         {
-            var targets = GetFavoriteScope(scopeCombo.SelectedIndex, pagePhotos);
+        var targets = GetScopePhotos(scopeCombo.SelectedIndex, pagePhotos);
             var changed = targets.Count(p => p.IsFavorite != favorite);
             preview.Text = changed == 0 ? $"没有需要{verb}的照片。" : $"将{verb} {changed} 张照片。\n不会修改磁盘文件。";
         }
@@ -2561,7 +2599,7 @@ public sealed partial class MainWindow : Window
         };
         if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
 
-        var targets = GetFavoriteScope(scopeCombo.SelectedIndex, pagePhotos).Where(p => p.IsFavorite != favorite).ToList();
+        var targets = GetScopePhotos(scopeCombo.SelectedIndex, pagePhotos).Where(p => p.IsFavorite != favorite).ToList();
         if (targets.Count == 0)
         {
             StatusText.Text = $"没有需要{verb}的照片";
@@ -2578,7 +2616,7 @@ public sealed partial class MainWindow : Window
         StatusText.Text = $"已{verb} {targets.Count} 张照片";
     }
 
-    private List<PhotoItem> GetFavoriteScope(int scope, List<PhotoItem> pagePhotos)
+    private List<PhotoItem> GetScopePhotos(int scope, List<PhotoItem> pagePhotos)
     {
         return scope switch
         {
@@ -2726,23 +2764,40 @@ public sealed partial class MainWindow : Window
 
     private async void BatchClassify_Click(object s, RoutedEventArgs e)
     {
-        if (!_batchMode) { EnterBatchMode(); return; }
+        var selectedCount = _selectedPaths.Count;
+        var pagePhotos = _currentView.Skip(_currentPage * PageSize).Take(PageSize).ToList();
 
-        // 仅对选中的照片操作
-        if (_selectedPaths.Count == 0) { StatusText.Text = "请先选择照片"; return; }
-        var targets = _allPhotos.Where(p => _selectedPaths.Contains(p.FilePath)).ToList();
+        var scopeCombo = new ComboBox { Header = "操作范围", HorizontalAlignment = HorizontalAlignment.Stretch, SelectedIndex = selectedCount > 0 ? 0 : 1 };
+        scopeCombo.Items.Add(new ComboBoxItem { Content = $"选中的照片（{selectedCount} 张）", IsEnabled = selectedCount > 0 });
+        scopeCombo.Items.Add(new ComboBoxItem { Content = $"当前页（{pagePhotos.Count} 张）" });
+        scopeCombo.Items.Add(new ComboBoxItem { Content = $"当前筛选结果（{_currentView.Count} 张）" });
+        scopeCombo.Items.Add(new ComboBoxItem { Content = $"全部图库（{_allPhotos.Count} 张）" });
 
-        var scopeText = $"已选 {targets.Count} 张";
+        var catCombo = new ComboBox { Header = "选择分类", PlaceholderText = "选择一个分类…", MinWidth = 180 };
+        foreach (var cat in _categories) catCombo.Items.Add(cat);
+        if (_categories.Count > 0) catCombo.SelectedIndex = 0;
+        var newBox = new TextBox { Header = "或新建分类", PlaceholderText = "输入新分类名称…", MinWidth = 180 };
 
-        // 构建分类选择对话框
-        var panel = new StackPanel { Spacing = 12, MinWidth = 300 };
-        panel.Children.Add(new TextBlock { Text = $"将为 {scopeText} 照片设置分类：", FontSize = 13 });
-        var combo = new ComboBox { MinWidth = 200, PlaceholderText = "选择分类" };
-        foreach (var cat in _categories) combo.Items.Add(cat);
-        if (_categories.Count > 0) combo.SelectedIndex = 0;
-        panel.Children.Add(combo);
-        var newBox = new TextBox { PlaceholderText = "或输入新分类名称…", MinWidth = 200 };
+        var preview = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] };
+        void UpdatePreview()
+        {
+            var targets = GetScopePhotos(scopeCombo.SelectedIndex, pagePhotos);
+            var name = newBox.Text?.Trim();
+            if (string.IsNullOrEmpty(name)) name = catCombo.SelectedItem as string ?? "";
+            preview.Text = string.IsNullOrEmpty(name)
+                ? $"将分类 {targets.Count} 张照片（请先选择或输入分类名）。\n不会修改磁盘文件。"
+                : $"将把 {targets.Count} 张照片分类为「{name}」。\n不会修改磁盘文件。";
+        }
+        scopeCombo.SelectionChanged += (_, _) => UpdatePreview();
+        catCombo.SelectionChanged += (_, _) => UpdatePreview();
+        newBox.TextChanged += (_, _) => UpdatePreview();
+        UpdatePreview();
+
+        var panel = new StackPanel { Spacing = 10, MinWidth = 320 };
+        panel.Children.Add(scopeCombo);
+        panel.Children.Add(catCombo);
         panel.Children.Add(newBox);
+        panel.Children.Add(preview);
 
         var dlg = new ContentDialog { Title = "🏷 批量分类", Content = panel, PrimaryButtonText = "确定", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, XamlRoot = Content.XamlRoot };
 
@@ -2756,12 +2811,14 @@ public sealed partial class MainWindow : Window
             sb.Begin();
         };
 
-        if (await dlg.ShowAsync() != ContentDialogResult.Primary) { ExitBatchMode(); return; }
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
 
         var newName = newBox.Text?.Trim();
-        if (string.IsNullOrEmpty(newName))
-            newName = combo.SelectedItem as string ?? "";
-        if (string.IsNullOrEmpty(newName)) { StatusText.Text = "未指定分类"; ExitBatchMode(); return; }
+        if (string.IsNullOrEmpty(newName)) newName = catCombo.SelectedItem as string ?? "";
+        if (string.IsNullOrEmpty(newName)) { StatusText.Text = "未指定分类"; return; }
+
+        var targets = GetScopePhotos(scopeCombo.SelectedIndex, pagePhotos).Where(p => p.Category != newName).ToList();
+        if (targets.Count == 0) { StatusText.Text = "没有需要分类的照片"; return; }
 
         var before = targets.ToDictionary(p => p, p => p.Category);
         if (!_categories.Contains(newName, StringComparer.OrdinalIgnoreCase))
@@ -2776,28 +2833,58 @@ public sealed partial class MainWindow : Window
         RebuildCategories();
         RefreshPhotos();
         ScheduleSave();
-        ExitBatchMode();
         StatusText.Text = $"已将 {targets.Count} 张照片分类为「{newName}」";
     }
 
-    private void BatchUncategorize_Click(object s, RoutedEventArgs e)
+    private async void BatchUncategorize_Click(object s, RoutedEventArgs e)
     {
-        // 跳转到分类导航，让用户在分类视图中操作
-        if (_categories.Count == 0) { StatusText.Text = "还没有任何分类"; return; }
-        _cancelCatMode = true;
-        EnterBatchMode();
+        var selectedCount = _selectedPaths.Count;
+        var pagePhotos = _currentView.Skip(_currentPage * PageSize).Take(PageSize).ToList();
 
-        // 选中「分类」导航项
-        foreach (var item in NavView.MenuItems)
+        var scopeCombo = new ComboBox { Header = "操作范围", HorizontalAlignment = HorizontalAlignment.Stretch, SelectedIndex = selectedCount > 0 ? 0 : 1 };
+        scopeCombo.Items.Add(new ComboBoxItem { Content = $"选中的照片（{selectedCount} 张）", IsEnabled = selectedCount > 0 });
+        scopeCombo.Items.Add(new ComboBoxItem { Content = $"当前页（{pagePhotos.Count} 张）" });
+        scopeCombo.Items.Add(new ComboBoxItem { Content = $"当前筛选结果（{_currentView.Count} 张）" });
+        scopeCombo.Items.Add(new ComboBoxItem { Content = $"全部图库（{_allPhotos.Count} 张）" });
+
+        var preview = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] };
+        void UpdatePreview()
         {
-            if (item is NavigationViewItem nvi && nvi.Content?.ToString() == "分类")
-            {
-                NavView.SelectedItem = nvi;
-                nvi.IsExpanded = true;
-                break;
-            }
+            var targets = GetScopePhotos(scopeCombo.SelectedIndex, pagePhotos);
+            var changed = targets.Count(p => !string.IsNullOrEmpty(p.Category));
+            preview.Text = changed == 0 ? "没有需要取消分类的照片。" : $"将取消分类 {changed} 张照片。\n不会修改磁盘文件。";
         }
-        StatusText.Text = "取消分类模式：点击左侧分类查看照片，选择后移出或解散";
+        scopeCombo.SelectionChanged += (_, _) => UpdatePreview();
+        UpdatePreview();
+
+        var panel = new StackPanel { Spacing = 10, MinWidth = 320 };
+        panel.Children.Add(scopeCombo);
+        panel.Children.Add(preview);
+        var dlg = new ContentDialog
+        {
+            Title = "取消分类",
+            Content = panel,
+            PrimaryButtonText = "取消分类",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var targets = GetScopePhotos(scopeCombo.SelectedIndex, pagePhotos).Where(p => !string.IsNullOrEmpty(p.Category)).ToList();
+        if (targets.Count == 0) { StatusText.Text = "没有需要取消分类的照片"; return; }
+
+        var before = targets.ToDictionary(p => p, p => p.Category);
+        foreach (var p in targets) p.Category = "";
+        RegisterUndo($"取消分类 {targets.Count} 张照片", () =>
+        {
+            foreach (var pair in before) pair.Key.Category = pair.Value;
+            RebuildCategories();
+        });
+        RebuildCategories();
+        RefreshPhotos();
+        ScheduleSave();
+        StatusText.Text = $"已取消分类 {targets.Count} 张照片";
     }
 
     private void RemoveFromCategory_Click(object s, RoutedEventArgs e)

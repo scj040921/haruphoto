@@ -48,6 +48,10 @@
                             HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"
                             Background="Transparent"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <Button Content="↻ 检查更新" Click="CheckUpdateButton_Click"
+                            HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"
+                            Background="Transparent"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <Button Content="⚙ 设置" Click="SettingsButton_Click"
                             HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"
                             Background="Transparent"
@@ -273,13 +277,9 @@
                                     FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
                             <Button x:Name="UnfavoriteBtn" Content="取消收藏" Click="BatchUnfav_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6"/>
-                            <Button x:Name="UncategorizeBtn" Content="取消分类" Click="BatchUncategorize_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
                             <Button x:Name="ClearLibraryBtn" Content="清空图库" Click="BatchDelete_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
-                            <Button Content="收藏" Click="BatchFav_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6"/>
-                            <Button Content="分类" Click="BatchClassify_Click"
+                            <Button Content="常用操作" Click="BatchClassify_Click"
                                     FontSize="12" Padding="12,6" CornerRadius="6"/>
                         </StackPanel>
                     </Grid>
@@ -470,12 +470,16 @@
                         </ScrollViewer>
                     </Border>
 
-                    <Border Grid.ColumnSpan="4" Height="78" VerticalAlignment="Bottom"
+                    <Border Grid.ColumnSpan="4" Height="90" VerticalAlignment="Bottom"
                             Background="#CC101014" Padding="8,6">
-                        <ListView x:Name="PreviewFilmstrip" SelectionChanged="PreviewFilmstrip_SelectionChanged"
+                        <ListView x:Name="PreviewFilmstrip" Height="78" VerticalAlignment="Top"
+                                  SelectionChanged="PreviewFilmstrip_SelectionChanged"
                                   SelectionMode="Single" BorderThickness="0"
-                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                  ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                  ScrollViewer.HorizontalScrollBarVisibility="Visible"
+                                  ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                  ScrollViewer.HorizontalScrollMode="Enabled"
+                                  ScrollViewer.VerticalScrollMode="Disabled"
+                                  ScrollViewer.IsHorizontalScrollChainingEnabled="False">
                             <ListView.ItemsPanel>
                                 <ItemsPanelTemplate><ItemsStackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
                             </ListView.ItemsPanel>
