@@ -92,8 +92,11 @@
 ### 方式一：下载发布包（推荐）
 
 1. 前往 [Releases](https://github.com/scj040921/haruphoto/releases) 下载最新版本
-2. 解压到任意目录
-3. 双击 `PhotoAlbum.exe` 启动
+2. 需要标准安装体验时，下载 `*-installer.zip`，解压后双击 `install.cmd`
+3. 只想免安装运行时，下载 `*-portable.zip`，解压后双击 `PhotoAlbum.exe`
+4. 安装版会创建开始菜单、桌面快捷方式和 Windows 卸载入口
+
+安装版启动后会每 12 小时检查一次 GitHub Release。发现新版本时，可在「设置 → 更新」手动确认下载。更新包会先校验 SHA256，升级失败会自动恢复旧版本。照片文件、图库索引和设置不会被更新过程删除。
 
 > ⚠️ 需要 Windows 10 1809+ 或 Windows 11  
 > ⚠️ 首次运行会自动在桌面创建快捷方式
@@ -139,6 +142,12 @@ PhotoAlbum/
 ├── ThumbnailService.cs             # 缩略图管线（缓存 + 异步解码）
 ├── FolderWatcherService.cs         # 文件夹定时扫描
 ├── ShortcutService.cs              # 桌面快捷方式创建
+├── UpdateService.cs                 # GitHub Release 检查与安全更新启动
+├── tools/install.cmd                # 双击安装入口
+├── tools/install.ps1                # 非管理员安装脚本
+├── tools/update.ps1                 # 下载、校验、替换与回滚
+├── tools/uninstall.ps1              # 卸载程序文件（保留照片库数据）
+├── installer/haruphoto.iss          # Inno Setup 安装器脚本
 ├── PhotoAlbum.csproj               # 项目配置
 ├── app.manifest                    # Windows 兼容性清单
 └── Assets/                         # 图标资源

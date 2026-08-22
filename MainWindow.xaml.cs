@@ -146,6 +146,7 @@ public sealed partial class MainWindow : Window
 
             // 启动后后台补读缺失的拍摄日期（历史照片从未读过 EXIF）
             _ = EnrichMissingDateTakenAsync();
+            _ = CheckForUpdateOnStartupAsync();
         }
         finally
         {
@@ -1285,10 +1286,51 @@ public sealed partial class MainWindow : Window
         StatusText.Text = page == requested ? $"已跳转到第 {page} 页" : $"页码范围为 1–{maxPage}，已跳转到第 {page} 页";
     }
 
+    private async Task StartUpdateAsync(ReleaseInfo release)
+    {
+        var installRoot = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var currentProcess = Process.GetCurrentProcess();
+        var updaterPath = UpdateService.SaveUpdaterScript();
+        var args = $"-ExecutionPolicy Bypass -File \"{updaterPath}\" -ProcessId {currentProcess.Id} -InstallRoot \"{installRoot}\" -PackageUrl \"{release.PackageUrl}\" -ExpectedSha256 \"{release.Sha256}\" -Version \"{release.Version}\"";
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = args,
+                UseShellExecute = true,
+                WorkingDirectory = installRoot
+            });
+            StatusText.Text = $"正在更新到 {release.Version}，应用将退出后自动重启";
+            await Task.Delay(350);
+            Environment.Exit(0);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "无法启动更新器：" + ex.Message;
+        }
+    }
+
+    private async Task CheckForUpdateOnStartupAsync()
+    {
+        if (!_settings.AutoCheckUpdates || DateTime.UtcNow - _settings.LastUpdateCheckUtc < TimeSpan.FromHours(12)) return;
+        try
+        {
+            var update = await UpdateService.CheckLatestAsync();
+            _settings.LastUpdateCheckUtc = DateTime.UtcNow;
+            _settings.Save();
+            if (update != null)
+                DispatcherQueue.TryEnqueue(() => StatusText.Text = $"发现新版本 {update.Version}，可在「设置 → 更新」安装");
+        }
+        catch { /* 静默失败，不影响离线使用 */ }
+    }
+
     /// <summary>设置按钮</summary>
     private async void SettingsButton_Click(object s, RoutedEventArgs e)
     {
         var panel = new StackPanel { Spacing = 16, MaxWidth = 420 };
+        ReleaseInfo? pendingUpdate = null;
+        ContentDialog? settingsDialog = null;
 
         // 入场动画
         panel.Opacity = 0;
@@ -1454,6 +1496,61 @@ public sealed partial class MainWindow : Window
         foreach (var f in _settings.WatchedFolders) watchList.Items.Add(f);
         watchList.ItemTemplate = null;
 
+        var updateRow = new StackPanel { Spacing = 8, Margin = new Thickness(0, 10, 0, 0) };
+        var autoUpdateToggle = new ToggleSwitch
+        {
+            Header = "启动时自动检查更新",
+            IsOn = _settings.AutoCheckUpdates,
+            OnContent = "已开启",
+            OffContent = "已关闭"
+        };
+        var updateStatus = new TextBlock
+        {
+            Text = $"当前版本：{UpdateService.CurrentVersion}",
+            FontSize = 12,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
+        };
+        var checkUpdateBtn = new Button { Content = "检查更新", Padding = new Thickness(12), HorizontalAlignment = HorizontalAlignment.Left };
+        checkUpdateBtn.Click += async (_, _) =>
+        {
+            checkUpdateBtn.IsEnabled = false;
+            updateStatus.Text = "正在检查 GitHub Release…";
+            try
+            {
+                pendingUpdate = await UpdateService.CheckLatestAsync();
+                if (pendingUpdate == null)
+                {
+                    updateStatus.Text = $"当前已是最新版本（{UpdateService.CurrentVersion}）";
+                    return;
+                }
+                var sizeText = pendingUpdate.PackageSize > 1048576 ? $"{pendingUpdate.PackageSize / 1048576.0:F1} MB" : "安装包";
+                updateStatus.Text = $"发现新版本 {pendingUpdate.Version}（{sizeText}）";
+                var updateDlg = new ContentDialog
+                {
+                    Title = "发现新版本",
+                    Content = $"当前版本：{UpdateService.CurrentVersion}\n最新版本：{pendingUpdate.Version}\n\n将下载并安全替换程序文件，照片和图库数据不会被修改。",
+                    PrimaryButtonText = "下载并更新",
+                    CloseButtonText = "稍后",
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = Content.XamlRoot
+                };
+                if (await updateDlg.ShowAsync() == ContentDialogResult.Primary)
+                {
+                    await StartUpdateAsync(pendingUpdate);
+                    settingsDialog?.Hide();
+                }
+            }
+            catch (Exception ex)
+            {
+                updateStatus.Text = "检查更新失败";
+                StatusText.Text = "更新检查失败：" + ex.Message;
+            }
+            finally { checkUpdateBtn.IsEnabled = true; }
+        };
+        updateRow.Children.Add(autoUpdateToggle);
+        updateRow.Children.Add(updateStatus);
+        updateRow.Children.Add(checkUpdateBtn);
+
         var watchRow = new Grid { ColumnSpacing = 8, Margin = new Thickness(0, 4, 0, 0) };
         watchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         watchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -1511,13 +1608,15 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(watchLabel);
         panel.Children.Add(watchList);
         panel.Children.Add(watchRow);
+        panel.Children.Add(new TextBlock { Text = "更新", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15, Margin = new Thickness(0, 8, 0, 0) });
+        panel.Children.Add(updateRow);
 
         // 面板包 ScrollViewer：内容超出 ContentDialog 高度时可滚动
         // （背景设置等选项在窗口较矮时也能完整看到）
         var scroll = new ScrollViewer { Content = panel, MaxHeight = 480, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        var dlg = new ContentDialog { Title = "⚙ 设置", Content = scroll, PrimaryButtonText = "保存", SecondaryButtonText = "恢复默认", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, XamlRoot = Content.XamlRoot };
+        settingsDialog = new ContentDialog { Title = "⚙ 设置", Content = scroll, PrimaryButtonText = "保存", SecondaryButtonText = "恢复默认", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, XamlRoot = Content.XamlRoot };
 
-        var result = await dlg.ShowAsync();
+        var result = await settingsDialog.ShowAsync();
         if (result == ContentDialogResult.Secondary)
         {
             // ── 一键恢复默认设置 ──
@@ -1546,6 +1645,8 @@ public sealed partial class MainWindow : Window
                 _settings.BackgroundImagePath = "";
                 _settings.AutoScan = true;
                 _settings.AutoScanIntervalMinutes = 5;
+                _settings.AutoCheckUpdates = true;
+                _settings.LastUpdateCheckUtc = DateTime.MinValue;
                 _settings.Save();
                 ApplyTheme();
                 RefreshPhotos();
@@ -1562,6 +1663,7 @@ public sealed partial class MainWindow : Window
             _settings.DarkMode = _settings.ThemeMode == 1;   // 兼容字段同步
             _settings.AutoScan = autoToggle.IsOn;
             _settings.AutoScanIntervalMinutes = Math.Max(1, (int)intervalBox.Value);
+            _settings.AutoCheckUpdates = autoUpdateToggle.IsOn;
 
             // ── 外观设置（SPW 风格）──
             _settings.AcrylicEnabled = acrylicToggle.IsOn;

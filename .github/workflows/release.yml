@@ -1,0 +1,106 @@
+name: Release haruphoto
+
+on:
+  push:
+    tags:
+      - 'V*'
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, for example V1.2.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  PROJECT: PhotoAlbum.csproj
+  RID: win-x64
+  TFM: net8.0-windows10.0.26100.0
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: meta
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            $tag = '${{ inputs.tag }}'
+          } else {
+            $tag = '${{ github.ref_name }}'
+          }
+          $version = $tag.TrimStart('v','V')
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid release tag: $tag" }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Set project version
+        shell: pwsh
+        run: |
+          [xml]$xml = Get-Content $env:PROJECT
+          $ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
+          $property = $xml.Project.PropertyGroup | Select-Object -First 1
+          if (-not $property.Version) { $property.AppendChild($xml.CreateElement('Version')) | Out-Null }
+          if (-not $property.FileVersion) { $property.AppendChild($xml.CreateElement('FileVersion')) | Out-Null }
+          $property.Version = '${{ steps.meta.outputs.version }}'
+          $property.FileVersion = '${{ steps.meta.outputs.version }}.0'
+          $xml.Save($env:PROJECT)
+
+      - name: Build Release
+        shell: pwsh
+        run: |
+          dotnet build $env:PROJECT -c Release -r $env:RID --self-contained true
+          $out = "bin/Release/$env:TFM/$env:RID"
+          if (-not (Test-Path "$out/PhotoAlbum.exe")) { throw 'PhotoAlbum.exe was not produced' }
+
+      - name: Assemble packages
+        shell: pwsh
+        run: |
+          $out = "bin/Release/$env:TFM/$env:RID"
+          $portableRoot = "release/haruphoto-${{ steps.meta.outputs.version }}-portable"
+          $installerRoot = "release/haruphoto-${{ steps.meta.outputs.version }}-installer"
+          New-Item -ItemType Directory -Force $portableRoot, $installerRoot | Out-Null
+          Copy-Item "$out/*" $portableRoot -Recurse -Force
+          Compress-Archive -Path "$portableRoot/*" -DestinationPath "release/haruphoto-${{ steps.meta.outputs.version }}-payload.zip" -CompressionLevel Optimal
+          Copy-Item tools/install.ps1, tools/install.cmd, tools/uninstall.ps1, tools/update.ps1 $installerRoot -Force
+          Copy-Item "release/haruphoto-${{ steps.meta.outputs.version }}-payload.zip" $installerRoot -Force
+          Compress-Archive -Path "$installerRoot/*" -DestinationPath "release/haruphoto-${{ steps.meta.outputs.version }}-installer.zip" -CompressionLevel Optimal
+          Compress-Archive -Path "$portableRoot/*" -DestinationPath "release/haruphoto-${{ steps.meta.outputs.version }}-portable.zip" -CompressionLevel Optimal
+          Get-FileHash "release/*.zip" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $([IO.Path]::GetFileName($_.Path))" } | Set-Content "release/SHA256SUMS.txt"
+
+      - name: Build Inno Setup installer when available
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $iscc = Get-Command iscc.exe -ErrorAction SilentlyContinue
+          if ($iscc) {
+            iscc.exe "/DMyAppVersion=${{ steps.meta.outputs.version }}" installer/haruphoto.iss
+            Get-FileHash "release/*.exe" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $([IO.Path]::GetFileName($_.Path))" } | Add-Content "release/SHA256SUMS.txt"
+          } else {
+            Write-Host 'Inno Setup is not installed; PowerShell installer package remains available.'
+          }
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = '${{ steps.meta.outputs.tag }}'
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "haruphoto ${{ steps.meta.outputs.version }}" --generate-notes
+          }
+          gh release upload $tag release/*.zip release/SHA256SUMS.txt --clobber

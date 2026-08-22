@@ -22,6 +22,10 @@ public sealed class AppSettings
     public string AccentColor { get; set; } = "#5B6EAE";  // 柔和蓝紫（低饱和度）
     public double Saturation { get; set; } = 0.55;         // 全局饱和度系数
 
+    // ── 更新 ──
+    public bool AutoCheckUpdates { get; set; } = true;
+    public DateTime LastUpdateCheckUtc { get; set; } = DateTime.MinValue;
+
     // ── 外观（SPW 风格）──
     public bool AcrylicEnabled { get; set; } = false;      // 亚克力毛玻璃
     public double AcrylicOpacity { get; set; } = 0.55;     // 亚克力透明度 0.3-0.9
