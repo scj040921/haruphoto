@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
@@ -18,50 +19,62 @@ public static class ExifReader
         try
         {
             var file = await StorageFile.GetFileFromPathAsync(filePath);
-            var props = await file.Properties.GetImagePropertiesAsync();
+            var lines = new List<string>();
+            uint width = 0, height = 0;
 
-            var dateTaken = props.DateTaken != DateTimeOffset.MinValue
-                ? props.DateTaken.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")
-                : "";
-            var camera = string.IsNullOrWhiteSpace(props.CameraManufacturer) ? "" : props.CameraManufacturer.Trim();
-            var model = string.IsNullOrWhiteSpace(props.CameraModel) ? "" : props.CameraModel.Trim();
-            var device = camera.Length > 0 && model.Length > 0 ? $"{camera} {model}" : (camera + model);
+            // 基础图片属性和 EXIF 设备信息独立读取：相机信息缺失不能阻断分辨率等信息。
+            try
+            {
+                var props = await file.Properties.GetImagePropertiesAsync();
+                width = props.Width;
+                height = props.Height;
+                var camera = props.CameraManufacturer?.Trim() ?? "";
+                var model = props.CameraModel?.Trim() ?? "";
+                var device = camera.Length > 0 && model.Length > 0 ? $"{camera} {model}" : camera + model;
+                if (device.Length > 0) lines.Add($"📷 设备：{device}");
+            }
+            catch { /* 常见于无 EXIF 或格式支持不完整的图片，继续走解码器兜底。 */ }
 
-            // 详细 EXIF（ISO / 光圈 / 快门）
-            string iso = "", fnumber = "", exposure = "", focal = "";
             try
             {
                 using var stream = await file.OpenReadAsync();
                 var decoder = await BitmapDecoder.CreateAsync(stream);
+                width = width > 0 ? width : decoder.PixelWidth;
+                height = height > 0 ? height : decoder.PixelHeight;
+
                 var query = new[] { "System.Photo.ISOSpeed", "System.Photo.FNumber", "System.Photo.ExposureTime", "System.Photo.FocalLength" };
                 var got = await decoder.BitmapProperties.GetPropertiesAsync(query);
-                if (got.TryGetValue("System.Photo.ISOSpeed", out var v)) iso = $"{Convert.ToInt32(v.Value)}";
-                if (got.TryGetValue("System.Photo.FNumber", out var f)) fnumber = $"f/{Convert.ToDouble(f.Value):F1}";
-                if (got.TryGetValue("System.Photo.ExposureTime", out var e))
+                if (TryGetNumber(got, "System.Photo.ISOSpeed", out var iso)) lines.Add($"🎚 ISO：{Math.Round(iso):F0}");
+                if (TryGetNumber(got, "System.Photo.FNumber", out var fnumber)) lines.Add($"🔘 光圈：f/{fnumber:F1}");
+                if (TryGetNumber(got, "System.Photo.ExposureTime", out var exposure) && exposure > 0)
                 {
-                    var d = Convert.ToDouble(e.Value);
-                    exposure = d >= 1 ? $"{d:F1}s" : $"1/{Math.Round(1 / d)}s";
+                    lines.Add(exposure >= 1 ? $"⏱ 快门：{exposure:F1}s" : $"⏱ 快门：1/{Math.Round(1 / exposure)}s");
                 }
-                if (got.TryGetValue("System.Photo.FocalLength", out var fl)) focal = $"{Convert.ToDouble(fl.Value):F0}mm";
+                if (TryGetNumber(got, "System.Photo.FocalLength", out var focal)) lines.Add($"🔭 焦距：{focal:F0}mm");
             }
-            catch { /* 无详细 EXIF 时忽略 */ }
+            catch { /* 解码失败时仍保留已读到的基础属性。 */ }
 
-            var w = props.Width > 0 ? props.Width : 0;
-            var h = props.Height > 0 ? props.Height : 0;
-            var lines = new System.Collections.Generic.List<string>();
-            if (dateTaken.Length > 0) lines.Add($"📅 拍摄日期：{dateTaken}");
-            if (device.Length > 0) lines.Add($"📷 设备：{device}");
-            if (w > 0 && h > 0) lines.Add($"🖼 分辨率：{w} × {h}");
-            if (iso.Length > 0) lines.Add($"🎚 ISO：{iso}");
-            if (fnumber.Length > 0) lines.Add($"🔘 光圈：{fnumber}");
-            if (exposure.Length > 0) lines.Add($"⏱ 快门：{exposure}");
-            if (focal.Length > 0) lines.Add($"🔭 焦距：{focal}");
+            var sourceModified = File.GetLastWriteTime(filePath);
+            lines.Insert(0, $"📅 文件修改时间：{sourceModified:yyyy-MM-dd HH:mm:ss}");
+            if (width > 0 && height > 0) lines.Insert(Math.Min(lines.Count, 2), $"🖼 分辨率：{width} × {height}");
 
-            return lines.Count > 0 ? string.Join("\n", lines) : null;
+            return lines.Count > 0 ? string.Join("\n", lines) : "（未检测到可读取的照片信息）";
         }
         catch
         {
-            return null;
+            return "（无法读取这张照片的信息）";
         }
+    }
+
+    private static bool TryGetNumber(BitmapPropertySet properties, string key, out double number)
+    {
+        number = 0;
+        if (!properties.TryGetValue(key, out var typed) || typed?.Value is null) return false;
+        try
+        {
+            number = Convert.ToDouble(typed.Value, System.Globalization.CultureInfo.InvariantCulture);
+            return !double.IsNaN(number) && !double.IsInfinity(number);
+        }
+        catch { return false; }
     }
 }

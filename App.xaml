@@ -23,6 +23,22 @@
             <Style TargetType="ComboBoxItem">
                 <Setter Property="FontFamily" Value="{StaticResource MiSans}" />
             </Style>
+            <!-- 输入控件统一为柔和的玻璃圆角，避免搜索、页码和设置项各自使用不同半径。 -->
+            <Style TargetType="TextBox">
+                <Setter Property="FontFamily" Value="{StaticResource MiSans}" />
+                <Setter Property="CornerRadius" Value="12" />
+                <Setter Property="MinHeight" Value="36" />
+            </Style>
+            <Style TargetType="AutoSuggestBox">
+                <Setter Property="FontFamily" Value="{StaticResource MiSans}" />
+                <Setter Property="CornerRadius" Value="12" />
+                <Setter Property="MinHeight" Value="36" />
+            </Style>
+            <Style TargetType="ComboBox">
+                <Setter Property="FontFamily" Value="{StaticResource MiSans}" />
+                <Setter Property="CornerRadius" Value="12" />
+                <Setter Property="MinHeight" Value="36" />
+            </Style>
 
             <!-- 低饱和度颜色 -->
             <SolidColorBrush x:Key="AppAccentBrush" Color="#5B6EAE"/>
@@ -31,10 +47,40 @@
             <SolidColorBrush x:Key="SoftRedBrush" Color="#C45B5B"/>
             <SolidColorBrush x:Key="SoftGreenBrush" Color="#5B9C6B"/>
 
+            <!-- 控件层级：仅在需要强调操作时使用品牌色，避免整个界面争抢注意力 -->
+            <Style x:Key="ToolbarButtonStyle" TargetType="Button">
+                <Setter Property="MinHeight" Value="36"/>
+                <Setter Property="Padding" Value="12,7"/>
+                <Setter Property="CornerRadius" Value="12"/>
+                <Setter Property="FontSize" Value="12"/>
+            </Style>
+            <Style x:Key="PrimaryActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
+                <Setter Property="Background" Value="{ThemeResource AppAccentBrush}"/>
+                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Padding" Value="15,8"/>
+                <Setter Property="CornerRadius" Value="13"/>
+            </Style>
+            <Style x:Key="PhotoCardActionButtonStyle" TargetType="Button">
+                <Setter Property="MinWidth" Value="32"/>
+                <Setter Property="MinHeight" Value="30"/>
+                <Setter Property="Padding" Value="7,5"/>
+                <Setter Property="Background" Value="#78000000"/>
+                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="CornerRadius" Value="11"/>
+            </Style>
+            <Style x:Key="StatusBarActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
+                <Setter Property="MinHeight" Value="32"/>
+                <Setter Property="Padding" Value="11,6"/>
+                <Setter Property="FontSize" Value="12"/>
+            </Style>
+
             <!-- 主题自适应资源（深浅模式）-->
             <ResourceDictionary.ThemeDictionaries>
                 <!-- 浅色 -->
                 <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="CardHoverStrokeBrush" Color="#4D5B6EAE"/>
+                    <SolidColorBrush x:Key="PreviewPanelBrush" Color="#F2FFFFFF"/>
                     <!-- 顶栏渐变：顶部高光（玻璃边缘）→ 底部透明（卡片透出）-->
                     <LinearGradientBrush x:Key="TopBarGradientBrush" StartPoint="0,0" EndPoint="0,1">
                         <GradientStop Color="#E6FFFFFF" Offset="0"/>
@@ -52,6 +98,8 @@
                 </ResourceDictionary>
                 <!-- 深色 -->
                 <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="CardHoverStrokeBrush" Color="#665B6EAE"/>
+                    <SolidColorBrush x:Key="PreviewPanelBrush" Color="#F21A1A20"/>
                     <LinearGradientBrush x:Key="TopBarGradientBrush" StartPoint="0,0" EndPoint="0,1">
                         <GradientStop Color="#5928282C" Offset="0"/>
                         <GradientStop Color="#E01C1C1E" Offset="0.4"/>

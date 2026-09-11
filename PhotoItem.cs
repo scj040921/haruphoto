@@ -16,9 +16,10 @@ public sealed class PhotoItem : INotifyPropertyChanged
     public string FilePath { get; set; } = "";
     public long FileSize { get; set; }
     public DateTime DateAdded { get; set; } = DateTime.Now;
-    public DateTime? DateTaken { get; set; }   // EXIF 拍摄时间，无则 null
+    // 统一记录源文件的最后修改时间，不再使用 EXIF 拍摄日期。
+    public DateTime? DateTaken { get; set; }
 
-    /// <summary>时间线使用的日期：优先拍摄日期，退化到添加日期。</summary>
+    /// <summary>时间线使用源文件修改时间；旧记录缺失时才退化到导入时间。</summary>
     public DateTime TimelineDate => DateTaken ?? DateAdded;
 
     private string _category = "";
@@ -71,11 +72,33 @@ public sealed class PhotoItem : INotifyPropertyChanged
         }
     }
 
+    private double _thumbnailHeight = 165;
+    private double _thumbnailAspectRatio = 4d / 3d;
+    /// <summary>缩略图宽高比；瀑布流据此在不同列宽下保持原图比例。</summary>
+    public double ThumbnailAspectRatio
+    {
+        get => _thumbnailAspectRatio;
+        set => _thumbnailAspectRatio = value > 0 ? value : 4d / 3d;
+    }
+
+    /// <summary>以 220px 卡片宽度计算的缩略图高度，供瀑布流布局使用。</summary>
+    public double ThumbnailHeight
+    {
+        get => _thumbnailHeight;
+        set
+        {
+            var height = double.IsFinite(value) && value > 0 ? value : 165;
+            if (Math.Abs(_thumbnailHeight - height) < 0.001) return;
+            _thumbnailHeight = height;
+            OnChanged();
+        }
+    }
+
     public string DisplayName => Filename.Length > 20 ? Filename[..17] + "…" : Filename;
     public string FavoriteIcon => IsFavorite ? "★" : "☆";
     public string RatingStars => new string('★', Rating) + new string('☆', 5 - Rating);
     public string SizeText => FileSize > 1048576 ? $"{FileSize / 1048576.0:F1} MB" : $"{FileSize / 1024.0:F0} KB";
-    public string DateText => DateAdded.ToString("yyyy-MM-dd HH:mm");
+    public string DateText => TimelineDate.ToString("yyyy-MM-dd HH:mm");
     public string CategoryDisplay => string.IsNullOrEmpty(Category) ? "" : Category;
 
     private bool _selectVisible;

@@ -76,17 +76,20 @@
                         </ItemsRepeater.Layout>
                         <ItemsRepeater.ItemTemplate>
                             <DataTemplate>
-                                <Grid>
+                                <Grid HorizontalAlignment="Stretch">
                                     <Border x:Name="CardRoot" CornerRadius="14" Tapped="PhotoCard_Tapped" RightTapped="PhotoCard_RightTapped" CanDrag="True" DragStarting="PhotoCard_DragStarting"
+                                            HorizontalAlignment="Stretch"
                                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                                         <Grid>
                                             <Grid.RowDefinitions>
-                                                <RowDefinition Height="180"/>
+                                                <RowDefinition Height="Auto"/>
                                                 <RowDefinition Height="Auto"/>
                                             </Grid.RowDefinitions>
 
-                                            <Border Grid.Row="0" CornerRadius="14,14,0,0">
-                                                <Image Stretch="UniformToFill" Source="{Binding ThumbnailSource}"/>
+                                            <Border Grid.Row="0" CornerRadius="14,14,0,0"
+                                                    HorizontalAlignment="Stretch" Height="{Binding ThumbnailHeight}">
+                                                <Image Stretch="UniformToFill" Source="{Binding ThumbnailSource}"
+                                                       ImageOpened="Thumbnail_ImageOpened"/>
                                             </Border>
 
                                             <Button Grid.Row="0" HorizontalAlignment="Left" VerticalAlignment="Top"

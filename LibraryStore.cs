@@ -71,7 +71,8 @@ public static class LibraryStore
                         FilePath = fi.FullName,
                         FileSize = fi.Length,
                         DateAdded = e.Added,
-                        DateTaken = e.Taken,
+                        // 读取时直接以源文件修改时间覆盖旧版持久化的 EXIF 日期。
+                        DateTaken = fi.LastWriteTime,
                         IsFavorite = e.Favorite,
                         Rating = e.Rating,
                         Category = e.Category ?? "",

@@ -109,6 +109,7 @@ public sealed partial class MainWindow : Window
 
         _folderWatcher.NewFilesFound += OnNewFilesFound;
         PhotoGrid.ItemsSource = _photos;
+        ApplyGalleryLayout();
 
         Closed += (s, e) =>
         {
@@ -878,6 +879,27 @@ public sealed partial class MainWindow : Window
         UpdateFilterSummary();
     }
 
+    private void ApplyGalleryLayout()
+    {
+        PhotoGrid.Layout = _settings.DisplayMode == 1
+            ? new MasonryLayout { MinColumnWidth = 220, ColumnSpacing = 0, RowSpacing = 0 }
+            : new UniformGridLayout
+            {
+                MinItemWidth = 220,
+                MinItemHeight = 270,
+                MinRowSpacing = 14,
+                MinColumnSpacing = 14,
+                Orientation = Orientation.Horizontal,
+            };
+        PhotoGrid.InvalidateMeasure();
+    }
+
+    private void Thumbnail_ImageOpened(object sender, RoutedEventArgs e)
+    {
+        if (_settings.DisplayMode == 1)
+            PhotoGrid.InvalidateMeasure();
+    }
+
     private void UpdateStats()
     {
         var fav = _allPhotos.Count(p => p.IsFavorite);
@@ -906,7 +928,11 @@ public sealed partial class MainWindow : Window
         {
             var img = await _thumbService.GetThumbnailAsync(photo.FilePath, ct);
             if (img != null && !ct.IsCancellationRequested)
+            {
                 photo.ThumbnailSource = img;
+                if (_settings.DisplayMode == 1)
+                    PhotoGrid.InvalidateMeasure();
+            }
         }
         catch (OperationCanceledException) { }
     }
@@ -1529,6 +1555,15 @@ public sealed partial class MainWindow : Window
         radiusCombo.Items.Add(new ComboBoxItem { Content = "圆角 (14)" });
         radiusCombo.Items.Add(new ComboBoxItem { Content = "大圆角 (20)" });
 
+        var displayModeCombo = new ComboBox
+        {
+            Header = "显示模式",
+            SelectedIndex = Math.Clamp(_settings.DisplayMode, 0, 1),
+            MinWidth = 180,
+        };
+        displayModeCombo.Items.Add(new ComboBoxItem { Content = "规整网格 · 统一卡片" });
+        displayModeCombo.Items.Add(new ComboBoxItem { Content = "瀑布流 · 原始比例紧密拼接" });
+
         // 动画
         var animToggle = new ToggleSwitch { Header = "入场动画", IsOn = _settings.AnimationsEnabled, OnContent = "已开启", OffContent = "已关闭" };
         var animSlider = new Slider { Header = "动画时长（毫秒）", Minimum = 150, Maximum = 600, StepFrequency = 25, Value = _settings.AnimationDurationMs, IsEnabled = _settings.AnimationsEnabled };
@@ -1651,6 +1686,7 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(acrylicSlider);
         panel.Children.Add(topBarCombo);
         panel.Children.Add(accentRow);
+        panel.Children.Add(displayModeCombo);
         panel.Children.Add(radiusCombo);
         panel.Children.Add(animToggle);
         panel.Children.Add(animSlider);
@@ -1694,6 +1730,7 @@ public sealed partial class MainWindow : Window
                 _settings.AcrylicEnabled = false;
                 _settings.AcrylicOpacity = 0.55;
                 _settings.CardCornerRadius = 14;
+                _settings.DisplayMode = 0;
                 _settings.AnimationsEnabled = true;
                 _settings.AnimationDurationMs = 350;
                 _settings.BackgroundMode = 0;
@@ -1705,6 +1742,7 @@ public sealed partial class MainWindow : Window
                 _settings.LastUpdateCheckUtc = DateTime.MinValue;
                 _settings.Save();
                 ApplyTheme();
+                ApplyGalleryLayout();
                 RefreshPhotos();
                 if (_settings.AutoScan) _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
                 else _folderWatcher.Stop();
@@ -1727,6 +1765,7 @@ public sealed partial class MainWindow : Window
             _settings.TopBarStyle = topBarCombo.SelectedIndex;  // 0=侧边栏同款 1=液态玻璃
             _settings.AccentColor = ColorToHex(colorPicker.Color);
             _settings.CardCornerRadius = radiusCombo.SelectedIndex switch { 0 => 8.0, 2 => 20.0, _ => 14.0 };
+            _settings.DisplayMode = displayModeCombo.SelectedIndex;
             _settings.AnimationsEnabled = animToggle.IsOn;
             _settings.AnimationDurationMs = animSlider.Value;
 
@@ -1737,8 +1776,8 @@ public sealed partial class MainWindow : Window
 
             // 即时应用全部外观（深/浅色切换无需重启）
             ApplyTheme();
-            if (radiusCombo.SelectedIndex != RadiusIndex(_settings.CardCornerRadius) || !_settings.AnimationsEnabled)
-                RefreshPhotos();
+            ApplyGalleryLayout();
+            RefreshPhotos();
 
             if (_settings.AutoScan) _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
             else _folderWatcher.Stop();
@@ -1842,6 +1881,7 @@ public sealed partial class MainWindow : Window
 
     private void PhotoGrid_ElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
     {
+        var isMasonry = _settings.DisplayMode == 1;
         // 卡片入场：渐入动画（可配置时长/开关）
         if (args.Element is UIElement element)
         {
@@ -1866,21 +1906,32 @@ public sealed partial class MainWindow : Window
             {
                 try
                 {
-                    var shadow = new Microsoft.UI.Xaml.Media.ThemeShadow();
-                    if (PhotoShadowReceiver != null)
-                        shadow.Receivers.Add(PhotoShadowReceiver);
-                    card.Shadow = shadow;
+                    if (isMasonry)
+                    {
+                        card.Shadow = null;
+                    }
+                    else
+                    {
+                        var shadow = new Microsoft.UI.Xaml.Media.ThemeShadow();
+                        if (PhotoShadowReceiver != null)
+                            shadow.Receivers.Add(PhotoShadowReceiver);
+                        card.Shadow = shadow;
+                    }
                 }
                 catch { /* 阴影不可用时不影响卡片 */ }
 
                 // 自定义圆角（SPW 风格外观设置）
-                if (_settings.CardCornerRadius > 0)
+                var r = isMasonry ? 0 : _settings.CardCornerRadius;
+                card.BorderThickness = isMasonry ? new Thickness(0) : new Thickness(1);
+                card.CornerRadius = new CornerRadius(r);
+                if (card.Child is Grid g && g.Children.Count > 0 && g.Children[0] is Border imgBorder)
                 {
-                    var r = _settings.CardCornerRadius;
-                    card.CornerRadius = new CornerRadius(r);
-                    // 同步内层图片容器圆角（避免溢出）
-                    if (card.Child is Grid g && g.Children.Count > 0 && g.Children[0] is Border imgBorder)
-                        imgBorder.CornerRadius = new CornerRadius(r, r, 0, 0);
+                    imgBorder.CornerRadius = new CornerRadius(r, r, 0, 0);
+                    if (!isMasonry) imgBorder.Height = 180;
+                    if (imgBorder.Child is Image thumbnail)
+                        thumbnail.Stretch = isMasonry ? Stretch.Uniform : Stretch.UniformToFill;
+                    if (g.Children.Count > 4 && g.Children[4] is StackPanel infoPanel)
+                        infoPanel.Visibility = isMasonry ? Visibility.Collapsed : Visibility.Visible;
                 }
 
                 // 抬起交互：hover 时卡片上移 6px（Margin 动画自动让相邻卡片
@@ -1888,7 +1939,7 @@ public sealed partial class MainWindow : Window
                 // 移走回弹。BackEase 弹性插值 → q 弹灵动。
                 // 说明：WinUI3 无 ThicknessAnimation，且禁止 RenderTransform，
                 // 故用 DispatcherTimer 手动插值 Margin（布局属性，非打包安全）
-                if (_settings.AnimationsEnabled)
+                if (_settings.AnimationsEnabled && !isMasonry)
                 {
                     var liftFrom = new Thickness(0);
                     var liftTo = new Thickness(0, -6, 0, 6);

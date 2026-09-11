@@ -32,6 +32,10 @@ public sealed class AppSettings
     public double CardCornerRadius { get; set; } = 14;     // 卡片圆角
     public bool AnimationsEnabled { get; set; } = true;    // 动画总开关
     public double AnimationDurationMs { get; set; } = 350; // 入场动画时长
+    public int UiStyle { get; set; } = 0;                  // 0=原生简约 1=通透亚克力 2=Liquid Glass
+    public double GlassTintStrength { get; set; } = 0.35;  // 玻璃遮罩强度（越低越通透）
+    public double GlassHighlightStrength { get; set; } = 0.60; // 玻璃高光强度
+    public bool FilmstripAutoHide { get; set; } = true;    // 详情胶片条靠近底部才出现
 
     // ── 背景 ──
     public int BackgroundMode { get; set; } = 0;           // 0=默认 1=纯色 2=图片
@@ -50,6 +54,7 @@ public sealed class AppSettings
     // ── 布局 ──
     public double CardMinWidth { get; set; } = 220;
     public int SortMode { get; set; } = 0;   // 0=最近添加, 1=文件名, 2=评分
+    public int DisplayMode { get; set; } = 0; // 0=规整网格 1=瀑布流
 
     // ── 持久化 ──
     public static AppSettings Load()
