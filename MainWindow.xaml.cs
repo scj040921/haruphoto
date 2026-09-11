@@ -19,6 +19,7 @@ using Windows.System;
 using Windows.UI.Core;
 using Microsoft.UI.Xaml.Hosting; // ElementCompositionPreview
 using Microsoft.UI.Composition;  // CompositionEffectSourceParameter 等
+using Microsoft.Graphics.Canvas;
 
 namespace PhotoAlbum;
 
@@ -59,6 +60,10 @@ public sealed partial class MainWindow : Window
     private bool _previewInfoVisible = true;
     private bool _suppressRatingEvent;
     private bool _suppressCategoryEvent;
+    private bool _statusBarExpanded;
+    private int _previewPaletteRequest;
+    private int _previewTransitionRequest;
+    private float _previewFitZoom = 1.0f;
 
     // ── 分类管理 ──
     private readonly List<string> _categories = new();
@@ -67,6 +72,8 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         Title = "haruphoto";
+        PreviewImageScroll.ViewChanged += (_, _) => UpdatePreviewZoomText();
+        PreviewImageScroll.SizeChanged += (_, _) => SizePreviewCanvas();
 
         // 应用主题 + 外观（深色/浅色即时生效）
         ApplyTheme();
@@ -521,6 +528,7 @@ public sealed partial class MainWindow : Window
     /// <summary>预览入场：渐入动画（安全 — 仅 Opacity，不触及 RenderTransform）</summary>
     private void AnimatePreviewIn()
     {
+        if (!_settings.AnimationsEnabled) return;
         PreviewContentRoot.Opacity = 0.5;
         var sb = new Storyboard();
         var fade = new DoubleAnimation
@@ -539,6 +547,14 @@ public sealed partial class MainWindow : Window
     /// <summary>预览退场：渐隐并关闭</summary>
     private void AnimatePreviewOut()
     {
+        if (!_settings.AnimationsEnabled)
+        {
+            PreviewOverlay.Visibility = Visibility.Collapsed;
+            PreviewImage.Source = null;
+            PreviewImageOutgoing.Source = null;
+            _previewIndex = -1;
+            return;
+        }
         var sb = new Storyboard();
         var fade = new DoubleAnimation
         {
@@ -554,6 +570,7 @@ public sealed partial class MainWindow : Window
         {
             PreviewOverlay.Visibility = Visibility.Collapsed;
             PreviewImage.Source = null;
+            PreviewImageOutgoing.Source = null;
             _previewIndex = -1;
             PreviewContentRoot.Opacity = 1.0;
         };
@@ -877,6 +894,26 @@ public sealed partial class MainWindow : Window
         UpdateStats();
         LoadThumbnailsForCurrentPage();
         UpdateFilterSummary();
+        AnimateGalleryTransition();
+    }
+
+    private void AnimateGalleryTransition()
+    {
+        if (!_settings.AnimationsEnabled || MainScroll == null) return;
+        MainScroll.Opacity = 0.84;
+        var fade = new DoubleAnimation
+        {
+            From = 0.84,
+            To = 1,
+            Duration = TimeSpan.FromMilliseconds(Math.Min(_settings.AnimationDurationMs, 260)),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            EnableDependentAnimation = true,
+        };
+        Storyboard.SetTarget(fade, MainScroll);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(fade);
+        storyboard.Begin();
     }
 
     private void ApplyGalleryLayout()
@@ -1804,6 +1841,63 @@ public sealed partial class MainWindow : Window
     private static int RadiusIndex(double r)
         => r <= 8 ? 0 : r >= 20 ? 2 : 1;
 
+    private void StatusBarGlass_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        for (var node = e.OriginalSource as DependencyObject; node != null; node = VisualTreeHelper.GetParent(node))
+            if (node is Button || ReferenceEquals(node, StatusBarActions)) return;
+        SetStatusBarExpanded(!_statusBarExpanded);
+    }
+
+    private void SetStatusBarExpanded(bool expanded)
+    {
+        if (_statusBarExpanded == expanded) return;
+        _statusBarExpanded = expanded;
+        var from = StatusBarGlass.ActualWidth > 0 ? StatusBarGlass.ActualWidth : StatusBarGlass.Width;
+        var to = expanded ? 760d : 230d;
+        if (expanded)
+        {
+            StatusBarActions.Visibility = Visibility.Visible;
+            StatusBarActions.Opacity = 0;
+            StatusBarHint.Visibility = Visibility.Collapsed;
+        }
+
+        var storyboard = new Storyboard();
+        var width = new DoubleAnimation
+        {
+            From = from,
+            To = to,
+            Duration = TimeSpan.FromMilliseconds(expanded ? 320 : 260),
+            EasingFunction = new CubicEase { EasingMode = expanded ? EasingMode.EaseOut : EasingMode.EaseIn },
+            EnableDependentAnimation = true,
+        };
+        Storyboard.SetTarget(width, StatusBarGlass);
+        Storyboard.SetTargetProperty(width, "Width");
+        storyboard.Children.Add(width);
+        if (expanded)
+        {
+            var fade = new DoubleAnimation
+            {
+                To = 1,
+                BeginTime = TimeSpan.FromMilliseconds(110),
+                Duration = TimeSpan.FromMilliseconds(180),
+                EnableDependentAnimation = true,
+            };
+            Storyboard.SetTarget(fade, StatusBarActions);
+            Storyboard.SetTargetProperty(fade, "Opacity");
+            storyboard.Children.Add(fade);
+        }
+        else
+        {
+            StatusBarActions.Opacity = 0;
+            storyboard.Completed += (_, _) =>
+            {
+                StatusBarActions.Visibility = Visibility.Collapsed;
+                StatusBarHint.Visibility = Visibility.Visible;
+            };
+        }
+        storyboard.Begin();
+    }
+
     private void PhotoCard_Tapped(object sender, TappedRoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is PhotoItem photo)
@@ -2326,6 +2420,7 @@ public sealed partial class MainWindow : Window
         var p = _currentView[_previewIndex];
         _previewRotation = 0;
         PreviewImage.RenderTransform = null;
+        _ = ApplyPreviewPaletteAsync(p.FilePath);
 
         PreviewName.Text = p.Filename;
         PreviewInfo.Text = $"{p.SizeText} · 添加于 {p.DateText}";
@@ -2356,12 +2451,119 @@ public sealed partial class MainWindow : Window
         PreviewFilmstrip.SelectedItem = p;
         PreviewFilmstrip.ScrollIntoView(p);
 
+        var transition = ++_previewTransitionRequest;
         PreviewLoading.Visibility = Visibility.Visible;
+        PreviewImageOutgoing.Source = PreviewImage.Source;
+        PreviewImageOutgoing.Opacity = PreviewImage.Source == null ? 0 : 1;
+        PreviewImage.Opacity = 0;
+        PreviewTransitionVeil.Opacity = 0.54;
+        ApplyFitPreviewZoom();
         var bmp = new BitmapImage { DecodePixelWidth = 1600 };
-        bmp.ImageOpened += (_, _) => PreviewLoading.Visibility = Visibility.Collapsed;
-        bmp.ImageFailed += (_, _) => PreviewLoading.Visibility = Visibility.Collapsed;
+        bmp.ImageOpened += (_, _) => FinishPreviewImageTransition(transition);
+        bmp.ImageFailed += (_, _) => FinishPreviewImageTransition(transition);
         PreviewImage.Source = bmp;
         bmp.UriSource = new Uri(p.FilePath);
+    }
+
+    private void FinishPreviewImageTransition(int transition)
+    {
+        if (transition != _previewTransitionRequest) return;
+        PreviewLoading.Visibility = Visibility.Collapsed;
+        SizePreviewCanvas();
+        if (!_settings.AnimationsEnabled)
+        {
+            PreviewImage.Opacity = 1;
+            PreviewImageOutgoing.Opacity = 0;
+            PreviewImageOutgoing.Source = null;
+            PreviewTransitionVeil.Opacity = 0;
+            return;
+        }
+
+        var storyboard = new Storyboard();
+        var imageFade = new DoubleAnimation
+        {
+            To = 1,
+            Duration = TimeSpan.FromMilliseconds(260),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            EnableDependentAnimation = true,
+        };
+        Storyboard.SetTarget(imageFade, PreviewImage);
+        Storyboard.SetTargetProperty(imageFade, "Opacity");
+        storyboard.Children.Add(imageFade);
+        var outgoingFade = new DoubleAnimation
+        {
+            To = 0,
+            Duration = TimeSpan.FromMilliseconds(240),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
+            EnableDependentAnimation = true,
+        };
+        Storyboard.SetTarget(outgoingFade, PreviewImageOutgoing);
+        Storyboard.SetTargetProperty(outgoingFade, "Opacity");
+        storyboard.Children.Add(outgoingFade);
+        var veilFade = new DoubleAnimation
+        {
+            To = 0,
+            Duration = TimeSpan.FromMilliseconds(300),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            EnableDependentAnimation = true,
+        };
+        Storyboard.SetTarget(veilFade, PreviewTransitionVeil);
+        Storyboard.SetTargetProperty(veilFade, "Opacity");
+        storyboard.Children.Add(veilFade);
+        storyboard.Completed += (_, _) =>
+        {
+            if (transition == _previewTransitionRequest) PreviewImageOutgoing.Source = null;
+        };
+        storyboard.Begin();
+    }
+
+    private async Task ApplyPreviewPaletteAsync(string filePath)
+    {
+        var request = ++_previewPaletteRequest;
+        try
+        {
+            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(filePath);
+            using var stream = await file.OpenReadAsync();
+            using var bitmap = await CanvasBitmap.LoadAsync(CanvasDevice.GetSharedDevice(), stream);
+            var pixels = bitmap.GetPixelBytes();
+            if (pixels.Length < 4) return;
+
+            long red = 0, green = 0, blue = 0, samples = 0;
+            var stride = Math.Max(4, (pixels.Length / 4096 / 4) * 4);
+            for (var i = 0; i + 3 < pixels.Length; i += stride)
+            {
+                if (pixels[i + 3] < 30) continue;
+                blue += pixels[i];
+                green += pixels[i + 1];
+                red += pixels[i + 2];
+                samples++;
+            }
+            if (samples == 0 || request != _previewPaletteRequest) return;
+
+            var r = (byte)(red / samples);
+            var g = (byte)(green / samples);
+            var b = (byte)(blue / samples);
+            var luma = r * 0.299 + g * 0.587 + b * 0.114;
+            r = (byte)(r * 0.42 + luma * 0.58);
+            g = (byte)(g * 0.42 + luma * 0.58);
+            b = (byte)(b * 0.42 + luma * 0.58);
+            var tint = Windows.UI.Color.FromArgb(
+                255,
+                (byte)Math.Clamp(r * 0.55, 8, 150),
+                (byte)Math.Clamp(g * 0.55, 8, 150),
+                (byte)Math.Clamp(b * 0.55, 8, 150));
+            if (request != _previewPaletteRequest) return;
+
+            PreviewImageStage.Background = null;
+            PreviewOverlay.Background = new AcrylicBrush
+            {
+                TintColor = tint,
+                TintOpacity = 0.62,
+                TintLuminosityOpacity = 0.18,
+                FallbackColor = Windows.UI.Color.FromArgb(238, tint.R, tint.G, tint.B),
+            };
+        }
+        catch { }
     }
 
     private int _exifRequestSeq;
@@ -2437,6 +2639,40 @@ public sealed partial class MainWindow : Window
     private void ClosePreview_Click(object sender, RoutedEventArgs e) => ClosePreview();
     private void PreviewPrev_Click(object sender, RoutedEventArgs e) => ShowPreviewAt(_previewIndex - 1);
     private void PreviewNext_Click(object sender, RoutedEventArgs e) => ShowPreviewAt(_previewIndex + 1);
+
+    private void PreviewZoomIn_Click(object sender, RoutedEventArgs e) => ChangePreviewZoom(1.25f);
+    private void PreviewZoomOut_Click(object sender, RoutedEventArgs e) => ChangePreviewZoom(0.8f);
+    private void PreviewZoomReset_Click(object sender, RoutedEventArgs e) => ApplyFitPreviewZoom();
+
+    private void ChangePreviewZoom(float multiplier)
+    {
+        var target = Math.Clamp(PreviewImageScroll.ZoomFactor * multiplier, _previewFitZoom, 8.0f);
+        PreviewImageScroll.ChangeView(null, null, target, false);
+    }
+
+    private void ApplyFitPreviewZoom()
+    {
+        SizePreviewCanvas();
+        _previewFitZoom = 1.0f;
+        PreviewImageScroll.ChangeView(0, 0, 1.0f, true);
+        UpdatePreviewZoomText();
+    }
+
+    private void SizePreviewCanvas()
+    {
+        var width = PreviewImageScroll.ActualWidth;
+        var height = PreviewImageScroll.ActualHeight;
+        if (width <= 0 || height <= 0) return;
+        PreviewImageCanvas.Width = width;
+        PreviewImageCanvas.Height = height;
+    }
+
+    private void UpdatePreviewZoomText()
+    {
+        if (_previewFitZoom <= 0) return;
+        var relative = PreviewImageScroll.ZoomFactor / _previewFitZoom;
+        PreviewZoomText.Text = Math.Abs(relative - 1) < 0.04 ? "适应" : $"{Math.Round(relative * 100):0}%";
+    }
 
     private void PreviewFilmstrip_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {

@@ -142,23 +142,23 @@
                      渐变半透明背景，滚动时下方卡片从渐变区透出。
                      背景由代码构建（ApplyTheme → BuildTopBarGradient），
                      避免 XAML ThemeResource 解析问题 -->
-                <Grid x:Name="TopBarOverlay" Grid.Row="0" VerticalAlignment="Top">
+                <Grid x:Name="TopBarOverlay" Grid.Row="0" VerticalAlignment="Top" Margin="18,10,18,0">
                     <!-- 渐变背景层不拦截鼠标事件（下层卡片可正常悬停/点击）。
                          底部 1px 高光线 = 玻璃底部折射边缘光。
                          承载 Composition 模糊 sprite（BackdropBrush 实时模糊背后卡片）；
                          Background 保持透明，tint 渐变在 TopBarTint 层（声明在后=在上）-->
-                    <Border x:Name="TopBarGradient" IsHitTestVisible="False"
-                            BorderBrush="{ThemeResource HighlightLineBrush}" BorderThickness="0,0,0,1"/>
+                    <Border x:Name="TopBarGradient" IsHitTestVisible="False" CornerRadius="26"
+                            BorderBrush="{ThemeResource HighlightLineBrush}" BorderThickness="1"/>
                     <!-- tint 渐变层：位于模糊 sprite 之上（Acrylic 结构 =
                          下层实时模糊 + 上层半透明 tint），液态玻璃模式自动调淡 -->
-                    <Border x:Name="TopBarTint" IsHitTestVisible="False"/>
+                    <Border x:Name="TopBarTint" IsHitTestVisible="False" CornerRadius="26"/>
 
                     <!-- 标题栏 -->
-                    <Grid Padding="24,18,24,8">
+                    <Grid Padding="20,9,20,2">
                         <StackPanel Spacing="2">
-                            <TextBlock Text="haruphoto" FontSize="26" FontWeight="SemiBold"
+                            <TextBlock Text="haruphoto" FontSize="19" FontWeight="SemiBold"
                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                            <TextBlock x:Name="LibraryNameText" Text="照片库" FontSize="12"
+                            <TextBlock x:Name="LibraryNameText" Text="照片库 · 你的本地记忆" FontSize="11"
                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                         </StackPanel>
                     </Grid>
@@ -245,8 +245,10 @@
 
                 <!-- 悬浮底栏（玻璃条）：与顶栏同格（Row0）+ 底部对齐 +
                      声明在 ScrollViewer 之后（Z 在上）→ 卡片滚动经过其下方透出 -->
-                <Border x:Name="StatusBarGlass" VerticalAlignment="Bottom" Padding="24,9"
-                        BorderBrush="{ThemeResource HighlightLineBrush}" BorderThickness="0,1,0,0">
+                <Border x:Name="StatusBarGlass" VerticalAlignment="Bottom" HorizontalAlignment="Right" Width="230"
+                        Margin="18,0,18,16" Padding="16,8" CornerRadius="24"
+                        BorderBrush="{ThemeResource HighlightLineBrush}" BorderThickness="1"
+                        Tapped="StatusBarGlass_Tapped">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -254,7 +256,9 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="StatusText" Text="就绪" VerticalAlignment="Center" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                        <TextBlock x:Name="StatusBarHint" Grid.Column="1" Text="⌃  操作" VerticalAlignment="Center" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <StackPanel x:Name="StatusBarActions" Grid.Column="1" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
                             <Button x:Name="UndoBtn" Content="撤销" Click="Undo_Click"
                                     FontSize="12" Padding="10,6" CornerRadius="6" Visibility="Collapsed"/>
                             <TextBlock x:Name="SelectedCountText" Text="" VerticalAlignment="Center"
@@ -351,6 +355,18 @@
                                    FontSize="14" FontWeight="SemiBold" Foreground="#FFFFFF"
                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                            <Button Click="PreviewZoomOut_Click" FontSize="15" Padding="10,6" CornerRadius="10"
+                                    Background="#25FFFFFF" Foreground="#FFFFFF" ToolTipService.ToolTip="缩小">
+                                <FontIcon Glyph="&#xE71F;" FontSize="13"/>
+                            </Button>
+                            <Button x:Name="PreviewZoomResetBtn" Click="PreviewZoomReset_Click" FontSize="12" Padding="10,6" CornerRadius="10"
+                                    Background="#25FFFFFF" Foreground="#FFFFFF" ToolTipService.ToolTip="复位缩放">
+                                <TextBlock x:Name="PreviewZoomText" Text="适应" FontSize="12"/>
+                            </Button>
+                            <Button Click="PreviewZoomIn_Click" FontSize="15" Padding="10,6" CornerRadius="10"
+                                    Background="#25FFFFFF" Foreground="#FFFFFF" ToolTipService.ToolTip="放大">
+                                <FontIcon Glyph="&#xE8A3;" FontSize="13"/>
+                            </Button>
                             <Button x:Name="PreviewInfoToggleBtn" Content="信息" Click="PreviewInfoToggle_Click"
                                     FontSize="12" Padding="10,6" CornerRadius="6"
                                     Background="#25FFFFFF" Foreground="#FFFFFF"/>
@@ -390,11 +406,20 @@
                         <FontIcon Glyph="&#xE76B;" FontSize="22" Foreground="#FFFFFF"/>
                     </Button>
 
-                    <Grid Grid.Column="1" Margin="12,20">
-                        <Image x:Name="PreviewImage" Stretch="Uniform"/>
+                    <Grid x:Name="PreviewImageStage" Grid.Column="1" Margin="12,20">
+                        <ScrollViewer x:Name="PreviewImageScroll" ZoomMode="Enabled" MinZoomFactor="0.1" MaxZoomFactor="8"
+                                      HorizontalScrollMode="Enabled" VerticalScrollMode="Enabled"
+                                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                            <Grid x:Name="PreviewImageCanvas">
+                                <Image x:Name="PreviewImageOutgoing" Stretch="Uniform" Opacity="0"/>
+                                <Image x:Name="PreviewImage" Stretch="Uniform"/>
+                            </Grid>
+                        </ScrollViewer>
                         <ProgressRing x:Name="PreviewLoading" IsIndeterminate="True"
                                       Width="36" Height="36" HorizontalAlignment="Center"
                                       VerticalAlignment="Center"/>
+                        <Border x:Name="PreviewTransitionVeil" IsHitTestVisible="False" Opacity="0"
+                                Background="#40212A36" CornerRadius="18"/>
                     </Grid>
 
                     <Button Grid.Column="2" Padding="10" Margin="6,0"
@@ -406,7 +431,8 @@
                     <!-- 详情面板 - 毛玻璃效果 -->
                     <Border x:Name="DetailPanel" Grid.Column="3"
                             BorderThickness="1,0,0,0"
-                            CornerRadius="16,0,0,16">
+                            CornerRadius="16,0,0,16"
+                            Background="{ThemeResource PreviewPanelBrush}">
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel Padding="20" Spacing="16">
                                 <StackPanel Spacing="6">
