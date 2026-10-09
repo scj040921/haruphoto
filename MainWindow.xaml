@@ -48,7 +48,7 @@
                             HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"
                             Background="Transparent"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <Button Content="↻ 检查更新" Click="CheckUpdateButton_Click"
+                    <Button x:Name="CheckUpdateNavButton" Content="↻ 检查更新" Click="CheckUpdateButton_Click"
                             HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"
                             Background="Transparent"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -138,6 +138,24 @@
                     </Grid>
                 </ScrollViewer>
 
+                <Border x:Name="EmptyState" Visibility="Collapsed" MaxWidth="440"
+                        Margin="24,145,24,80" Padding="28" CornerRadius="16"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                    <StackPanel Spacing="12" HorizontalAlignment="Center">
+                        <FontIcon Glyph="&#xE8B9;" FontSize="32" HorizontalAlignment="Center"
+                                  Foreground="{ThemeResource AppAccentBrush}"/>
+                        <TextBlock x:Name="EmptyStateTitle" FontSize="19" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="EmptyStateDescription" FontSize="13" TextWrapping="Wrap"
+                                   TextAlignment="Center" MaxWidth="350"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <Button x:Name="EmptyStateAction" HorizontalAlignment="Center" Margin="0,6,0,0"
+                                Padding="14,8" Click="EmptyStateAction_Click"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- 悬浮顶栏（内容区覆盖层，VerticalAlignment=Top）：
                      渐变半透明背景，滚动时下方卡片从渐变区透出。
                      背景由代码构建（ApplyTheme → BuildTopBarGradient），
@@ -171,8 +189,9 @@
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Orientation="Horizontal" Spacing="10">
-                        <AutoSuggestBox x:Name="SearchBox" PlaceholderText="搜索照片…"
+                        <AutoSuggestBox x:Name="SearchBox" PlaceholderText="搜索名称、分类或日期…"
                                         QueryIcon="Find" MinWidth="220" FontSize="13"
+                                        ToolTipService.ToolTip="Ctrl+F 快速搜索"
                                         TextChanged="SearchBox_TextChanged"/>
                         <ComboBox x:Name="SortCombo" SelectedIndex="0" MinWidth="110"
                                   SelectionChanged="SortCombo_SelectionChanged" FontSize="13">
@@ -259,6 +278,9 @@
                         <TextBlock x:Name="StatusBarHint" Grid.Column="1" Text="⌃  操作" VerticalAlignment="Center" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         <StackPanel x:Name="StatusBarActions" Grid.Column="1" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                            <Button Content="对比选片" Click="CompareSelected_Click"
+                                    FontSize="12" Padding="10,6" CornerRadius="6"
+                                    ToolTipService.ToolTip="选择 2–4 张照片后对比（Ctrl+D）"/>
                             <Button x:Name="UndoBtn" Content="撤销" Click="Undo_Click"
                                     FontSize="12" Padding="10,6" CornerRadius="6" Visibility="Collapsed"/>
                             <TextBlock x:Name="SelectedCountText" Text="" VerticalAlignment="Center"
@@ -360,12 +382,21 @@
                                 <FontIcon Glyph="&#xE71F;" FontSize="13"/>
                             </Button>
                             <Button x:Name="PreviewZoomResetBtn" Click="PreviewZoomReset_Click" FontSize="12" Padding="10,6" CornerRadius="10"
-                                    Background="#25FFFFFF" Foreground="#FFFFFF" ToolTipService.ToolTip="复位缩放">
+                                    Background="#25FFFFFF" Foreground="#FFFFFF" ToolTipService.ToolTip="适应窗口 (Ctrl+0)">
                                 <TextBlock x:Name="PreviewZoomText" Text="适应" FontSize="12"/>
                             </Button>
                             <Button Click="PreviewZoomIn_Click" FontSize="15" Padding="10,6" CornerRadius="10"
                                     Background="#25FFFFFF" Foreground="#FFFFFF" ToolTipService.ToolTip="放大">
                                 <FontIcon Glyph="&#xE8A3;" FontSize="13"/>
+                            </Button>
+                            <Button x:Name="PreviewSlideshowBtn" Content="▶ 播放" Click="PreviewSlideshow_Click"
+                                    FontSize="12" Padding="10,6" CornerRadius="6"
+                                    Background="#25FFFFFF" Foreground="#FFFFFF"
+                                    ToolTipService.ToolTip="幻灯片播放（空格键）"/>
+                            <Button Click="CompareAdjacent_Click" Padding="10,6" CornerRadius="6"
+                                    Background="#25FFFFFF" Foreground="#FFFFFF" ToolTipService.ToolTip="对比相邻照片（Ctrl+D）"
+                                    AutomationProperties.Name="对比相邻照片">
+                                <FontIcon Glyph="&#xE8A5;" FontSize="13"/>
                             </Button>
                             <Button x:Name="PreviewInfoToggleBtn" Content="信息" Click="PreviewInfoToggle_Click"
                                     FontSize="12" Padding="10,6" CornerRadius="6"
@@ -418,6 +449,10 @@
                         <ProgressRing x:Name="PreviewLoading" IsIndeterminate="True"
                                       Width="36" Height="36" HorizontalAlignment="Center"
                                       VerticalAlignment="Center"/>
+                        <TextBlock x:Name="PreviewReadError" Text="无法读取这张照片，请检查文件是否损坏或格式是否受支持。"
+                                   Visibility="Collapsed" Foreground="#DEFFFFFF" FontSize="16"
+                                   TextWrapping="Wrap" TextAlignment="Center" MaxWidth="400"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
                         <Border x:Name="PreviewTransitionVeil" IsHitTestVisible="False" Opacity="0"
                                 Background="#40212A36" CornerRadius="18"/>
                     </Grid>
@@ -499,10 +534,11 @@
                         </ScrollViewer>
                     </Border>
 
-                    <Border Grid.ColumnSpan="4" Height="90" VerticalAlignment="Bottom"
+                    <Border x:Name="PreviewFilmstripBar" Grid.ColumnSpan="3" Height="90" VerticalAlignment="Bottom"
                             Background="#CC101014" Padding="8,6">
                         <ListView x:Name="PreviewFilmstrip" Height="78" VerticalAlignment="Top"
                                   SelectionChanged="PreviewFilmstrip_SelectionChanged"
+                                  ContainerContentChanging="PreviewFilmstrip_ContainerContentChanging"
                                   SelectionMode="Single" BorderThickness="0"
                                   ScrollViewer.HorizontalScrollBarVisibility="Visible"
                                   ScrollViewer.VerticalScrollBarVisibility="Disabled"
@@ -514,8 +550,12 @@
                             </ListView.ItemsPanel>
                             <ListView.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Width="72" Height="58" Margin="3" CornerRadius="5">
-                                        <Image Source="{Binding ThumbnailSource}" Stretch="UniformToFill"/>
+                                    <Border Width="72" Height="58" Margin="3" CornerRadius="5" Background="#FF252A32">
+                                        <Grid>
+                                            <TextBlock Text="{Binding ThumbnailStatus}" FontSize="10" Foreground="#C0FFFFFF"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <Image Source="{Binding ThumbnailSource}" Stretch="UniformToFill"/>
+                                        </Grid>
                                     </Border>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
@@ -523,6 +563,34 @@
                     </Border>
                 </Grid>
             </Grid>
+        </Grid>
+        <Grid x:Name="CompareOverlay" Visibility="Collapsed" Background="#FF12141A" RequestedTheme="Dark" KeyDown="Compare_KeyDown">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid Margin="16,12" ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Spacing="3" VerticalAlignment="Center">
+                    <TextBlock Text="对比选片" FontSize="20" FontWeight="SemiBold" Foreground="White"/>
+                    <TextBlock x:Name="CompareStatus" FontSize="12" Foreground="#B8FFFFFF" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <CheckBox x:Name="CompareSyncCheck" Content="同步缩放与移动" IsChecked="True"
+                              Foreground="White" Checked="CompareSync_Changed" Unchecked="CompareSync_Changed"/>
+                    <Button Content="−" Click="CompareZoomOut_Click" ToolTipService.ToolTip="缩小"/>
+                    <Button Content="适应" Click="CompareFit_Click" ToolTipService.ToolTip="适应所有照片（Ctrl+0）"/>
+                    <Button Content="＋" Click="CompareZoomIn_Click" ToolTipService.ToolTip="放大"/>
+                    <Button Content="返回" Click="CompareClose_Click" ToolTipService.ToolTip="返回（Esc）"/>
+                </StackPanel>
+            </Grid>
+            <Grid x:Name="ComparePhotosGrid" Grid.Row="1" Margin="12,0,12,12" RowSpacing="10" ColumnSpacing="10"/>
+            <TextBlock Grid.Row="2" Text="点击照片切换当前项 · 0–5 评分 · F 收藏 · Tab 切换照片 · Ctrl+0 适应 · Esc 返回"
+                       FontSize="12" Foreground="#A0FFFFFF" Margin="16,0,16,12" TextWrapping="Wrap"/>
         </Grid>
     </Grid>
 </Window>

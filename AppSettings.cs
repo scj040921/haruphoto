@@ -11,9 +11,7 @@ namespace PhotoAlbum;
 /// </summary>
 public sealed class AppSettings
 {
-    private static readonly string FilePath =
-        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                               "haruphoto", "settings.json");
+    private static readonly string FilePath = Path.Combine(AppPaths.DataDirectory, "settings.json");
 
     // ── 主题 ──
     public bool DarkMode { get; set; } = false;
@@ -55,6 +53,14 @@ public sealed class AppSettings
     public double CardMinWidth { get; set; } = 220;
     public int SortMode { get; set; } = 0;   // 0=最近添加, 1=文件名, 2=评分
     public int DisplayMode { get; set; } = 0; // 0=规整网格 1=瀑布流
+    public bool PreviewPaletteEnabled { get; set; } = true; // 详情页取色背景
+    public int SlideshowIntervalSeconds { get; set; } = 4;
+    public bool PreviewInfoDefaultVisible { get; set; } = true;
+    public int FilmstripMode { get; set; } = 0; // 0=始终显示 1=靠近底部显示 2=隐藏
+    public List<AppearanceProfile> AppearanceProfiles { get; set; } = new();
+    public string ActiveAppearanceProfileId { get; set; } = "";
+
+    public AppSettings Clone() => JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(this)) ?? new AppSettings();
 
     // ── 持久化 ──
     public static AppSettings Load()
@@ -73,14 +79,26 @@ public sealed class AppSettings
 
     public void Save()
     {
+        TrySave(out _);
+    }
+
+    public bool TrySave(out string error) => TrySave(FilePath, out error);
+
+    internal bool TrySave(string destination, out string error)
+    {
+        error = "";
+        var temporaryPath = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            var dir = System.IO.Path.GetDirectoryName(FilePath)!;
+            var dir = System.IO.Path.GetDirectoryName(destination)!;
             Directory.CreateDirectory(dir);
             var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(FilePath, json);
+            File.WriteAllText(temporaryPath, json);
+            File.Move(temporaryPath, destination, overwrite: true);
+            return true;
         }
-        catch { /* 保存失败不崩溃 */ }
+        catch (Exception ex) { error = ex.Message; return false; }
+        finally { try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); } catch { } }
     }
 
     /// <summary>将 AccentColor hex 转为 Windows.UI.Color</summary>

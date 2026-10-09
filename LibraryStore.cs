@@ -30,8 +30,9 @@ public static class LibraryStore
         [JsonPropertyName("photos")] public List<Entry> Photos { get; set; } = new();
     }
 
-    private static readonly string DataDir =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "haruphoto");
+    private static readonly string DataDir = AppPaths.DataDirectory;
+    private static readonly System.Threading.SemaphoreSlim SaveGate = new(1);
+    private static readonly List<Entry> MissingEntries = new();
 
     public static string LibraryPath => Path.Combine(DataDir, "library.json");
     public static string ThumbnailCacheDir => Path.Combine(DataDir, "thumbnails");
@@ -50,6 +51,7 @@ public static class LibraryStore
     {
         var result = new List<PhotoItem>();
         var missing = 0;
+        MissingEntries.Clear();
         try
         {
             if (!File.Exists(LibraryPath)) return (result, 0);
@@ -64,7 +66,7 @@ public static class LibraryStore
                 try
                 {
                     var fi = new FileInfo(e.Path);
-                    if (!fi.Exists) { missing++; continue; }
+                    if (!fi.Exists) { MissingEntries.Add(e); missing++; continue; }
                     result.Add(new PhotoItem
                     {
                         Filename = fi.Name,
@@ -78,7 +80,7 @@ public static class LibraryStore
                         Category = e.Category ?? "",
                     });
                 }
-                catch { missing++; }
+                catch { MissingEntries.Add(e); missing++; }
             }
         }
         catch { /* 文件损坏时以空库启动，避免崩溃 */ }
@@ -99,9 +101,12 @@ public static class LibraryStore
                 Taken = p.DateTaken,
             }).ToList(),
         };
+        var paths = new HashSet<string>(lib.Photos.Select(p => p.Path), StringComparer.OrdinalIgnoreCase);
+        lib.Photos.AddRange(MissingEntries.Where(e => !paths.Contains(e.Path)));
 
         // 先写临时文件再替换，避免写入中断导致 JSON 损坏
-        var tmp = LibraryPath + ".tmp";
+        var tmp = LibraryPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        await SaveGate.WaitAsync().ConfigureAwait(false);
         try
         {
             await using (var fs = File.Create(tmp))
@@ -112,5 +117,12 @@ public static class LibraryStore
             File.Move(tmp, LibraryPath, overwrite: true);
         }
         catch { /* 保存失败不影响使用，下次再试 */ }
+        finally
+        {
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+            SaveGate.Release();
+        }
     }
+
+    public static void ForgetMissingEntries() => MissingEntries.Clear();
 }

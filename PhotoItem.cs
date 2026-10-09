@@ -31,6 +31,8 @@ public sealed class PhotoItem : INotifyPropertyChanged
             if (_category == value) return;
             _category = value ?? "";
             OnChanged();
+            OnChanged(nameof(CategoryTagOpacity));
+            OnChanged(nameof(CategoryDisplay));
         }
     }
 
@@ -62,12 +64,19 @@ public sealed class PhotoItem : INotifyPropertyChanged
     }
 
     private BitmapImage? _thumbnailSource;
+    private string _thumbnailStatus = "加载中…";
+    public string ThumbnailStatus
+    {
+        get => _thumbnailStatus;
+        set { if (_thumbnailStatus == value) return; _thumbnailStatus = value; OnChanged(); }
+    }
     public BitmapImage? ThumbnailSource
     {
         get => _thumbnailSource;
         set
         {
             _thumbnailSource = value;
+            ThumbnailStatus = value == null ? "加载中…" : "";
             OnChanged();
         }
     }
@@ -78,7 +87,7 @@ public sealed class PhotoItem : INotifyPropertyChanged
     public double ThumbnailAspectRatio
     {
         get => _thumbnailAspectRatio;
-        set => _thumbnailAspectRatio = value > 0 ? value : 4d / 3d;
+        set => _thumbnailAspectRatio = double.IsFinite(value) && value > 0 ? value : 4d / 3d;
     }
 
     /// <summary>以 220px 卡片宽度计算的缩略图高度，供瀑布流布局使用。</summary>

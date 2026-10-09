@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Resolve release tag
         id: meta
@@ -69,29 +71,27 @@ jobs:
       - name: Assemble packages
         shell: pwsh
         run: |
-          $out = "bin/Release/$env:TFM/$env:RID"
-          $portableRoot = "release/haruphoto-${{ steps.meta.outputs.version }}-portable"
-          $installerRoot = "release/haruphoto-${{ steps.meta.outputs.version }}-installer"
-          New-Item -ItemType Directory -Force $portableRoot, $installerRoot | Out-Null
-          Copy-Item "$out/*" $portableRoot -Recurse -Force
-          Compress-Archive -Path "$portableRoot/*" -DestinationPath "release/haruphoto-${{ steps.meta.outputs.version }}-payload.zip" -CompressionLevel Optimal
-          Copy-Item tools/install.ps1, tools/install.cmd, tools/uninstall.ps1, tools/update.ps1 $installerRoot -Force
-          Copy-Item "release/haruphoto-${{ steps.meta.outputs.version }}-payload.zip" $installerRoot -Force
-          Compress-Archive -Path "$installerRoot/*" -DestinationPath "release/haruphoto-${{ steps.meta.outputs.version }}-installer.zip" -CompressionLevel Optimal
-          Compress-Archive -Path "$portableRoot/*" -DestinationPath "release/haruphoto-${{ steps.meta.outputs.version }}-portable.zip" -CompressionLevel Optimal
-          Get-FileHash "release/*.zip" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $([IO.Path]::GetFileName($_.Path))" } | Set-Content "release/SHA256SUMS.txt"
+          ./tools/package.ps1 -AppOutput "bin/Release/$env:TFM/$env:RID" -Version '${{ steps.meta.outputs.version }}' -Tag '${{ steps.meta.outputs.tag }}'
 
-      - name: Build Inno Setup installer when available
+      - name: Regression tests
         shell: pwsh
-        continue-on-error: true
         run: |
-          $iscc = Get-Command iscc.exe -ErrorAction SilentlyContinue
-          if ($iscc) {
-            iscc.exe "/DMyAppVersion=${{ steps.meta.outputs.version }}" installer/haruphoto.iss
-            Get-FileHash "release/*.exe" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $([IO.Path]::GetFileName($_.Path))" } | Add-Content "release/SHA256SUMS.txt"
-          } else {
-            Write-Host 'Inno Setup is not installed; PowerShell installer package remains available.'
-          }
+          dotnet run --project tests/Regression/Regression.csproj
+          if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed.' }
+
+      - name: Verify standalone installer
+        shell: pwsh
+        run: |
+          $report = Join-Path $PWD 'release/setup-test.txt'
+          $exe = Join-Path $PWD 'release/haruphoto-v${{ steps.meta.outputs.version }}-Setup.exe'
+          $p = Start-Process -FilePath $exe -ArgumentList '--self-test', $report -Wait -PassThru
+          Get-Content $report
+          if ($p.ExitCode -ne 0) { throw 'Installer validation failed; refusing to publish.' }
+
+      - name: Verify update rollback and integrity
+        shell: pwsh
+        run: |
+          ./tests/update-regression.ps1 -Package "release/haruphoto-v${{ steps.meta.outputs.version }}-portable.zip" -Version '${{ steps.meta.outputs.version }}'
 
       - name: Create or update GitHub Release
         env:
@@ -101,6 +101,8 @@ jobs:
           $tag = '${{ steps.meta.outputs.tag }}'
           gh release view $tag 2>$null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --title "haruphoto ${{ steps.meta.outputs.version }}" --generate-notes
+            gh release create $tag --draft --verify-tag --title "haruphoto ${{ steps.meta.outputs.version }}" --generate-notes
           }
-          gh release upload $tag release/*.zip release/SHA256SUMS.txt --clobber
+          gh release upload $tag "release/haruphoto-v${{ steps.meta.outputs.version }}-Setup.exe" "release/haruphoto-v${{ steps.meta.outputs.version }}-portable.zip" release/SHA256SUMS.txt release/update.json --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed; keep the release unpublished.' }
+          gh release edit $tag --draft=false --latest

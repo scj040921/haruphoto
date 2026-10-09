@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishTrimmed>false</PublishTrimmed>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <AssemblyName>HaruphotoSetup</AssemblyName>
+    <Version>1.3.2</Version>
+    <ApplicationIcon>../../Assets/AppIcon.ico</ApplicationIcon>
+    <PayloadPath Condition="'$(PayloadPath)' == ''">../../release/payload.zip</PayloadPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="$(PayloadPath)" LogicalName="haruphoto.payload.zip" />
+  </ItemGroup>
+  <Target Name="RequirePayload" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(PayloadPath)')" Text="Build the app payload with tools/package.ps1 first." />
+  </Target>
+</Project>

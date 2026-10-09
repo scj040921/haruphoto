@@ -14,7 +14,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue?style=flat-square)
 ![Framework](https://img.shields.io/badge/framework-WinUI3%20%2B%20.NET%208-blueviolet?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
-![Release](https://img.shields.io/badge/release-v1.0.0-orange?style=flat-square)
+![Release](https://img.shields.io/badge/release-v1.3.2-orange?style=flat-square)
 
 </div>
 
@@ -92,14 +92,20 @@
 ### 方式一：下载发布包（推荐）
 
 1. 前往 [Releases](https://github.com/scj040921/haruphoto/releases) 下载最新版本
-2. 需要标准安装体验时，下载 `*-installer.zip`，解压后双击 `install.cmd`
+2. 推荐下载 `haruphoto-v1.3.2-Setup.exe`，直接双击并点击「安装」，不再需要运行 `.cmd`、安装 .NET 或开启开发者模式
 3. 只想免安装运行时，下载 `*-portable.zip`，解压后双击 `PhotoAlbum.exe`
 4. 安装版会创建开始菜单、桌面快捷方式和 Windows 卸载入口
 
 安装版启动后会每 12 小时检查一次 GitHub Release。发现新版本时，可在「设置 → 更新」手动确认下载。更新包会先校验 SHA256，升级失败会自动恢复旧版本。照片文件、图库索引和设置不会被更新过程删除。
 
-> ⚠️ 需要 Windows 10 1809+ 或 Windows 11  
+> ⚠️ 需要 64 位 Windows 10 1809+ 或 Windows 11；不支持 32 位 Windows。
 > ⚠️ 首次运行会自动在桌面创建快捷方式
+
+不要下载页面底部的 **Source code (zip)** 来安装，那是源码，不含可运行的程序。
+免安装包必须先「全部解压」，保留所有 DLL、资源和子目录，不能只复制 EXE。
+旧版 `.cmd` 安装包无法运行时，改用本页的 Setup.exe；如果 EXE 也被系统或安全软件拦截，请发出完整提示，不要关闭防护或修改系统关联。
+安装器尚未代码签名，Windows 可能提示发布者未知；请先确认来自本仓库并与 `SHA256SUMS.txt` 核对。
+如果安装失败，会显示具体原因和 `%TEMP%\\haruphoto-install-*.log` 日志位置，发送该日志有助于排查。
 
 ### 方式二：从源码构建
 
@@ -112,7 +118,7 @@ cd haruphoto
 dotnet --version
 
 # 构建
-dotnet build -c Release
+dotnet build PhotoAlbum.csproj -c Release --self-contained true
 
 # 运行
 dotnet run -c Release
@@ -125,7 +131,7 @@ dotnet run -c Release
 dotnet build -c Release
 
 # 复制输出（自包含，无需安装运行时）
-cp -r bin/Release/net8.0-windows10.0.26100.0/win-x64/ ./publish/
+powershell -ExecutionPolicy Bypass -File tools/package.ps1 -AppOutput bin/Release/net8.0-windows10.0.26100.0/win-x64
 ```
 
 ---
@@ -220,6 +226,26 @@ PhotoAlbum/
 ---
 
 ## 📝 更新日志
+
+### v1.3.2 (2026-10-09)
+- 设置改为五个分区，支持搜索、独立草稿、保存/取消、分区重置及自定义外观方案
+- 新增 2–4 张对比选片、同步缩放/移动、快捷评分与收藏
+- 修复胶片条覆盖详情栏、远端缩略图空白；损坏图片明确显示读取失败
+- 修复深色侧栏及设置卡片配色、重复动画事件、快速切换与关闭时的动画竞争
+- 预览补齐照片序号和损坏文件提示；取色使用小尺寸采样以降低大照片内存开销
+- 关闭自动扫描后不再监控新增文件；图库保存保留离线文件的收藏与评分
+- 更新支持运行期间定期检查、版本提示与发布说明、可取消下载、完整包及逐文件 SHA256 校验、失败回滚
+- GitHub API 无法访问时读取公开更新清单；包未下载且校验完成前不会退出当前应用
+- 新增独立 EXE 安装器，不依赖 `.cmd`、Inno Setup 或电脑预装的 .NET
+- 程序和安装器均自带 .NET 8，程序包补齐本地 VC++ 运行时
+- 安装前逐文件校验 SHA256；失败恢复旧版本，保留照片、索引和设置
+- 修复旧 CMD 入口的 UTF-8/PowerShell 5.1 编码问题
+- 修复 CI 使用开发机私有 NuGet 路径和代理、以及未上传 EXE 安装器的问题
+- 保留 v1.3.1 的瀑布流、预览缩放、动画、取色背景及新版顶栏/底栏
+
+设置中的「图库布局」可切换规整网格/瀑布流并控制动画；「照片预览」可设置取色背景、详情栏和胶片条显示方式。
+预览中按 `Ctrl+D` 进入对比选片，按 `Esc` 返回。时间线仍以源文件修改时间为准。
+验证范围与仍未覆盖的环境见 [发布测试报告](docs/RELEASE_TEST_REPORT.md)。
 
 ### v1.2.0 (2026-08-22)
 - 移除批量操作栏中重复的「收藏」按钮

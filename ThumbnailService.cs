@@ -23,33 +23,36 @@ public sealed class ThumbnailService
     private const int ThumbWidth = 400;
     private readonly SemaphoreSlim _semaphore = new(4);
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _fileLocks = new(StringComparer.OrdinalIgnoreCase);
+
     public async Task<BitmapImage?> GetThumbnailAsync(string filePath, CancellationToken ct = default)
     {
-        await _semaphore.WaitAsync(ct);
+        // 图库与胶片条可能同时请求同一张照片；同一路径串行写缓存。
+        var fileLock = _fileLocks.GetOrAdd(filePath, _ => new SemaphoreSlim(1));
+        await fileLock.WaitAsync(ct);
         try
         {
-            var cachePath = GetCachePath(filePath);
-
-            // 1. 缓存命中且比原图新 → 直接加载
-            if (IsCacheValid(cachePath, filePath))
+            await _semaphore.WaitAsync(ct);
+            try
             {
-                var hit = await LoadFromFileAsync(cachePath, ct);
-                if (hit != null) return hit;
+                var cachePath = GetCachePath(filePath);
+                if (IsCacheValid(cachePath, filePath))
+                {
+                    var hit = await LoadFromFileAsync(cachePath, ct);
+                    if (hit != null) return hit;
+                }
+                if (await TryWriteCacheAsync(filePath, cachePath, ct))
+                {
+                    var cached = await LoadFromFileAsync(cachePath, ct);
+                    if (cached != null) return cached;
+                }
+                return await LoadFromFileAsync(filePath, ct);
             }
-
-            // 2. 解码原图 → 写缓存 → 从缓存加载
-            if (await TryWriteCacheAsync(filePath, cachePath, ct))
-            {
-                var fromCache = await LoadFromFileAsync(cachePath, ct);
-                if (fromCache != null) return fromCache;
-            }
-
-            // 3. 回退：直接解码原图(限宽)
-            return await LoadFromFileAsync(filePath, ct);
+            catch (OperationCanceledException) { return null; }
+            catch { return null; }
+            finally { _semaphore.Release(); }
         }
-        catch (OperationCanceledException) { return null; }
-        catch { return null; }
-        finally { _semaphore.Release(); }
+        finally { fileLock.Release(); }
     }
 
     private static string GetCachePath(string filePath)

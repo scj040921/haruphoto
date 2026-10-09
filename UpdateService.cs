@@ -1,108 +1,155 @@
-using System;
-using System.IO;
 using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace PhotoAlbum;
 
-public sealed record ReleaseInfo(string TagName, string Version, string PackageUrl, string Sha256, long PackageSize);
+public sealed record ReleaseInfo(string TagName, string Version, string PackageUrl, string Sha256, long PackageSize, string Notes = "");
+public sealed record DownloadedUpdate(string Directory, string PackagePath);
 
 public static class UpdateService
 {
-    private const string LatestApi = "https://api.github.com/repos/scj040921/haruphoto/releases/latest";
+    private const string RepoUrl = "https://github.com/scj040921/haruphoto";
     private static readonly HttpClient Client = CreateClient();
-
     private static HttpClient CreateClient()
     {
-        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("haruphoto-updater/1.0");
-        client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("haruphoto-updater/1.3.2");
         return client;
     }
-
-    public static string CurrentVersion =>
-        typeof(UpdateService).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+    public static string CurrentVersion => typeof(UpdateService).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
     public static async Task<ReleaseInfo?> CheckLatestAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            using var response = await Client.GetAsync(LatestApi, cancellationToken);
+            using var response = await Client.GetAsync("https://api.github.com/repos/scj040921/haruphoto/releases/latest", cancellationToken);
             response.EnsureSuccessStatusCode();
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-            return ParseRelease(doc.RootElement);
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            var release = ParseRelease(doc.RootElement, CurrentVersion);
+            if (release == null) return null;
+            if (!IsSha256(release.Sha256))
+            {
+                var sums = await Client.GetStringAsync($"{RepoUrl}/releases/download/{Uri.EscapeDataString(release.TagName)}/SHA256SUMS.txt", cancellationToken);
+                release = release with { Sha256 = ReadChecksum(sums, Path.GetFileName(new Uri(release.PackageUrl).AbsolutePath)) };
+            }
+            ValidateRelease(release);
+            return release;
         }
-        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && (ex is HttpRequestException || ex is TaskCanceledException))
         {
-            // GitHub's unauthenticated API is rate-limited. The public release page
-            // redirects without API quota, so use it as a read-only fallback.
-            return await CheckLatestFromReleasePageAsync(cancellationToken);
+            var json = await Client.GetStringAsync(RepoUrl + "/releases/latest/download/update.json", cancellationToken);
+            using var doc = JsonDocument.Parse(json);
+            return ParseManifest(doc.RootElement, CurrentVersion);
         }
     }
 
-    private static ReleaseInfo? ParseRelease(JsonElement root)
+    internal static ReleaseInfo? ParseRelease(JsonElement root, string currentVersion)
     {
+        if ((root.TryGetProperty("draft", out var draft) && draft.GetBoolean()) || (root.TryGetProperty("prerelease", out var preview) && preview.GetBoolean())) return null;
         var tag = root.GetProperty("tag_name").GetString() ?? "";
-        if (!TryGetNewerVersion(tag, out var remoteVersion)) return null;
-
-        ReleaseInfo? fallback = null;
+        if (!IsNewer(tag, currentVersion, out var version)) return null;
+        ReleaseInfo? legacy = null;
         foreach (var asset in root.GetProperty("assets").EnumerateArray())
         {
             var name = asset.GetProperty("name").GetString() ?? "";
-            if (!name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) continue;
-            var url = asset.GetProperty("browser_download_url").GetString() ?? "";
-            var digest = asset.TryGetProperty("digest", out var digestElement) ? digestElement.GetString() ?? "" : "";
-            var size = asset.TryGetProperty("size", out var sizeElement) ? sizeElement.GetInt64() : 0;
-            if (string.IsNullOrWhiteSpace(url)) continue;
-            var candidate = new ReleaseInfo(tag, remoteVersion.ToString(3), url, digest, size);
+            if (!name.EndsWith("-portable.zip", StringComparison.OrdinalIgnoreCase) && !name.EndsWith("-win-x64.zip", StringComparison.OrdinalIgnoreCase)) continue;
+            if (name.Contains("arm64", StringComparison.OrdinalIgnoreCase) || name.Contains("x86", StringComparison.OrdinalIgnoreCase)) continue;
+            var candidate = new ReleaseInfo(tag, version, asset.GetProperty("browser_download_url").GetString() ?? "",
+                asset.TryGetProperty("digest", out var digest) ? digest.GetString() ?? "" : "",
+                asset.TryGetProperty("size", out var size) ? size.GetInt64() : 0,
+                root.TryGetProperty("body", out var notes) ? notes.GetString() ?? "" : "");
             if (name.EndsWith("-portable.zip", StringComparison.OrdinalIgnoreCase)) return candidate;
-            fallback ??= candidate;
+            legacy = candidate;
         }
-        return fallback;
+        return legacy ?? throw new InvalidDataException("新版本尚未提供 Windows x64 更新包，请稍后重试。");
     }
 
-    private static bool TryGetNewerVersion(string tag, out Version remoteVersion)
+    internal static ReleaseInfo? ParseManifest(JsonElement root, string currentVersion)
     {
-        remoteVersion = new Version();
-        var versionText = tag.Trim().TrimStart('v', 'V');
-        if (!Version.TryParse(versionText, out var parsed)) return false;
-        if (!Version.TryParse(CurrentVersion, out var localVersion) || parsed <= localVersion) return false;
-        remoteVersion = parsed;
-        return true;
+        var tag = root.GetProperty("tag").GetString() ?? "";
+        if (!IsNewer(tag, currentVersion, out var version)) return null;
+        if (root.GetProperty("version").GetString() != version || root.GetProperty("architecture").GetString() != "win-x64") throw new InvalidDataException("更新清单版本或架构不匹配。");
+        var release = new ReleaseInfo(tag, version, root.GetProperty("url").GetString() ?? "", root.GetProperty("sha256").GetString() ?? "", root.GetProperty("size").GetInt64(),
+            root.TryGetProperty("notes", out var notes) ? notes.GetString() ?? "" : "");
+        ValidateRelease(release);
+        return release;
     }
 
-    private static async Task<ReleaseInfo?> CheckLatestFromReleasePageAsync(CancellationToken cancellationToken)
+    internal static bool IsNewer(string tag, string current, out string version)
     {
-        using var response = await Client.GetAsync("https://github.com/scj040921/haruphoto/releases/latest", cancellationToken);
-        response.EnsureSuccessStatusCode();
-        var finalUrl = response.RequestMessage?.RequestUri?.AbsoluteUri ?? "";
-        var match = Regex.Match(finalUrl, @"/releases/tag/(?<tag>[^/?#]+)$", RegexOptions.IgnoreCase);
-        var tag = match.Success ? Uri.UnescapeDataString(match.Groups["tag"].Value) : "";
-        if (!TryGetNewerVersion(tag, out var remoteVersion)) return null;
-
-        var assetName = $"haruphoto-v{remoteVersion:0.0.0}-portable.zip";
-        var packageUrl = $"https://github.com/scj040921/haruphoto/releases/download/{Uri.EscapeDataString(tag)}/{assetName}";
-        return new ReleaseInfo(tag, remoteVersion.ToString(3), packageUrl, "", 0);
+        version = "";
+        if (!Version.TryParse(tag.TrimStart('v', 'V'), out var remote) || remote.Build < 0 || !Version.TryParse(current, out var local)) return false;
+        version = remote.ToString(3);
+        return remote > local;
+    }
+    internal static bool IsSha256(string digest) => Regex.IsMatch(digest.Replace("sha256:", "", StringComparison.OrdinalIgnoreCase), "\\A[0-9a-fA-F]{64}\\z");
+    internal static string ReadChecksum(string contents, string fileName)
+    {
+        foreach (var line in contents.Split('\n'))
+        {
+            var match = Regex.Match(line.Trim(), @"^(?<hash>[a-fA-F0-9]{64})\s+\*?(?<name>.+)$");
+            if (match.Success && match.Groups["name"].Value == fileName) return match.Groups["hash"].Value;
+        }
+        throw new InvalidDataException("发布包缺少 SHA256 校验值，已停止更新。");
+    }
+    internal static void ValidateRelease(ReleaseInfo release)
+    {
+        var prefix = RepoUrl + "/releases/download/" + Uri.EscapeDataString(release.TagName) + "/";
+        if (!release.PackageUrl.StartsWith(prefix, StringComparison.Ordinal) || !release.PackageUrl.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) || !IsSha256(release.Sha256))
+            throw new InvalidDataException("更新来源或校验信息无效，已停止更新。");
     }
 
-    public static string SaveUpdaterScript()
+    public static async Task<DownloadedUpdate> DownloadAsync(ReleaseInfo release, IProgress<double>? progress, CancellationToken cancellationToken)
+        => await DownloadUsingClientAsync(release, progress, cancellationToken, Client);
+
+    internal static async Task<DownloadedUpdate> DownloadUsingClientAsync(ReleaseInfo release, IProgress<double>? progress, CancellationToken cancellationToken, HttpClient client)
     {
-        var installedScript = Path.Combine(AppContext.BaseDirectory, "tools", "update.ps1");
-        if (File.Exists(installedScript)) return installedScript;
-        var path = Path.Combine(Path.GetTempPath(), "haruphoto-update.ps1");
-        File.WriteAllText(path, EmbeddedUpdaterScript);
+        ValidateRelease(release);
+        var directory = Path.Combine(Path.GetTempPath(), "haruphoto-update-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "package.zip");
+        try
+        {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            deadline.CancelAfter(TimeSpan.FromMinutes(15));
+            using var response = await client.GetAsync(release.PackageUrl, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            response.EnsureSuccessStatusCode();
+            var total = response.Content.Headers.ContentLength ?? release.PackageSize;
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            await using (var source = await response.Content.ReadAsStreamAsync(deadline.Token))
+            await using (var destination = File.Create(path))
+            {
+                var buffer = new byte[81920]; long received = 0; int length;
+                while ((length = await source.ReadAsync(buffer, deadline.Token)) != 0)
+                {
+                    await destination.WriteAsync(buffer.AsMemory(0, length), deadline.Token);
+                    hash.AppendData(buffer, 0, length); received += length;
+                    progress?.Report(total > 0 ? Math.Min(100, 100.0 * received / total) : -1);
+                }
+                if (total > 0 && received != total) throw new InvalidDataException("下载包不完整，请重新尝试。");
+            }
+            if (!Convert.ToHexString(hash.GetHashAndReset()).Equals(release.Sha256.Replace("sha256:", "", StringComparison.OrdinalIgnoreCase), StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("SHA256 校验失败，应用未关闭，旧版本未被修改。");
+            return new DownloadedUpdate(directory, path);
+        }
+        catch { CleanupDownload(directory); throw; }
+    }
+
+    public static string SaveUpdaterScript(string directory)
+    {
+        using var stream = typeof(UpdateService).Assembly.GetManifestResourceStream("PhotoAlbum.update.ps1") ?? throw new FileNotFoundException("缺少更新器。");
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        var path = Path.Combine(directory, "update.ps1");
+        File.WriteAllText(path, reader.ReadToEnd(), new UTF8Encoding(true));
         return path;
     }
-
-    private const string EmbeddedUpdaterScript = @"
-param([Parameter(Mandatory=$true)][int]$ProcessId,[Parameter(Mandatory=$true)][string]$InstallRoot,[Parameter(Mandatory=$true)][string]$PackageUrl,[Parameter(Mandatory=$true)][string]$ExpectedSha256,[Parameter(Mandatory=$true)][string]$Version)
-$ErrorActionPreference='Stop'
-$temp=Join-Path $env:TEMP ('haruphoto-update-'+[Guid]::NewGuid().ToString('N')); $zip=Join-Path $temp 'package.zip'; $stage=Join-Path $temp 'stage'; $backup=$InstallRoot+'.backup-'+$Version
-function Restore { if(Test-Path $backup){if(Test-Path $InstallRoot){Remove-Item $InstallRoot -Recurse -Force -ErrorAction SilentlyContinue};Move-Item $backup $InstallRoot -Force} }
-try { New-Item -ItemType Directory -Force -Path $stage | Out-Null; Invoke-WebRequest $PackageUrl -OutFile $zip -UseBasicParsing; $expected=$ExpectedSha256.ToLower().Replace('sha256:',''); if($expected){$actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLower(); if($actual -ne $expected){throw 'SHA256 校验失败'}}; Expand-Archive $zip $stage -Force; $payload=(Get-ChildItem $stage -Filter 'PhotoAlbum.exe' -Recurse -File | Select-Object -First 1).Directory.FullName; $p=Get-Process -Id $ProcessId -ErrorAction SilentlyContinue; if($p){Wait-Process -Id $ProcessId -Timeout 45 -ErrorAction SilentlyContinue}; if(Get-Process -Id $ProcessId -ErrorAction SilentlyContinue){throw '等待程序退出超时'}; if(Test-Path $backup){Remove-Item $backup -Recurse -Force}; Copy-Item $InstallRoot $backup -Recurse -Force; Copy-Item (Join-Path $payload '*') $InstallRoot -Recurse -Force; Start-Process (Join-Path $InstallRoot 'PhotoAlbum.exe'); Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue } catch { Restore; Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show(('更新失败，已恢复旧版本。'+[Environment]::NewLine+$_.Exception.Message),'haruphoto 更新') | Out-Null } finally { Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue }
-";
+    public static void CleanupDownload(string directory)
+    {
+        var path = Path.GetFullPath(directory);
+        var prefix = Path.Combine(Path.GetTempPath(), "haruphoto-update-");
+        if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || !Guid.TryParseExact(path[prefix.Length..], "N", out _)) return;
+        try { if (Directory.Exists(path)) Directory.Delete(path, true); } catch { }
+    }
 }

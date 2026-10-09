@@ -20,6 +20,7 @@ using Windows.UI.Core;
 using Microsoft.UI.Xaml.Hosting; // ElementCompositionPreview
 using Microsoft.UI.Composition;  // CompositionEffectSourceParameter 等
 using Microsoft.Graphics.Canvas;
+using Windows.Graphics.Imaging;
 
 namespace PhotoAlbum;
 
@@ -32,11 +33,14 @@ public sealed partial class MainWindow : Window
     private List<PhotoItem> _currentView = new();
     private readonly ThumbnailService _thumbService = new();
     private CancellationTokenSource? _thumbCts;
+    private CancellationTokenSource? _filmstripCts;
+    private readonly Dictionary<PhotoItem, CancellationToken> _filmstripPending = new();
     private readonly FolderWatcherService _folderWatcher = new();
-    private readonly AppSettings _settings = AppSettings.Load();
+    private AppSettings _settings = AppSettings.Load();
 
     private readonly DispatcherTimer _searchTimer;
     private readonly DispatcherTimer _saveTimer;
+    private readonly DispatcherTimer _slideshowTimer;
     private readonly HashSet<string> _selectedPaths = new();
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
         { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".heic", ".tif", ".tiff" };
@@ -63,6 +67,22 @@ public sealed partial class MainWindow : Window
     private bool _statusBarExpanded;
     private int _previewPaletteRequest;
     private int _previewTransitionRequest;
+    private int _previewVisibilityRequest;
+    private Storyboard? _previewVisibilityAnimation;
+    private Storyboard? _previewImageAnimation;
+    private Storyboard? _galleryAnimation;
+    private sealed class CardAnimationState
+    {
+        public Storyboard? Fade;
+        public DispatcherTimer? Hover;
+        public bool Hooked;
+    }
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<UIElement, CardAnimationState> _cardAnimations = new();
+    private bool _settingsDialogOpen;
+    private bool _updateInProgress;
+    private bool _updateCheckInProgress;
+    private bool _libraryLoaded;
+    private readonly DispatcherTimer _updateCheckTimer;
     private float _previewFitZoom = 1.0f;
 
     // ── 分类管理 ──
@@ -74,6 +94,14 @@ public sealed partial class MainWindow : Window
         Title = "haruphoto";
         PreviewImageScroll.ViewChanged += (_, _) => UpdatePreviewZoomText();
         PreviewImageScroll.SizeChanged += (_, _) => SizePreviewCanvas();
+        PreviewOverlay.PointerMoved += (_, e) =>
+        {
+            if (_settings.FilmstripMode != 1) return;
+            var y = e.GetCurrentPoint(PreviewContentRoot).Position.Y;
+            var show = y >= PreviewContentRoot.ActualHeight - 104 && y <= PreviewContentRoot.ActualHeight;
+            PreviewFilmstripBar.Opacity = show ? 1 : 0;
+            PreviewFilmstripBar.IsHitTestVisible = show;
+        };
 
         // 应用主题 + 外观（深色/浅色即时生效）
         ApplyTheme();
@@ -114,15 +142,34 @@ public sealed partial class MainWindow : Window
         _saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
         _saveTimer.Tick += async (s, e) => { _saveTimer.Stop(); await LibraryStore.SaveAsync(_allPhotos); };
 
+        _slideshowTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(Math.Clamp(_settings.SlideshowIntervalSeconds, 2, 15)) };
+        _slideshowTimer.Tick += (_, _) =>
+        {
+            if (PreviewOverlay.Visibility != Visibility.Visible || _currentView.Count < 2)
+            {
+                StopSlideshow();
+                return;
+            }
+            if (PreviewLoading.Visibility != Visibility.Visible)
+                ShowPreviewAt((_previewIndex + 1) % _currentView.Count);
+        };
+
         _folderWatcher.NewFilesFound += OnNewFilesFound;
+        _updateCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(1) };
+        _updateCheckTimer.Tick += async (_, _) => await CheckForUpdateOnStartupAsync();
+        _updateCheckTimer.Start();
         PhotoGrid.ItemsSource = _photos;
         ApplyGalleryLayout();
 
         Closed += (s, e) =>
         {
             _saveTimer.Stop();
+            _slideshowTimer.Stop();
+            _filmstripCts?.Cancel();
+            _thumbCts?.Cancel();
             _folderWatcher.Stop();
-            try { LibraryStore.SaveAsync(_allPhotos).Wait(2000); } catch { }
+            _updateCheckTimer.Stop();
+            if (_libraryLoaded) { try { LibraryStore.SaveAsync(_allPhotos).Wait(2000); } catch { } }
         };
 
         _uiReady = true;
@@ -136,8 +183,9 @@ public sealed partial class MainWindow : Window
         try
         {
             var (photos, missing) = await LibraryStore.LoadAsync();
+            _libraryLoaded = true;
             _allPhotos.AddRange(photos);
-            _sortBy = _settings.SortMode;
+            _sortBy = Math.Clamp(_settings.SortMode, 0, SortCombo.Items.Count - 1);
             SortCombo.SelectedIndex = _sortBy;
 
             RebuildCategories();
@@ -149,18 +197,13 @@ public sealed partial class MainWindow : Window
                     ? $"已加载 {photos.Count} 张照片（{missing} 张文件缺失已跳过）"
                     : $"已加载 {photos.Count} 张照片";
 
-            _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
+            if (_settings.AutoScan) _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
 
-            // 启动后后台补读缺失的拍摄日期（历史照片从未读过 EXIF）
-            _ = EnrichMissingDateTakenAsync();
             _ = CheckForUpdateOnStartupAsync();
         }
         finally
         {
             BusyRing.Visibility = Visibility.Collapsed;
-            StatusText.Text = _allPhotos.Count == 0
-                ? "点击左下角「＋ 导入文件夹」开始"
-                : "就绪";
         }
     }
 
@@ -507,7 +550,9 @@ public sealed partial class MainWindow : Window
                 AcrylicHelper.Disable(hwnd);
                 AcrylicHelper.DisableSystemBackdrop(hwnd);
                 if (Content is Grid root)
-                    root.ClearValue(Grid.BackgroundProperty);
+                    root.Background = new SolidColorBrush(IsDark() ? Windows.UI.Color.FromArgb(255, 24, 24, 28) : Windows.UI.Color.FromArgb(255, 248, 248, 249));
+                var pane = FindNavPane();
+                if (pane != null) pane.Background = new SolidColorBrush(IsDark() ? Windows.UI.Color.FromArgb(255, 24, 24, 28) : Windows.UI.Color.FromArgb(255, 248, 248, 249));
                 // 内容区恢复主题默认背景（跟随深浅色，属性级即时生效）
                 var contentGrid = FindNavContentGrid();
                 if (contentGrid != null)
@@ -528,6 +573,9 @@ public sealed partial class MainWindow : Window
     /// <summary>预览入场：渐入动画（安全 — 仅 Opacity，不触及 RenderTransform）</summary>
     private void AnimatePreviewIn()
     {
+        ++_previewVisibilityRequest;
+        _previewVisibilityAnimation?.Stop();
+        PreviewContentRoot.Opacity = 1;
         if (!_settings.AnimationsEnabled) return;
         PreviewContentRoot.Opacity = 0.5;
         var sb = new Storyboard();
@@ -541,12 +589,15 @@ public sealed partial class MainWindow : Window
         Storyboard.SetTarget(fade, PreviewContentRoot);
         Storyboard.SetTargetProperty(fade, "Opacity");
         sb.Children.Add(fade);
+        _previewVisibilityAnimation = sb;
         sb.Begin();
     }
 
     /// <summary>预览退场：渐隐并关闭</summary>
     private void AnimatePreviewOut()
     {
+        var request = ++_previewVisibilityRequest;
+        _previewVisibilityAnimation?.Stop();
         if (!_settings.AnimationsEnabled)
         {
             PreviewOverlay.Visibility = Visibility.Collapsed;
@@ -568,12 +619,14 @@ public sealed partial class MainWindow : Window
         sb.Children.Add(fade);
         sb.Completed += (_, _) =>
         {
+            if (request != _previewVisibilityRequest) return;
             PreviewOverlay.Visibility = Visibility.Collapsed;
             PreviewImage.Source = null;
             PreviewImageOutgoing.Source = null;
             _previewIndex = -1;
             PreviewContentRoot.Opacity = 1.0;
         };
+        _previewVisibilityAnimation = sb;
         sb.Begin();
     }
 
@@ -868,7 +921,8 @@ public sealed partial class MainWindow : Window
             q = q.Where(p => !p.IsFavorite);
         if (!string.IsNullOrWhiteSpace(_searchKeyword))
             q = q.Where(p => p.Filename.Contains(_searchKeyword, StringComparison.OrdinalIgnoreCase)
-                          || p.Category.Contains(_searchKeyword, StringComparison.OrdinalIgnoreCase));
+                          || p.Category.Contains(_searchKeyword, StringComparison.OrdinalIgnoreCase)
+                          || p.DateText.Contains(_searchKeyword, StringComparison.OrdinalIgnoreCase));
 
         q = _sortBy switch
         {
@@ -878,6 +932,7 @@ public sealed partial class MainWindow : Window
         };
 
         _currentView = q.ToList();
+        UpdateEmptyState();
         var maxPage = Math.Max(0, (_currentView.Count - 1) / PageSize);
         _currentPage = Math.Clamp(_currentPage, 0, maxPage);
 
@@ -897,8 +952,28 @@ public sealed partial class MainWindow : Window
         AnimateGalleryTransition();
     }
 
+    private void UpdateEmptyState()
+    {
+        var libraryIsEmpty = _allPhotos.Count == 0;
+        EmptyState.Visibility = _currentView.Count == 0 && MainScroll.Visibility == Visibility.Visible
+            ? Visibility.Visible : Visibility.Collapsed;
+        EmptyStateTitle.Text = libraryIsEmpty ? "把第一张照片放进来" : "没有找到匹配的照片";
+        EmptyStateDescription.Text = libraryIsEmpty
+            ? "导入照片文件夹，或将图片和文件夹拖到窗口中。"
+            : "试试其他关键词，或清除当前筛选条件。";
+        EmptyStateAction.Content = libraryIsEmpty ? "导入文件夹" : "清除筛选";
+    }
+
+    private void EmptyStateAction_Click(object sender, RoutedEventArgs e)
+    {
+        if (_allPhotos.Count == 0) ImportButton_Click(sender, e);
+        else ClearFilters_Click(sender, e);
+    }
+
     private void AnimateGalleryTransition()
     {
+        _galleryAnimation?.Stop();
+        MainScroll.Opacity = 1;
         if (!_settings.AnimationsEnabled || MainScroll == null) return;
         MainScroll.Opacity = 0.84;
         var fade = new DoubleAnimation
@@ -913,16 +988,18 @@ public sealed partial class MainWindow : Window
         Storyboard.SetTargetProperty(fade, "Opacity");
         var storyboard = new Storyboard();
         storyboard.Children.Add(fade);
+        _galleryAnimation = storyboard;
         storyboard.Begin();
     }
 
     private void ApplyGalleryLayout()
     {
+        var cardWidth = Math.Clamp(_settings.CardMinWidth, 160, 360);
         PhotoGrid.Layout = _settings.DisplayMode == 1
-            ? new MasonryLayout { MinColumnWidth = 220, ColumnSpacing = 0, RowSpacing = 0 }
+            ? new MasonryLayout { MinColumnWidth = cardWidth, ColumnSpacing = 0, RowSpacing = 0 }
             : new UniformGridLayout
             {
-                MinItemWidth = 220,
+                MinItemWidth = cardWidth,
                 MinItemHeight = 270,
                 MinRowSpacing = 14,
                 MinColumnSpacing = 14,
@@ -970,6 +1047,7 @@ public sealed partial class MainWindow : Window
                 if (_settings.DisplayMode == 1)
                     PhotoGrid.InvalidateMeasure();
             }
+            else if (!ct.IsCancellationRequested) photo.ThumbnailStatus = "无法读取";
         }
         catch (OperationCanceledException) { }
     }
@@ -1060,6 +1138,7 @@ public sealed partial class MainWindow : Window
             else if (tag == "Stats")
             {
                 MainScroll.Visibility = Visibility.Collapsed;
+                EmptyState.Visibility = Visibility.Collapsed;
                 StatsScroll.Visibility = Visibility.Visible;
                 OrganizeScroll.Visibility = Visibility.Collapsed;
                 UpdateStatsView();
@@ -1068,6 +1147,7 @@ public sealed partial class MainWindow : Window
             else if (tag == "Organize")
             {
                 MainScroll.Visibility = Visibility.Collapsed;
+                EmptyState.Visibility = Visibility.Collapsed;
                 StatsScroll.Visibility = Visibility.Collapsed;
                 OrganizeScroll.Visibility = Visibility.Visible;
                 UpdateOrganizeView();
@@ -1090,7 +1170,7 @@ public sealed partial class MainWindow : Window
         OrganizeItems.Items.Clear();
 
         AddOrganizeItem("未分类照片", _allPhotos.Count(p => string.IsNullOrEmpty(p.Category)), "CatUncategorized");
-        AddOrganizeItem("缺少拍摄日期", _allPhotos.Count(p => !p.DateTaken.HasValue), "DateMissing");
+        AddOrganizeItem("缺少文件修改日期", _allPhotos.Count(p => !p.DateTaken.HasValue), "DateMissing");
         AddOrganizeItem("收藏但未评分", _allPhotos.Count(p => p.IsFavorite && p.Rating == 0), "FavUnrated");
         AddOrganizeItem("最近 7 天新增", _allPhotos.Count(p => p.DateAdded >= DateTime.Now.AddDays(-7)), "Recent");
         AddOrganizeItem("未收藏照片", _allPhotos.Count(p => !p.IsFavorite), "Unfavorite");
@@ -1178,7 +1258,7 @@ public sealed partial class MainWindow : Window
         AddRow("总存储占用", totalSize > 1073741824 ? $"{totalSize / 1073741824.0:F1} GB" : totalSize > 1048576 ? $"{totalSize / 1048576.0:F0} MB" : $"{totalSize / 1024.0:F0} KB");
         AddRow("收藏", $"{favCount} 张");
         AddRow("高评分（≥4★）", $"{rated} 张");
-        AddRow("无拍摄日期（EXIF）", $"{noDate} 张");
+        AddRow("缺少文件修改日期", $"{noDate} 张");
         AddRow("分类数", $"{catCount} 个");
 
         // 年度分布
@@ -1250,7 +1330,7 @@ public sealed partial class MainWindow : Window
     private void SearchBox_TextChanged(AutoSuggestBox s, AutoSuggestBoxTextChangedEventArgs e)
     {
         if (!_uiReady) return;
-        _searchKeyword = s.Text ?? "";
+        _searchKeyword = s.Text?.Trim() ?? "";
         _searchTimer.Stop();
         _searchTimer.Start();
     }
@@ -1259,6 +1339,8 @@ public sealed partial class MainWindow : Window
     {
         if (!_uiReady) return;
         _sortBy = SortCombo.SelectedIndex;
+        _settings.SortMode = _sortBy;
+        _settings.Save();
         RefreshPhotos();
     }
 
@@ -1281,7 +1363,7 @@ public sealed partial class MainWindow : Window
 
     private void PrevPage_Click(object s, RoutedEventArgs e)
     {
-        if (_currentPage > 0) { _currentPage--; RefreshPhotos(); }
+        if (_currentPage > 0) { _currentPage--; MainScroll.ChangeView(null, 0, null, true); RefreshPhotos(); }
     }
 
     private void UpdateFilterSummary()
@@ -1292,7 +1374,7 @@ public sealed partial class MainWindow : Window
         if (_favoritesOnly) parts.Add("仅收藏");
         if (_minRatingFilter > 0) parts.Add($"{_minRatingFilter} 星以上");
         if (_dateFilterDays > 0) parts.Add(_dateFilterDays switch { 7 => "最近 7 天", 30 => "最近 30 天", _ => "最近 90 天" });
-        if (_dateFilterDays < 0) parts.Add("缺少拍摄日期");
+        if (_dateFilterDays < 0) parts.Add("缺少文件修改日期");
         if (!string.IsNullOrEmpty(_categoryFilter))
             parts.Add(_categoryFilter == "__UNCATEGORIZED__" ? "未分类" : $"分类：{_categoryFilter}");
         if (!string.IsNullOrEmpty(_timelineFilter)) parts.Add($"时间：{_timelineFilter}");
@@ -1323,7 +1405,7 @@ public sealed partial class MainWindow : Window
 
     private void NextPage_Click(object s, RoutedEventArgs e)
     {
-        if (_currentPage < Math.Max(0, (_currentView.Count - 1) / PageSize)) { _currentPage++; RefreshPhotos(); }
+        if (_currentPage < Math.Max(0, (_currentView.Count - 1) / PageSize)) { _currentPage++; MainScroll.ChangeView(null, 0, null, true); RefreshPhotos(); }
     }
 
     private void PageJump_Click(object sender, RoutedEventArgs e) => JumpToPage();
@@ -1344,12 +1426,15 @@ public sealed partial class MainWindow : Window
         var page = Math.Clamp(requested, 1, maxPage);
         _currentPage = page - 1;
         PageJumpBox.Value = page;
+        MainScroll.ChangeView(null, 0, null, true);
         RefreshPhotos();
         StatusText.Text = page == requested ? $"已跳转到第 {page} 页" : $"页码范围为 1–{maxPage}，已跳转到第 {page} 页";
     }
 
     private async void CheckUpdateButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_updateInProgress || _updateCheckInProgress || _settingsDialogOpen) return;
+        _updateCheckInProgress = true;
         if (sender is Button button) button.IsEnabled = false;
         try
         {
@@ -1378,7 +1463,7 @@ public sealed partial class MainWindow : Window
             var updateDialog = new ContentDialog
             {
                 Title = "发现新版本",
-                Content = $"当前版本：{UpdateService.CurrentVersion}\n最新版本：{release.Version}（{sizeText}）\n\n将下载并安全替换程序文件，照片和图库数据不会被修改。",
+                Content = new ScrollViewer { MaxHeight = 340, Content = new TextBlock { Text = $"当前版本：{UpdateService.CurrentVersion}\n最新版本：{release.Version}（{sizeText}）\n\n将先下载和校验，再退出升级。照片和图库数据不会被修改。\n\n{release.Notes}", TextWrapping = TextWrapping.Wrap } },
                 PrimaryButtonText = "下载并更新",
                 CloseButtonText = "稍后",
                 DefaultButton = ContentDialogButton.Primary,
@@ -1401,425 +1486,130 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
+            _updateCheckInProgress = false;
             if (sender is Button updateButton) updateButton.IsEnabled = true;
         }
     }
 
     private async Task StartUpdateAsync(ReleaseInfo release)
     {
-        var installRoot = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var currentProcess = Process.GetCurrentProcess();
-        var updaterPath = UpdateService.SaveUpdaterScript();
-        var args = $"-ExecutionPolicy Bypass -File \"{updaterPath}\" -ProcessId {currentProcess.Id} -InstallRoot \"{installRoot}\" -PackageUrl \"{release.PackageUrl}\" -ExpectedSha256 \"{release.Sha256}\" -Version \"{release.Version}\"";
+        if (_updateInProgress) return;
+        _updateInProgress = true;
+        DownloadedUpdate? download = null;
+        Process? helper = null;
         try
         {
-            Process.Start(new ProcessStartInfo
+            using var cancel = new CancellationTokenSource();
+            var progressBar = new ProgressBar { Minimum = 0, Maximum = 100, Width = 350 };
+            var label = new TextBlock { Text = "正在下载；取消或网络失败不会关闭相册。", TextWrapping = TextWrapping.Wrap };
+            var panel = new StackPanel { Spacing = 12 }; panel.Children.Add(label); panel.Children.Add(progressBar);
+            var dialog = new ContentDialog { Title = $"下载 {release.Version}", Content = panel, CloseButtonText = "取消", XamlRoot = Content.XamlRoot };
+            dialog.CloseButtonClick += (_, args) => { args.Cancel = true; cancel.Cancel(); label.Text = "正在取消…"; };
+            bool downloadFinished = false;
+            dialog.Closing += (_, args) => { if (!downloadFinished) { args.Cancel = true; cancel.Cancel(); label.Text = "正在取消…"; } };
+            var task = dialog.ShowAsync();
+            try
             {
-                FileName = "powershell.exe",
-                Arguments = args,
-                UseShellExecute = true,
-                WorkingDirectory = installRoot
-            });
-            StatusText.Text = $"正在更新到 {release.Version}，应用将退出后自动重启";
-            await Task.Delay(350);
+                var progress = new Progress<double>(value => { progressBar.IsIndeterminate = value < 0; progressBar.Value = Math.Max(0, value); label.Text = $"下载中 {value:0}% · 完成后将校验 SHA256"; });
+                download = await UpdateService.DownloadAsync(release, progress, cancel.Token);
+            }
+            finally { downloadFinished = true; dialog.Hide(); await task; }
+            var installRoot = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+            var script = UpdateService.SaveUpdaterScript(download.Directory);
+            var ready = Path.Combine(download.Directory, "ready.txt");
+            var start = new ProcessStartInfo {
+                FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe"),
+                UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = download.Directory
+            };
+            foreach (var arg in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-ProcessId", Environment.ProcessId.ToString(), "-InstallRoot", installRoot, "-PackagePath", download.PackagePath, "-ExpectedSha256", release.Sha256, "-Version", release.Version, "-ReadyFile", ready }) start.ArgumentList.Add(arg);
+            helper = Process.Start(start) ?? throw new IOException("无法启动更新器。");
+            StatusText.Text = "已完成下载和 SHA256 校验，正在准备升级…";
+            var watch = Stopwatch.StartNew();
+            while (!File.Exists(ready))
+            {
+                if (helper.HasExited) throw new IOException("更新器准备失败，旧版本未修改。");
+                if (watch.Elapsed > TimeSpan.FromSeconds(60)) throw new TimeoutException("更新器准备超时，旧版本未修改。");
+                await Task.Delay(150);
+            }
+            var message = await File.ReadAllTextAsync(ready);
+            if (message != "ready") throw new IOException(message);
+            _saveTimer.Stop();
+            await LibraryStore.SaveAsync(_allPhotos);
+            _settings.Save();
             Environment.Exit(0);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) { StatusText.Text = "已取消更新，相册保持运行"; }
+        catch (Exception ex) { StatusText.Text = "更新失败，应用保持运行：" + ex.Message; }
+        finally
         {
-            StatusText.Text = "无法启动更新器：" + ex.Message;
+            if (helper != null && !helper.HasExited) { try { helper.Kill(); helper.WaitForExit(3000); } catch { } }
+            if (download != null) UpdateService.CleanupDownload(download.Directory);
+            _updateInProgress = false;
         }
     }
 
     private async Task CheckForUpdateOnStartupAsync()
     {
-        if (!_settings.AutoCheckUpdates || DateTime.UtcNow - _settings.LastUpdateCheckUtc < TimeSpan.FromHours(12)) return;
+        if (AppPaths.IsTestProfile || _settingsDialogOpen || _updateInProgress || _updateCheckInProgress || !_settings.AutoCheckUpdates || DateTime.UtcNow - _settings.LastUpdateCheckUtc < TimeSpan.FromHours(12)) return;
+        _updateCheckInProgress = true;
         try
         {
             var update = await UpdateService.CheckLatestAsync();
             _settings.LastUpdateCheckUtc = DateTime.UtcNow;
             _settings.Save();
             if (update != null)
-                DispatcherQueue.TryEnqueue(() => StatusText.Text = $"发现新版本 {update.Version}，可在「设置 → 更新」安装");
+            {
+                CheckUpdateNavButton.Content = $"● 更新至 {update.Version}";
+                StatusText.Text = $"发现新版本 {update.Version}，点击左侧更新入口安装";
+            }
         }
         catch { /* 静默失败，不影响离线使用 */ }
+        finally { _updateCheckInProgress = false; }
     }
 
-    /// <summary>设置按钮</summary>
+    /// <summary>分区设置编辑器：全部修改在保存时一次提交。</summary>
     private async void SettingsButton_Click(object s, RoutedEventArgs e)
     {
-        var panel = new StackPanel { Spacing = 16, MaxWidth = 420 };
-        ReleaseInfo? pendingUpdate = null;
-        ContentDialog? settingsDialog = null;
-
-        // 入场动画
-        panel.Opacity = 0;
-        panel.RenderTransform = new CompositeTransform { TranslateY = 12 };
-        panel.Loaded += (_, _) =>
+        if (_settingsDialogOpen || _updateInProgress) return;
+        var root = (FrameworkElement)Content;
+        var editor = new SettingsEditor(_settings, _photos,
+            WinRT.Interop.WindowNative.GetWindowHandle(this),
+            Math.Clamp(root.ActualWidth - 130, 620, 780),
+            Math.Clamp(root.ActualHeight - 230, 330, 560));
+        var dialog = new ContentDialog
         {
-            var sb = new Storyboard();
-            var fade = new DoubleAnimation { From = 0, To = 1, Duration = TimeSpan.FromMilliseconds(220), EnableDependentAnimation = true };
-            Storyboard.SetTarget(fade, panel); Storyboard.SetTargetProperty(fade, "Opacity");
-            sb.Children.Add(fade);
-            var slide = new DoubleAnimation { From = 12, To = 0, Duration = TimeSpan.FromMilliseconds(250), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }, EnableDependentAnimation = true };
-            Storyboard.SetTarget(slide, panel); Storyboard.SetTargetProperty(slide, "(UIElement.RenderTransform).(CompositeTransform.TranslateY)");
-            sb.Children.Add(slide);
-            sb.Begin();
+            Title = "设置", Content = editor, PrimaryButtonText = "保存",
+            SecondaryButtonText = "恢复全部默认", CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary, XamlRoot = root.XamlRoot,
+            RequestedTheme = root.RequestedTheme,
         };
-
-        var themeLabel = new TextBlock { Text = "外观主题", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15 };
-        // 主题三模式（SPW 借鉴）：跟随系统 / 浅色 / 深色
-        var themeCombo = new ComboBox
+        dialog.Resources["ContentDialogMaxWidth"] = 900d;
+        dialog.PrimaryButtonClick += (_, args) =>
         {
-            Header = "主题模式",
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Margin = new Thickness(0, 6, 0, 0),
-            SelectedIndex = _settings.ThemeMode switch { -1 => 0, 0 => 1, _ => 2 }
-        };
-        themeCombo.Items.Add(new ComboBoxItem { Content = "🖥 跟随系统" });
-        themeCombo.Items.Add(new ComboBoxItem { Content = "☀️ 浅色" });
-        themeCombo.Items.Add(new ComboBoxItem { Content = "🌙 深色" });
-
-        // ── SPW 风格外观（可选，默认关闭保留原界面）──
-        var lookLabel = new TextBlock { Text = "外观风格（SPW 风格 · 可选）", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15, Margin = new Microsoft.UI.Xaml.Thickness(0, 8, 0, 0) };
-
-        var acrylicToggle = new ToggleSwitch { Header = "亚克力毛玻璃", IsOn = _settings.AcrylicEnabled, OnContent = "已开启", OffContent = "已关闭" };
-        var acrylicSlider = new Slider { Header = "亚克力透明度", Minimum = 0.0, Maximum = 1.0, StepFrequency = 0.05, Value = _settings.AcrylicOpacity, IsEnabled = _settings.AcrylicEnabled };
-        acrylicToggle.Toggled += (_, _) => acrylicSlider.IsEnabled = acrylicToggle.IsOn;
-
-        // 顶栏材质：0=侧边栏同款 1=液态玻璃（扭曲折射）
-        var topBarCombo = new ComboBox
-        {
-            Header = "顶栏材质",
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Margin = new Thickness(0, 6, 0, 0),
-            SelectedIndex = _settings.TopBarStyle
-        };
-        topBarCombo.Items.Add(new ComboBoxItem { Content = "侧边栏同款（磨砂）" });
-        topBarCombo.Items.Add(new ComboBoxItem { Content = "液态玻璃（扭曲折射）" });
-
-        // 主题色：预设色板 + ColorPicker
-        var accentRow = new StackPanel { Spacing = 6 };
-        accentRow.Children.Add(new TextBlock { Text = "主题色", FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        var presetPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        // 主题预设（低饱和度色系）
-        var presets = new (string Name, string Hex)[]
-        {
-            ("晴空蓝", "#5B6EAE"), ("湖水青", "#5B9EAE"), ("薄荷绿", "#5B9C6B"),
-            ("暖沙橙", "#AE8A5B"), ("樱粉", "#AE6B9C"), ("黛紫", "#8A6BAE"), ("绯红", "#C45B5B"),
-        };
-        var colorPicker = new ColorPicker { Color = _settings.GetAccentColor(), IsAlphaEnabled = false, IsColorChannelTextInputVisible = true, IsHexInputVisible = true, ColorSpectrumShape = ColorSpectrumShape.Ring };
-        foreach (var (name, hex) in presets)
-        {
-            var c = ParseColor(hex);
-            var swatch = new Button
+            if (!editor.Draft.TrySave(out var error))
             {
-                Width = 30, Height = 30, Padding = new Thickness(0),
-                Background = new SolidColorBrush(c),
-                CornerRadius = new CornerRadius(7),
-                Tag = hex,
-            };
-            ToolTipService.SetToolTip(swatch, name);
-            swatch.Click += (_, _) => colorPicker.Color = ParseColor(hex);
-            presetPanel.Children.Add(swatch);
-        }
-        accentRow.Children.Add(presetPanel);
-        accentRow.Children.Add(colorPicker);
-
-        // ── 背景设置 ──
-        var bgLabel = new TextBlock { Text = "背景", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15, Margin = new Microsoft.UI.Xaml.Thickness(0, 8, 0, 0) };
-        var bgModeCombo = new ComboBox { Header = "背景模式", SelectedIndex = Math.Clamp(_settings.BackgroundMode, 0, 2), MinWidth = 160 };
-        bgModeCombo.Items.Add(new ComboBoxItem { Content = "默认（跟随主题）" });
-        bgModeCombo.Items.Add(new ComboBoxItem { Content = "纯色背景" });
-        bgModeCombo.Items.Add(new ComboBoxItem { Content = "图片背景" });
-
-        var bgColorPicker = new ColorPicker
-        {
-            Color = ParseColor(_settings.BackgroundColor),
-            IsAlphaEnabled = false,
-            ColorSpectrumShape = ColorSpectrumShape.Ring,
-            Visibility = _settings.BackgroundMode == 1 ? Visibility.Visible : Visibility.Collapsed,
-        };
-
-        var bgImageRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Visibility = _settings.BackgroundMode == 2 ? Visibility.Visible : Visibility.Collapsed };
-        var bgPickBtn = new Button { Content = "选择图片…", Padding = new Thickness(10, 6, 10, 6), CornerRadius = new CornerRadius(6), FontSize = 12 };
-        var bgImageName = new TextBlock
-        {
-            Text = string.IsNullOrEmpty(_settings.BackgroundImagePath) ? "未选择" : System.IO.Path.GetFileName(_settings.BackgroundImagePath),
-            VerticalAlignment = VerticalAlignment.Center,
-            FontSize = 12,
-            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-        };
-        var bgClearBtn = new Button { Content = "清除", Padding = new Thickness(10, 6, 10, 6), CornerRadius = new CornerRadius(6), FontSize = 12, Visibility = string.IsNullOrEmpty(_settings.BackgroundImagePath) ? Visibility.Collapsed : Visibility.Visible };
-        bgImageRow.Children.Add(bgPickBtn);
-        bgImageRow.Children.Add(bgImageName);
-        bgImageRow.Children.Add(bgClearBtn);
-
-        bgModeCombo.SelectionChanged += (_, _) =>
-        {
-            var mode = bgModeCombo.SelectedIndex;
-            bgColorPicker.Visibility = mode == 1 ? Visibility.Visible : Visibility.Collapsed;
-            bgImageRow.Visibility = mode == 2 ? Visibility.Visible : Visibility.Collapsed;
-        };
-        bgPickBtn.Click += async (_, _) =>
-        {
-            var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
-            picker.FileTypeFilter.Add(".jpg"); picker.FileTypeFilter.Add(".jpeg");
-            picker.FileTypeFilter.Add(".png"); picker.FileTypeFilter.Add(".bmp");
-            picker.FileTypeFilter.Add(".webp"); picker.FileTypeFilter.Add(".gif");
-            WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
-            var file = await picker.PickSingleFileAsync();
-            if (file != null)
-            {
-                _settings.BackgroundImagePath = file.Path;
-                _settings.Save();
-                bgImageName.Text = file.Name;
-                bgClearBtn.Visibility = Visibility.Visible;
-                ApplyAppearance();
+                args.Cancel = true;
+                editor.ShowNotice("保存失败：" + error);
             }
         };
-        bgClearBtn.Click += (_, _) =>
-        {
-            _settings.BackgroundImagePath = "";
-            _settings.Save();
-            bgImageName.Text = "未选择";
-            bgClearBtn.Visibility = Visibility.Collapsed;
-            ApplyAppearance();
-        };
+        dialog.SecondaryButtonClick += (_, args) => { args.Cancel = true; editor.ResetAll(); };
+        ReleaseInfo? requestedUpdate = null;
+        editor.UpdateRequested += release => { requestedUpdate = release; dialog.Hide(); };
+        ContentDialogResult result;
+        _settingsDialogOpen = true;
+        try { result = await dialog.ShowAsync(); }
+        finally { _settingsDialogOpen = false; }
+        if (requestedUpdate != null) { await StartUpdateAsync(requestedUpdate); return; }
+        if (result != ContentDialogResult.Primary) return;
 
-        // 圆角
-        var radiusCombo = new ComboBox { Header = "卡片圆角", SelectedIndex = RadiusIndex(_settings.CardCornerRadius), MinWidth = 140 };
-        radiusCombo.Items.Add(new ComboBoxItem { Content = "小圆角 (8)" });
-        radiusCombo.Items.Add(new ComboBoxItem { Content = "圆角 (14)" });
-        radiusCombo.Items.Add(new ComboBoxItem { Content = "大圆角 (20)" });
-
-        var displayModeCombo = new ComboBox
-        {
-            Header = "显示模式",
-            SelectedIndex = Math.Clamp(_settings.DisplayMode, 0, 1),
-            MinWidth = 180,
-        };
-        displayModeCombo.Items.Add(new ComboBoxItem { Content = "规整网格 · 统一卡片" });
-        displayModeCombo.Items.Add(new ComboBoxItem { Content = "瀑布流 · 原始比例紧密拼接" });
-
-        // 动画
-        var animToggle = new ToggleSwitch { Header = "入场动画", IsOn = _settings.AnimationsEnabled, OnContent = "已开启", OffContent = "已关闭" };
-        var animSlider = new Slider { Header = "动画时长（毫秒）", Minimum = 150, Maximum = 600, StepFrequency = 25, Value = _settings.AnimationDurationMs, IsEnabled = _settings.AnimationsEnabled };
-        animToggle.Toggled += (_, _) => animSlider.IsEnabled = animToggle.IsOn;
-
-        var autoLabel = new TextBlock { Text = "自动扫描", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15, Margin = new Microsoft.UI.Xaml.Thickness(0, 8, 0, 0) };
-        var autoToggle = new ToggleSwitch { Header = "自动检测新增图片", IsOn = _settings.AutoScan, OnContent = "已开启", OffContent = "已关闭" };
-        var intervalBox = new NumberBox { Header = "扫描间隔（分钟）", Value = _settings.AutoScanIntervalMinutes, Minimum = 1, Maximum = 60, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline, IsEnabled = _settings.AutoScan };
-        autoToggle.Toggled += (_, _) => { intervalBox.IsEnabled = autoToggle.IsOn; };
-
-        var watchLabel = new TextBlock { Text = $"已监控 {_settings.WatchedFolders.Count} 个文件夹", FontSize = 12, Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorTertiaryBrush"] };
-
-        // 监控文件夹：列表 + 添加/移除（此前只有一行文字，无法选择）
-        var watchList = new ListView
-        {
-            Height = 130,
-            SelectionMode = ListViewSelectionMode.Single,
-            Margin = new Thickness(0, 4, 0, 0),
-            HorizontalContentAlignment = HorizontalAlignment.Stretch
-        };
-        foreach (var f in _settings.WatchedFolders) watchList.Items.Add(f);
-        watchList.ItemTemplate = null;
-
-        var updateRow = new StackPanel { Spacing = 8, Margin = new Thickness(0, 10, 0, 0) };
-        var autoUpdateToggle = new ToggleSwitch
-        {
-            Header = "启动时自动检查更新",
-            IsOn = _settings.AutoCheckUpdates,
-            OnContent = "已开启",
-            OffContent = "已关闭"
-        };
-        var updateStatus = new TextBlock
-        {
-            Text = $"当前版本：{UpdateService.CurrentVersion}",
-            FontSize = 12,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
-        };
-        var checkUpdateBtn = new Button { Content = "检查更新", Padding = new Thickness(12), HorizontalAlignment = HorizontalAlignment.Left };
-        checkUpdateBtn.Click += async (_, _) =>
-        {
-            checkUpdateBtn.IsEnabled = false;
-            updateStatus.Text = "正在检查 GitHub Release…";
-            try
-            {
-                pendingUpdate = await UpdateService.CheckLatestAsync();
-                if (pendingUpdate == null)
-                {
-                    updateStatus.Text = $"当前已是最新版本（{UpdateService.CurrentVersion}）";
-                    return;
-                }
-                var sizeText = pendingUpdate.PackageSize > 1048576 ? $"{pendingUpdate.PackageSize / 1048576.0:F1} MB" : "安装包";
-                updateStatus.Text = $"发现新版本 {pendingUpdate.Version}（{sizeText}）";
-                var updateDlg = new ContentDialog
-                {
-                    Title = "发现新版本",
-                    Content = $"当前版本：{UpdateService.CurrentVersion}\n最新版本：{pendingUpdate.Version}\n\n将下载并安全替换程序文件，照片和图库数据不会被修改。",
-                    PrimaryButtonText = "下载并更新",
-                    CloseButtonText = "稍后",
-                    DefaultButton = ContentDialogButton.Primary,
-                    XamlRoot = Content.XamlRoot
-                };
-                if (await updateDlg.ShowAsync() == ContentDialogResult.Primary)
-                {
-                    await StartUpdateAsync(pendingUpdate);
-                    settingsDialog?.Hide();
-                }
-            }
-            catch (Exception ex)
-            {
-                updateStatus.Text = "检查更新失败";
-                StatusText.Text = "更新检查失败：" + ex.Message;
-            }
-            finally { checkUpdateBtn.IsEnabled = true; }
-        };
-        updateRow.Children.Add(autoUpdateToggle);
-        updateRow.Children.Add(updateStatus);
-        updateRow.Children.Add(checkUpdateBtn);
-
-        var watchRow = new Grid { ColumnSpacing = 8, Margin = new Thickness(0, 4, 0, 0) };
-        watchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        watchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var addWatchBtn = new Button { Content = "＋ 添加文件夹", HorizontalAlignment = HorizontalAlignment.Stretch };
-        var removeWatchBtn = new Button { Content = "✕ 移除选中", IsEnabled = false };
-        Grid.SetColumn(removeWatchBtn, 1);
-        watchRow.Children.Add(addWatchBtn);
-        watchRow.Children.Add(removeWatchBtn);
-
-        void RefreshWatchLabel() => watchLabel.Text = $"已监控 {_settings.WatchedFolders.Count} 个文件夹";
-        watchList.SelectionChanged += (_, _) => removeWatchBtn.IsEnabled = watchList.SelectedItem != null;
-        addWatchBtn.Click += async (_, _) =>
-        {
-            var picker = new FolderPicker { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
-            picker.FileTypeFilter.Add("*");
-            WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
-            var folder = await picker.PickSingleFolderAsync();
-            if (folder == null) return;
-            if (_settings.WatchedFolders.Contains(folder.Path, StringComparer.OrdinalIgnoreCase)) return;
-            _settings.WatchedFolders.Add(folder.Path);
-            _settings.Save();
-            _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
-            watchList.Items.Add(folder.Path);
-            RefreshWatchLabel();
-        };
-        removeWatchBtn.Click += (_, _) =>
-        {
-            if (watchList.SelectedItem is string sel)
-            {
-                _settings.WatchedFolders.Remove(sel);
-                _settings.Save();
-                _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
-                watchList.Items.Remove(sel);
-                RefreshWatchLabel();
-            }
-        };
-
-        panel.Children.Add(themeLabel);
-        panel.Children.Add(themeCombo);
-        panel.Children.Add(lookLabel);
-        panel.Children.Add(acrylicToggle);
-        panel.Children.Add(acrylicSlider);
-        panel.Children.Add(topBarCombo);
-        panel.Children.Add(accentRow);
-        panel.Children.Add(displayModeCombo);
-        panel.Children.Add(radiusCombo);
-        panel.Children.Add(animToggle);
-        panel.Children.Add(animSlider);
-        panel.Children.Add(bgLabel);
-        panel.Children.Add(bgModeCombo);
-        panel.Children.Add(bgColorPicker);
-        panel.Children.Add(bgImageRow);
-        panel.Children.Add(autoLabel);
-        panel.Children.Add(autoToggle);
-        panel.Children.Add(intervalBox);
-        panel.Children.Add(watchLabel);
-        panel.Children.Add(watchList);
-        panel.Children.Add(watchRow);
-        panel.Children.Add(new TextBlock { Text = "更新", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15, Margin = new Thickness(0, 8, 0, 0) });
-        panel.Children.Add(updateRow);
-
-        // 面板包 ScrollViewer：内容超出 ContentDialog 高度时可滚动
-        // （背景设置等选项在窗口较矮时也能完整看到）
-        var scroll = new ScrollViewer { Content = panel, MaxHeight = 480, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        settingsDialog = new ContentDialog { Title = "⚙ 设置", Content = scroll, PrimaryButtonText = "保存", SecondaryButtonText = "恢复默认", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, XamlRoot = Content.XamlRoot };
-
-        var result = await settingsDialog.ShowAsync();
-        if (result == ContentDialogResult.Secondary)
-        {
-            // ── 一键恢复默认设置 ──
-            var rd = new ContentDialog
-            {
-                Title = "恢复默认设置",
-                Content = "将恢复所有设置为默认值（主题、外观、自动扫描）。",
-                PrimaryButtonText = "恢复",
-                CloseButtonText = "取消",
-                DefaultButton = ContentDialogButton.Close,
-                XamlRoot = Content.XamlRoot,
-            };
-            if (await rd.ShowAsync() == ContentDialogResult.Primary)
-            {
-                _settings.ThemeMode = 0;
-                _settings.DarkMode = false;
-                _settings.AccentColor = "#5B6EAE";
-                _settings.Saturation = 0.55;
-                _settings.AcrylicEnabled = false;
-                _settings.AcrylicOpacity = 0.55;
-                _settings.CardCornerRadius = 14;
-                _settings.DisplayMode = 0;
-                _settings.AnimationsEnabled = true;
-                _settings.AnimationDurationMs = 350;
-                _settings.BackgroundMode = 0;
-                _settings.BackgroundColor = "#2A2A32";
-                _settings.BackgroundImagePath = "";
-                _settings.AutoScan = true;
-                _settings.AutoScanIntervalMinutes = 5;
-                _settings.AutoCheckUpdates = true;
-                _settings.LastUpdateCheckUtc = DateTime.MinValue;
-                _settings.Save();
-                ApplyTheme();
-                ApplyGalleryLayout();
-                RefreshPhotos();
-                if (_settings.AutoScan) _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
-                else _folderWatcher.Stop();
-                StatusText.Text = "已恢复默认设置";
-            }
-            return;
-        }
-
-        if (result == ContentDialogResult.Primary)
-        {
-            _settings.ThemeMode = themeCombo.SelectedIndex switch { 0 => -1, 1 => 0, _ => 1 };
-            _settings.DarkMode = _settings.ThemeMode == 1;   // 兼容字段同步
-            _settings.AutoScan = autoToggle.IsOn;
-            _settings.AutoScanIntervalMinutes = Math.Max(1, (int)intervalBox.Value);
-            _settings.AutoCheckUpdates = autoUpdateToggle.IsOn;
-
-            // ── 外观设置（SPW 风格）──
-            _settings.AcrylicEnabled = acrylicToggle.IsOn;
-            _settings.AcrylicOpacity = acrylicSlider.Value;
-            _settings.TopBarStyle = topBarCombo.SelectedIndex;  // 0=侧边栏同款 1=液态玻璃
-            _settings.AccentColor = ColorToHex(colorPicker.Color);
-            _settings.CardCornerRadius = radiusCombo.SelectedIndex switch { 0 => 8.0, 2 => 20.0, _ => 14.0 };
-            _settings.DisplayMode = displayModeCombo.SelectedIndex;
-            _settings.AnimationsEnabled = animToggle.IsOn;
-            _settings.AnimationDurationMs = animSlider.Value;
-
-            // ── 背景 ──
-            _settings.BackgroundMode = bgModeCombo.SelectedIndex;
-            _settings.BackgroundColor = ColorToHex(bgColorPicker.Color);
-            _settings.Save();
-
-            // 即时应用全部外观（深/浅色切换无需重启）
-            ApplyTheme();
-            ApplyGalleryLayout();
-            RefreshPhotos();
-
-            if (_settings.AutoScan) _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
-            else _folderWatcher.Stop();
-            StatusText.Text = "设置已保存";
-        }
+        _settings = editor.Draft;
+        _slideshowTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(_settings.SlideshowIntervalSeconds, 2, 15));
+        ApplyTheme();
+        ApplyGalleryLayout();
+        RefreshPhotos();
+        if (_settings.AutoScan) _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
+        else _folderWatcher.Stop();
+        StatusText.Text = "设置已保存并应用";
     }
 
     // ══════════ 照片卡片 ══════════
@@ -1979,6 +1769,11 @@ public sealed partial class MainWindow : Window
         // 卡片入场：渐入动画（可配置时长/开关）
         if (args.Element is UIElement element)
         {
+            var motion = _cardAnimations.GetValue(element, _ => new CardAnimationState());
+            motion.Fade?.Stop();
+            motion.Hover?.Stop();
+            if (element is FrameworkElement recycled) recycled.Margin = new Thickness(0);
+            element.Opacity = 1;
             if (_settings.AnimationsEnabled)
             {
                 element.Opacity = 0;
@@ -1986,6 +1781,7 @@ public sealed partial class MainWindow : Window
                 var fade = new DoubleAnimation { From = 0, To = 1, Duration = TimeSpan.FromMilliseconds(_settings.AnimationDurationMs), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }, EnableDependentAnimation = true };
                 Storyboard.SetTarget(fade, element); Storyboard.SetTargetProperty(fade, "Opacity");
                 sb.Children.Add(fade);
+                motion.Fade = sb;
                 sb.Begin();
             }
             else
@@ -2033,16 +1829,20 @@ public sealed partial class MainWindow : Window
                 // 移走回弹。BackEase 弹性插值 → q 弹灵动。
                 // 说明：WinUI3 无 ThicknessAnimation，且禁止 RenderTransform，
                 // 故用 DispatcherTimer 手动插值 Margin（布局属性，非打包安全）
-                if (_settings.AnimationsEnabled && !isMasonry)
+                if (!motion.Hooked)
                 {
-                    var liftFrom = new Thickness(0);
+                    motion.Hooked = true;
                     var liftTo = new Thickness(0, -6, 0, 6);
-                    void AnimateMargin(Thickness from, Thickness to)
+                    void AnimateMargin(Thickness to)
                     {
+                        motion.Hover?.Stop();
+                        if (!_settings.AnimationsEnabled || _settings.DisplayMode == 1) { cardHost.Margin = new Thickness(0); return; }
+                        var from = cardHost.Margin;
                         var ease = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.45 };
                         var sw = new System.Diagnostics.Stopwatch();
                         sw.Start();
                         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+                        motion.Hover = timer;
                         timer.Tick += (_, _) =>
                         {
                             var t = sw.Elapsed.TotalMilliseconds / 300.0;
@@ -2056,8 +1856,8 @@ public sealed partial class MainWindow : Window
                         };
                         timer.Start();
                     }
-                    cardHost.PointerEntered += (_, _) => AnimateMargin(liftFrom, liftTo);
-                    cardHost.PointerExited += (_, _) => AnimateMargin(liftTo, liftFrom);
+                    cardHost.PointerEntered += (_, _) => AnimateMargin(liftTo);
+                    cardHost.PointerExited += (_, _) => AnimateMargin(new Thickness(0));
                 }
             }
         }
@@ -2169,7 +1969,7 @@ public sealed partial class MainWindow : Window
         StatusText.Text = allSelected ? "已取消全选当前结果" : $"已选择当前结果（{selectable.Count} 张）";
     }
 
-    /// <summary>批量重命名：规则 = 拍摄日期+序号 / 原名+序号（P2 延伸功能）</summary>
+    /// <summary>批量重命名：规则 = 文件修改日期+序号 / 原名+序号（P2 延伸功能）</summary>
     private async void BatchRename_Click(object s, RoutedEventArgs e)
     {
         if (!_batchMode) return;
@@ -2184,7 +1984,7 @@ public sealed partial class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Stretch,
             SelectedIndex = 0
         };
-        ruleCombo.Items.Add(new ComboBoxItem { Content = "拍摄日期 + 序号（如 20240801_001）" });
+        ruleCombo.Items.Add(new ComboBoxItem { Content = "文件修改日期 + 序号（如 20240801_001）" });
         ruleCombo.Items.Add(new ComboBoxItem { Content = "原文件名 + 序号（如 草原_001）" });
         var startBox = new NumberBox { Header = "起始序号", Minimum = 0, Maximum = 9999, Value = 1, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
         var panel = new StackPanel { Spacing = 8 };
@@ -2338,12 +2138,12 @@ public sealed partial class MainWindow : Window
     {
         _batchMode = true;
         _selectedPaths.Clear();
-        foreach (var p in _allPhotos) p.SelectVisible = true;
+        foreach (var p in _allPhotos) { p.IsSelected = false; p.SelectVisible = true; }
         ExitBatchBtn.Visibility = Visibility.Visible;
         SelectAllPageBtn.Visibility = Visibility.Visible;
-        SelectAllResultsBtn.Visibility = Visibility.Visible;
-        RenameBtn.Visibility = Visibility.Visible;
-        ExportBtn.Visibility = Visibility.Visible;
+        SelectAllResultsBtn.Visibility = Visibility.Collapsed;
+        RenameBtn.Visibility = Visibility.Collapsed;
+        ExportBtn.Visibility = Visibility.Collapsed;
         MoreBatchBtn.Visibility = Visibility.Visible;
         DuplicateBtn.Visibility = Visibility.Collapsed;
         UnfavoriteBtn.Visibility = Visibility.Visible;
@@ -2354,7 +2154,7 @@ public sealed partial class MainWindow : Window
     {
         _batchMode = false;
         _selectedPaths.Clear();
-        foreach (var p in _allPhotos) p.SelectVisible = false;
+        foreach (var p in _allPhotos) { p.IsSelected = false; p.SelectVisible = false; }
         ExitBatchBtn.Visibility = Visibility.Collapsed;
         SelectAllPageBtn.Visibility = Visibility.Collapsed;
         SelectAllResultsBtn.Visibility = Visibility.Collapsed;
@@ -2374,6 +2174,14 @@ public sealed partial class MainWindow : Window
     private void MoreBatch_Click(object sender, RoutedEventArgs e)
     {
         var menu = new MenuFlyout();
+        var compare = new MenuFlyoutItem { Text = "对比选片（2–4 张）" };
+        compare.Click += CompareSelected_Click;
+        var selectResults = new MenuFlyoutItem { Text = "全选当前筛选结果" };
+        selectResults.Click += SelectAllResults_Click;
+        var rename = new MenuFlyoutItem { Text = "批量重命名" };
+        rename.Click += BatchRename_Click;
+        var export = new MenuFlyoutItem { Text = "导出照片" };
+        export.Click += BatchExport_Click;
         var duplicate = new MenuFlyoutItem { Text = "查找重复照片" };
         duplicate.Click += DuplicateCheck_Click;
         var unfavorite = new MenuFlyoutItem { Text = "取消收藏" };
@@ -2382,6 +2190,10 @@ public sealed partial class MainWindow : Window
         uncategory.Click += BatchUncategorize_Click;
         var clear = new MenuFlyoutItem { Text = "清空图库", Foreground = (Brush)Application.Current.Resources["SoftRedBrush"] };
         clear.Click += BatchDelete_Click;
+        menu.Items.Add(compare);
+        menu.Items.Add(selectResults);
+        menu.Items.Add(rename);
+        menu.Items.Add(export);
         menu.Items.Add(duplicate);
         menu.Items.Add(unfavorite);
         menu.Items.Add(uncategory);
@@ -2398,7 +2210,7 @@ public sealed partial class MainWindow : Window
         DissolveCatBtn.Visibility = isCatView && _batchMode ? Visibility.Visible : Visibility.Collapsed;
         if (isCatView && _batchMode)
         {
-            MoreBatchBtn.Visibility = Visibility.Collapsed;
+            MoreBatchBtn.Visibility = Visibility.Visible;
         }
     }
 
@@ -2408,6 +2220,16 @@ public sealed partial class MainWindow : Window
     {
         var idx = _currentView.IndexOf(photo);
         if (idx < 0) return;
+        StopSlideshow();
+        _thumbCts?.Cancel();
+        StopFilmstripLoading();
+        _filmstripCts = new CancellationTokenSource();
+        _previewInfoVisible = _settings.PreviewInfoDefaultVisible;
+        ApplyPreviewInfoVisibility();
+        PreviewFilmstripBar.Visibility = _settings.FilmstripMode == 2 ? Visibility.Collapsed : Visibility.Visible;
+        PreviewFilmstripBar.Opacity = _settings.FilmstripMode == 1 ? 0 : 1;
+        PreviewFilmstripBar.IsHitTestVisible = _settings.FilmstripMode == 0;
+        PreviewImageStage.Margin = new Thickness(12, 20, 12, _settings.FilmstripMode == 0 ? 100 : 20);
         PreviewOverlay.Visibility = Visibility.Visible;
         ShowPreviewAt(idx);
         AnimatePreviewIn();
@@ -2415,15 +2237,23 @@ public sealed partial class MainWindow : Window
 
     private void ShowPreviewAt(int idx)
     {
+        _previewImageAnimation?.Stop();
         if (_currentView.Count == 0) { ClosePreview(); return; }
         _previewIndex = Math.Clamp(idx, 0, _currentView.Count - 1);
         var p = _currentView[_previewIndex];
         _previewRotation = 0;
         PreviewImage.RenderTransform = null;
-        _ = ApplyPreviewPaletteAsync(p.FilePath);
+        // 先恢复中性背景，避免上一张照片的颜色在取色期间残留。
+        ++_previewPaletteRequest;
+        PreviewOverlay.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 20, 20, 25));
+        PreviewImageStage.Background = null;
+        if (_settings.PreviewPaletteEnabled)
+            _ = ApplyPreviewPaletteAsync(p.FilePath);
 
         PreviewName.Text = p.Filename;
-        PreviewInfo.Text = $"{p.SizeText} · 添加于 {p.DateText}";
+        PreviewCounter.Text = $"{_previewIndex + 1} / {_currentView.Count}";
+        PreviewReadError.Visibility = Visibility.Collapsed;
+        PreviewInfo.Text = $"{p.SizeText} · 修改于 {p.DateText}";
         PreviewPath.Text = p.FilePath;
         PreviewFavButton.Content = p.IsFavorite ? "★ 取消收藏" : "☆ 收藏";
         PreviewExif.Text = "读取中…";
@@ -2447,9 +2277,16 @@ public sealed partial class MainWindow : Window
 
         PreviewPrevBtn.IsEnabled = _previewIndex > 0;
         PreviewNextBtn.IsEnabled = _previewIndex < _currentView.Count - 1;
+        PreviewSlideshowBtn.IsEnabled = _currentView.Count > 1;
         PreviewFilmstrip.ItemsSource = _currentView;
         PreviewFilmstrip.SelectedItem = p;
         PreviewFilmstrip.ScrollIntoView(p);
+        if (_filmstripCts != null && _settings.FilmstripMode != 2)
+        {
+            _ = EnsureFilmstripThumbnailAsync(p, _filmstripCts.Token);
+            if (_previewIndex > 0) _ = EnsureFilmstripThumbnailAsync(_currentView[_previewIndex - 1], _filmstripCts.Token);
+            if (_previewIndex + 1 < _currentView.Count) _ = EnsureFilmstripThumbnailAsync(_currentView[_previewIndex + 1], _filmstripCts.Token);
+        }
 
         var transition = ++_previewTransitionRequest;
         PreviewLoading.Visibility = Visibility.Visible;
@@ -2460,7 +2297,15 @@ public sealed partial class MainWindow : Window
         ApplyFitPreviewZoom();
         var bmp = new BitmapImage { DecodePixelWidth = 1600 };
         bmp.ImageOpened += (_, _) => FinishPreviewImageTransition(transition);
-        bmp.ImageFailed += (_, _) => FinishPreviewImageTransition(transition);
+        bmp.ImageFailed += (_, _) =>
+        {
+            if (transition != _previewTransitionRequest) return;
+            FinishPreviewImageTransition(transition);
+            ++_exifRequestSeq;
+            PreviewExif.Text = "无法读取照片文件，请检查文件是否损坏或格式是否受支持。";
+            PreviewReadError.Visibility = Visibility.Visible;
+            PreviewImageOutgoing.Source = null;
+        };
         PreviewImage.Source = bmp;
         bmp.UriSource = new Uri(p.FilePath);
     }
@@ -2514,6 +2359,7 @@ public sealed partial class MainWindow : Window
         {
             if (transition == _previewTransitionRequest) PreviewImageOutgoing.Source = null;
         };
+        _previewImageAnimation = storyboard;
         storyboard.Begin();
     }
 
@@ -2524,8 +2370,12 @@ public sealed partial class MainWindow : Window
         {
             var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(filePath);
             using var stream = await file.OpenReadAsync();
-            using var bitmap = await CanvasBitmap.LoadAsync(CanvasDevice.GetSharedDevice(), stream);
-            var pixels = bitmap.GetPixelBytes();
+            // 取色只需要小样本，避免打开高像素照片时为整张图分配像素数组。
+            var decoder = await BitmapDecoder.CreateAsync(stream);
+            var pixelData = await decoder.GetPixelDataAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Straight,
+                new BitmapTransform { ScaledWidth = 64, ScaledHeight = 64 },
+                ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage);
+            var pixels = pixelData.DetachPixelData();
             if (pixels.Length < 4) return;
 
             long red = 0, green = 0, blue = 0, samples = 0;
@@ -2577,14 +2427,60 @@ public sealed partial class MainWindow : Window
 
     private void ClosePreview()
     {
+        ++_previewTransitionRequest;
+        ++_exifRequestSeq;
+        _previewImageAnimation?.Stop();
+        StopSlideshow();
+        StopFilmstripLoading();
+        LoadThumbnailsForCurrentPage();
+        ++_previewPaletteRequest;
         AnimatePreviewOut();
+    }
+
+    private void PreviewSlideshow_Click(object sender, RoutedEventArgs e) => ToggleSlideshow();
+
+    private void ToggleSlideshow()
+    {
+        if (_slideshowTimer.IsEnabled)
+        {
+            StopSlideshow();
+            return;
+        }
+        if (PreviewOverlay.Visibility != Visibility.Visible || _currentView.Count < 2) return;
+        _slideshowTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(_settings.SlideshowIntervalSeconds, 2, 15));
+        _slideshowTimer.Start();
+        PreviewSlideshowBtn.Content = "⏸ 暂停";
+    }
+
+    private void StopSlideshow()
+    {
+        _slideshowTimer.Stop();
+        PreviewSlideshowBtn.Content = "▶ 播放";
     }
 
     private void Root_KeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (CompareOverlay.Visibility == Visibility.Visible) return;
+        if (_settingsDialogOpen || _updateInProgress) return;
+        var ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
+                   .HasFlag(CoreVirtualKeyStates.Down);
+        if (ctrl && e.Key == VirtualKey.F && PreviewOverlay.Visibility != Visibility.Visible)
+        {
+            SearchBox.Focus(FocusState.Programmatic);
+            e.Handled = true;
+            return;
+        }
+
         // 焦点在输入框时不拦截按键（搜索/分类输入）
         if (FocusManager.GetFocusedElement() is TextBox or PasswordBox)
             return;
+        if (ctrl && e.Key == VirtualKey.D)
+        {
+            if (PreviewOverlay.Visibility == Visibility.Visible) CompareAdjacent_Click(this, new RoutedEventArgs());
+            else CompareSelected_Click(this, new RoutedEventArgs());
+            e.Handled = true;
+            return;
+        }
 
         // ── 预览模式下 ──
         if (PreviewOverlay.Visibility == Visibility.Visible)
@@ -2594,6 +2490,8 @@ public sealed partial class MainWindow : Window
                 case VirtualKey.Escape: ClosePreview(); e.Handled = true; break;
                 case VirtualKey.Left: if (PreviewPrevBtn.IsEnabled) { ShowPreviewAt(_previewIndex - 1); e.Handled = true; } break;
                 case VirtualKey.Right: if (PreviewNextBtn.IsEnabled) { ShowPreviewAt(_previewIndex + 1); e.Handled = true; } break;
+                case VirtualKey.Number0 when ctrl: ApplyFitPreviewZoom(); e.Handled = true; break;
+                case VirtualKey.Space: ToggleSlideshow(); e.Handled = true; break;
                 case VirtualKey.Delete:
                     if (_previewIndex >= 0 && _previewIndex < _currentView.Count)
                     {
@@ -2606,9 +2504,6 @@ public sealed partial class MainWindow : Window
         }
 
         // ── 主界面快捷键 ──
-        var ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
-                   .HasFlag(CoreVirtualKeyStates.Down);
-
         switch (e.Key)
         {
             case VirtualKey.Left:
@@ -2683,9 +2578,37 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void PreviewFilmstrip_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.InRecycleQueue || args.Item is not PhotoItem photo || _filmstripCts == null || _settings.FilmstripMode == 2) return;
+        _ = EnsureFilmstripThumbnailAsync(photo, _filmstripCts.Token);
+    }
+
+    private async Task EnsureFilmstripThumbnailAsync(PhotoItem photo, CancellationToken token)
+    {
+        if (photo.ThumbnailSource != null || token.IsCancellationRequested) return;
+        if (_filmstripPending.TryGetValue(photo, out var pending) && pending == token) return;
+        _filmstripPending[photo] = token;
+        try { await LoadThumbnailAsync(photo, token); }
+        finally { if (_filmstripPending.TryGetValue(photo, out pending) && pending == token) _filmstripPending.Remove(photo); }
+    }
+
+    private void StopFilmstripLoading()
+    {
+        _filmstripCts?.Cancel();
+        _filmstripCts?.Dispose();
+        _filmstripCts = null;
+        PreviewFilmstrip.ItemsSource = null;
+    }
+
     private void PreviewInfoToggle_Click(object sender, RoutedEventArgs e)
     {
         _previewInfoVisible = !_previewInfoVisible;
+        ApplyPreviewInfoVisibility();
+    }
+
+    private void ApplyPreviewInfoVisibility()
+    {
         DetailPanel.Visibility = _previewInfoVisible ? Visibility.Visible : Visibility.Collapsed;
         DetailColumn.Width = _previewInfoVisible ? new GridLength(310) : new GridLength(0);
         PreviewInfoToggleBtn.Content = _previewInfoVisible ? "隐藏信息" : "显示信息";
@@ -3044,6 +2967,7 @@ public sealed partial class MainWindow : Window
         _thumbCts?.Cancel();
         ClosePreview();
         _allPhotos.Clear();
+        LibraryStore.ForgetMissingEntries();
         RefreshPhotos();
         ScheduleSave();
         StatusText.Text = "图库已清空（文件仍在磁盘上）";
@@ -3238,7 +3162,7 @@ public sealed partial class MainWindow : Window
                 _allPhotos.Add(photo);
                 imported.Add(photo);
             }
-            if (imported.Count > 0) _ = EnrichDateTakenAsync(imported);
+            if (imported.Count > 0) _ = SyncSourceModifiedTimesAsync(imported);
             RebuildCategories();
             RefreshPhotos();
             ScheduleSave();
@@ -3293,15 +3217,15 @@ public sealed partial class MainWindow : Window
                 imported.Add(p);
             }
 
-            // 后台读取 EXIF 拍摄时间（不阻塞 UI）
+            // 后台补齐源文件修改时间。
             if (imported.Count > 0)
-                _ = EnrichDateTakenAsync(imported);
+                _ = SyncSourceModifiedTimesAsync(imported);
 
             if (!_settings.WatchedFolders.Contains(rootPath, StringComparer.OrdinalIgnoreCase))
             {
                 _settings.WatchedFolders.Add(rootPath);
                 _settings.Save();
-                _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
+                if (_settings.AutoScan) _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
             }
 
             RebuildCategories();
@@ -3343,7 +3267,7 @@ public sealed partial class MainWindow : Window
                 imported.Add(p);
             }
             if (imported.Count > 0)
-                _ = EnrichDateTakenAsync(imported);
+                _ = SyncSourceModifiedTimesAsync(imported);
 
             RebuildCategories();
             RefreshPhotos();
@@ -3356,61 +3280,24 @@ public sealed partial class MainWindow : Window
 
     // ══════════ 自动扫描 ══════════
 
-    /// <summary>后台读取照片 EXIF 拍摄时间（DateTaken），完成后刷新时间线导航</summary>
-    private async Task EnrichDateTakenAsync(List<PhotoItem> photos)
+    /// <summary>读取源文件修改时间，和图库加载时使用同一日期来源。</summary>
+    private async Task SyncSourceModifiedTimesAsync(List<PhotoItem> photos)
     {
-        var results = new List<(PhotoItem P, DateTime? Date)>();
-        await Task.Run(async () =>
+        var snapshot = photos.ToList();
+        var results = await Task.Run(() => snapshot.Select(p =>
         {
-            foreach (var p in photos)
+            try
             {
-                if (p.DateTaken.HasValue) continue;
-                try
-                {
-                    var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(p.FilePath);
-                    var props = await file.Properties.GetImagePropertiesAsync();
-                    var date = props.DateTaken != DateTimeOffset.MinValue ? props.DateTaken.LocalDateTime : (DateTime?)null;
-                    results.Add((p, date));
-                }
-                catch { results.Add((p, null)); }
+                var file = new FileInfo(p.FilePath);
+                return (Photo: p, Date: file.Exists ? (DateTime?)file.LastWriteTime : null);
             }
-        });
-        foreach (var (p, d) in results)
-            if (d.HasValue) p.DateTaken = d;
+            catch { return (Photo: p, Date: (DateTime?)null); }
+        }).ToList());
+        foreach (var (photo, date) in results)
+            if (date.HasValue) photo.DateTaken = date;
         ScheduleSave();
         RebuildTimelineNavItems();
-    }
-
-    /// <summary>启动后补读历史照片缺失的拍摄日期（后台逐张读取，不阻塞 UI）</summary>
-    private async Task EnrichMissingDateTakenAsync()
-    {
-        var pending = _allPhotos.Where(p => !p.DateTaken.HasValue).ToList();
-        if (pending.Count == 0) return;
-
-        var done = 0;
-        await Task.Run(async () =>
-        {
-            foreach (var p in pending)
-            {
-                try
-                {
-                    var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(p.FilePath);
-                    var props = await file.Properties.GetImagePropertiesAsync();
-                    if (props.DateTaken != DateTimeOffset.MinValue)
-                        p.DateTaken = props.DateTaken.LocalDateTime;
-                }
-                catch { }
-                done++;
-                if (done % 100 == 0)
-                {
-                    var n = done;
-                    DispatcherQueue.TryEnqueue(() => StatusText.Text = $"正在补读拍摄信息… {n}/{pending.Count}");
-                }
-            }
-        });
-        ScheduleSave();
-        RebuildTimelineNavItems();
-        StatusText.Text = $"拍摄信息读取完成（{pending.Count} 张）";
+        RefreshPhotos();
     }
 
     private void OnNewFilesFound(List<string> files)
@@ -3440,7 +3327,7 @@ public sealed partial class MainWindow : Window
             RefreshPhotos();
             ScheduleSave();
             if (pending.Count > 0)
-                _ = EnrichDateTakenAsync(pending);
+                _ = SyncSourceModifiedTimesAsync(pending);
             StatusText.Text = $"🔍 自动发现 {added} 张新照片";
         }
     }

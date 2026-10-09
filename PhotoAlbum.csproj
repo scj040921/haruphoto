@@ -4,10 +4,12 @@
     <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>PhotoAlbum</RootNamespace>
-    <Version>1.3.1</Version>
-    <FileVersion>1.3.1.0</FileVersion>
+    <Version>1.3.2</Version>
+    <FileVersion>1.3.2.0</FileVersion>
     <Platforms>x86;x64;ARM64</Platforms>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- WindowsAppSDKSelfContained alone does not include the .NET runtime. -->
+    <SelfContained>true</SelfContained>
     <UseWinUI>true</UseWinUI>
     <WinUISDKReferences>false</WinUISDKReferences>
     <WindowsPackageType>None</WindowsPackageType>
@@ -18,6 +20,14 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="installer\**\*.cs" />
+    <Compile Remove="tests\**\*.cs" />
+    <Content Include="tools\update.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="tools\uninstall.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="tools\update.ps1" LogicalName="PhotoAlbum.update.ps1" />
+  </ItemGroup>
 
   <ItemGroup>
     <Content Include="Assets\SplashScreen.scale-200.png" />

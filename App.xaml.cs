@@ -26,7 +26,7 @@ public partial class App : Application
     {
         // 单实例（SPW 借鉴）：重复启动 → 激活已有窗口而不是开新实例。
         // 命名互斥体检测 + 找到同进程已有主窗口置前。
-        _instanceMutex = new Mutex(true, "haruphoto_single_instance", out var createdNew);
+        _instanceMutex = new Mutex(true, AppPaths.InstanceName, out var createdNew);
         if (!createdNew)
         {
             ActivateExistingWindow();
@@ -39,7 +39,7 @@ public partial class App : Application
         _window.Activate();
 
         // 首次运行自动创建桌面快捷方式
-        if (Settings.FirstRun)
+        if (Settings.FirstRun && !AppPaths.IsTestProfile)
         {
             ShortcutService.EnsureDesktopShortcut();
             Settings.FirstRun = false;

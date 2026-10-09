@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <AppOutput>../../bin/Release/net8.0-windows10.0.26100.0/win-x64</AppOutput>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../UpdateService.cs" Link="UpdateService.cs" />
+    <Compile Include="../../AppPaths.cs" Link="AppPaths.cs" />
+    <Compile Include="../../AppSettings.cs" Link="AppSettings.cs" />
+    <Compile Include="../../AppearanceProfile.cs" Link="AppearanceProfile.cs" />
+    <Compile Include="../../PhotoItem.cs" Link="PhotoItem.cs" />
+    <Compile Include="../../LibraryStore.cs" Link="LibraryStore.cs" />
+    <Reference Include="Microsoft.WinUI"><HintPath>$(AppOutput)/Microsoft.WinUI.dll</HintPath></Reference>
+    <Reference Include="WinRT.Runtime"><HintPath>$(AppOutput)/WinRT.Runtime.dll</HintPath></Reference>
+    <Reference Include="Microsoft.Windows.SDK.NET"><HintPath>$(AppOutput)/Microsoft.Windows.SDK.NET.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>
