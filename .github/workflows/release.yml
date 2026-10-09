@@ -92,6 +92,9 @@ jobs:
         shell: pwsh
         run: |
           ./tests/update-regression.ps1 -Package "release/haruphoto-v${{ steps.meta.outputs.version }}-portable.zip" -Version '${{ steps.meta.outputs.version }}'
+          # Negative test cases intentionally invoke a failing child process.
+          # Assertions throw on real failures; older tags leave that child's exit code behind.
+          $global:LASTEXITCODE = 0
 
       - name: Create or update GitHub Release
         env:

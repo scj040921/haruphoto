@@ -40,3 +40,4 @@ foreach ($mode in @('success','bad-hash','rollback','traversal')) {
         }
     }
 }
+exit 0
