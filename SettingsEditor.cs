@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using Windows.Storage.Pickers;
 
 namespace PhotoAlbum;
@@ -40,6 +41,17 @@ public sealed class SettingsEditor : UserControl
     private readonly nint _owner;
     private readonly List<PhotoItem> _samplePhotos;
     private bool _refreshing;
+    private readonly CancellationTokenSource _lifetime = new();
+    private bool _closed;
+    public void CancelPendingOperations() { _closed = true; _lifetime.Cancel(); }
+
+    private static TextBlock Heading(string text, int size)
+    {
+        var label = new TextBlock { Text = text, FontSize = size, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+        void Refresh() => label.Foreground = new SolidColorBrush(label.ActualTheme == ElementTheme.Dark ? Windows.UI.Color.FromArgb(255,244,244,248) : Windows.UI.Color.FromArgb(255,32,32,40));
+        label.Loaded += (_, _) => Refresh(); label.ActualThemeChanged += (_, _) => Refresh(); Refresh();
+        return label;
+    }
 
     private static void ApplySecondary(TextBlock text)
     {
@@ -59,6 +71,7 @@ public sealed class SettingsEditor : UserControl
     public SettingsEditor(AppSettings settings, IEnumerable<PhotoItem> photos, nint owner, double width, double height)
     {
         Draft = settings.Clone();
+        RequestedTheme = settings.ThemeMode switch { 1 => ElementTheme.Dark, 0 => ElementTheme.Light, _ => ElementTheme.Default };
         Draft.AppearanceProfiles ??= new();
         Draft.WatchedFolders ??= new();
         _samplePhotos = photos.Where(p => p.ThumbnailSource != null).Take(6).ToList();
@@ -109,7 +122,7 @@ public sealed class SettingsEditor : UserControl
         var heading = new Grid { ColumnSpacing = 12 };
         heading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        heading.Children.Add(new TextBlock { Text = name, FontSize = 20, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        var title = Heading(name,20); title.VerticalAlignment = VerticalAlignment.Center; heading.Children.Add(title);
         var reset = new Button { Content = "恢复本区默认", FontSize = 12, Padding = new Thickness(8, 4, 8, 4) };
         reset.Click += (_, _) => { section.Reset(); RefreshControls(); ShowNotice($"已暂存「{name}」默认值，点击保存生效。"); };
         Grid.SetColumn(reset, 1);
@@ -122,7 +135,7 @@ public sealed class SettingsEditor : UserControl
     private void AddSetting(Section section, string title, string description, FrameworkElement control)
     {
         var body = new StackPanel { Spacing = 6 };
-        body.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = FontWeights.SemiBold });
+        body.Children.Add(Heading(title,14));
         if (!string.IsNullOrEmpty(description)) body.Children.Add(Label(description));
         AutomationProperties.SetName(control, title);
         body.Children.Add(control);
@@ -339,17 +352,22 @@ public sealed class SettingsEditor : UserControl
         ReleaseInfo? release = null;
         check.Click += async (_, _) =>
         {
+            if (_closed) return;
+            var channel = Draft.UpdateChannel; var proxy = Draft.UsePublicUpdateProxy;
             check.IsEnabled = false; status.Text = "正在检查更新…"; install.Visibility = Visibility.Collapsed;
             try
             {
-                release = await UpdateService.CheckLatestAsync(Draft.UpdateChannel, Draft.UsePublicUpdateProxy);
+                release = await UpdateService.CheckLatestAsync(channel, proxy, _lifetime.Token);
+                if (_closed || XamlRoot == null) return;
+                if (channel != Draft.UpdateChannel) { release = null; status.Text = "通道已修改，请重新检查更新。"; return; }
                 status.Text = release == null ? $"{Draft.UpdateChannel} 通道暂无可用更新（当前 {UpdateService.CurrentDisplayVersion}）" : $"发现 {release.Channel}：{release.DisplayVersion}";
                 if (release != null && release.Channel != UpdateService.CurrentBuild.Channel) status.Text += "。切换发行通道可能回退版本；照片和图库数据保留。";
                 install.Content = release?.Channel == "Nightly" ? "安装 Nightly 测试版" : "下载并更新";
                 install.Visibility = release == null ? Visibility.Collapsed : Visibility.Visible;
             }
-            catch (Exception ex) { status.Text = "检查失败：" + ex.Message; }
-            finally { check.IsEnabled = true; }
+            catch (OperationCanceledException) { /* 设置页关闭后不再操作已卸载的控件。 */ }
+            catch (Exception ex) { if (!_closed && XamlRoot != null) status.Text = "检查失败：" + ex.Message; }
+            finally { if (!_closed && XamlRoot != null) check.IsEnabled = true; }
         };
         install.Click += (_, _) => { if (release != null && release.Channel == Draft.UpdateChannel) UpdateRequested?.Invoke(release with { UsePublicProxy = Draft.UsePublicUpdateProxy }); else ShowNotice("通道已修改，请重新检查更新。"); };
         body.Children.Add(status); body.Children.Add(check); body.Children.Add(install);

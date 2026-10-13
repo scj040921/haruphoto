@@ -43,17 +43,13 @@
                     <TextBlock x:Name="StatsText" Text="0 张照片" FontSize="11"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="Clip"/>
                     <Button Content="＋ 导入文件夹" Click="ImportButton_Click"
-                            HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"/>
+                            HorizontalAlignment="Stretch" Height="36" FontSize="13"/>
                     <Button Content="＋ 导入文件" Click="ImportFiles_Click"
-                            HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"
-                            Background="Transparent"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <Button x:Name="CheckUpdateNavButton" Content="↻ 检查更新" Click="CheckUpdateButton_Click"
-                            HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"
+                            HorizontalAlignment="Stretch" Height="36" FontSize="13"
                             Background="Transparent"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <Button Content="⚙ 设置" Click="SettingsButton_Click"
-                            HorizontalAlignment="Stretch" Height="36" CornerRadius="8" FontSize="13"
+                            HorizontalAlignment="Stretch" Height="36" FontSize="13"
                             Background="Transparent"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
@@ -95,14 +91,14 @@
                                             <Button Grid.Row="0" HorizontalAlignment="Left" VerticalAlignment="Top"
                                                     Margin="8,8,0,0" Padding="6,4" Click="SelectToggle_Click"
                                                     Tapped="SelectToggle_Tapped"
-                                                    Background="#78000000" CornerRadius="6" Tag="{Binding FilePath}"
+                                                    Background="#78000000" Tag="{Binding FilePath}"
                                                     Opacity="{Binding SelectVisibleOpacity}">
                                                 <TextBlock Text="{Binding SelectIcon}" FontSize="14"/>
                                             </Button>
 
                                             <Button Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top"
                                                     Margin="0,8,8,0" Padding="8,6"
-                                                    Background="#78000000" CornerRadius="8"
+                                                    Background="#78000000"
                                                     Click="CardFavorite_Click">
                                                 <TextBlock Text="{Binding FavoriteIcon}" FontSize="14"
                                                            Foreground="{StaticResource SoftYellowBrush}"/>
@@ -230,13 +226,13 @@
                                    VerticalAlignment="Center" ToolTipService.ToolTip="输入页码后按 Enter 跳转"
                                    KeyDown="PageJumpBox_KeyDown"/>
                         <Button x:Name="PageJumpBtn" Content="跳转" Click="PageJump_Click"
-                                Padding="8,5" FontSize="12" CornerRadius="6"/>
+                                Padding="8,5" FontSize="12"/>
                         <Button x:Name="PrevPageBtn" Click="PrevPage_Click" IsEnabled="False"
-                                Padding="10,6" CornerRadius="6">
+                                Padding="10,6">
                             <FontIcon Glyph="&#xE76B;" FontSize="12"/>
                         </Button>
                         <Button x:Name="NextPageBtn" Click="NextPage_Click" IsEnabled="False"
-                                Padding="10,6" CornerRadius="6">
+                                Padding="10,6">
                             <FontIcon Glyph="&#xE76C;" FontSize="12"/>
                         </Button>
                     </StackPanel>
@@ -279,37 +275,37 @@
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         <StackPanel x:Name="StatusBarActions" Grid.Column="1" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
                             <Button Content="对比选片" Click="CompareSelected_Click"
-                                    FontSize="12" Padding="10,6" CornerRadius="6"
+                                    FontSize="12" Padding="10,6"
                                     ToolTipService.ToolTip="选择 2–4 张照片后对比（Ctrl+D）"/>
                             <Button x:Name="UndoBtn" Content="撤销" Click="Undo_Click"
-                                    FontSize="12" Padding="10,6" CornerRadius="6" Visibility="Collapsed"/>
+                                    FontSize="12" Padding="10,6" Visibility="Collapsed"/>
                             <TextBlock x:Name="SelectedCountText" Text="" VerticalAlignment="Center"
                                        FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <Button x:Name="ExitBatchBtn" Content="✕ 退出多选" Click="ExitBatch_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
+                                    FontSize="12" Padding="12,6" Visibility="Collapsed"/>
                             <Button x:Name="SelectAllPageBtn" Content="☐ 全选本页" Click="SelectAllPage_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
+                                    FontSize="12" Padding="12,6" Visibility="Collapsed"/>
                             <Button x:Name="SelectAllResultsBtn" Content="全选当前结果" Click="SelectAllResults_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
+                                    FontSize="12" Padding="12,6" Visibility="Collapsed"/>
                             <Button x:Name="RenameBtn" Content="重命名" Click="BatchRename_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
+                                    FontSize="12" Padding="12,6" Visibility="Collapsed"/>
                             <Button x:Name="ExportBtn" Content="导出" Click="BatchExport_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
+                                    FontSize="12" Padding="12,6" Visibility="Collapsed"/>
                             <Button x:Name="MoreBatchBtn" Content="更多操作" Click="MoreBatch_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
+                                    FontSize="12" Padding="12,6" Visibility="Collapsed"/>
                             <Button x:Name="RemoveFromCatBtn" Content="移出分类" Click="RemoveFromCategory_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
+                                    FontSize="12" Padding="12,6" Visibility="Collapsed"/>
                             <Button x:Name="DissolveCatBtn" Content="解散分类" Click="DissolveCategory_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"
+                                    FontSize="12" Padding="12,6" Visibility="Collapsed"
                                     Foreground="{StaticResource SoftRedBrush}"/>
                             <Button x:Name="DuplicateBtn" Content="查重" Click="DuplicateCheck_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
+                                    FontSize="12" Padding="12,6" Visibility="Collapsed"/>
                             <Button x:Name="UnfavoriteBtn" Content="取消收藏" Click="BatchUnfav_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6"/>
+                                    FontSize="12" Padding="12,6"/>
                             <Button x:Name="ClearLibraryBtn" Content="清空图库" Click="BatchDelete_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6" Visibility="Collapsed"/>
+                                    FontSize="12" Padding="12,6" Visibility="Collapsed"/>
                             <Button Content="常用操作" Click="BatchClassify_Click"
-                                    FontSize="12" Padding="12,6" CornerRadius="6"/>
+                                    FontSize="12" Padding="12,6"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -377,38 +373,38 @@
                                    FontSize="14" FontWeight="SemiBold" Foreground="#FFFFFF"
                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-                            <Button Click="PreviewZoomOut_Click" FontSize="15" Padding="10,6" CornerRadius="10"
+                            <Button Click="PreviewZoomOut_Click" FontSize="15" Padding="10,6"
                                     Background="#25FFFFFF" Foreground="#FFFFFF" ToolTipService.ToolTip="缩小">
                                 <FontIcon Glyph="&#xE71F;" FontSize="13"/>
                             </Button>
-                            <Button x:Name="PreviewZoomResetBtn" Click="PreviewZoomReset_Click" FontSize="12" Padding="10,6" CornerRadius="10"
+                            <Button x:Name="PreviewZoomResetBtn" Click="PreviewZoomReset_Click" FontSize="12" Padding="10,6"
                                     Background="#25FFFFFF" Foreground="#FFFFFF" ToolTipService.ToolTip="适应窗口 (Ctrl+0)">
                                 <TextBlock x:Name="PreviewZoomText" Text="适应" FontSize="12"/>
                             </Button>
-                            <Button Click="PreviewZoomIn_Click" FontSize="15" Padding="10,6" CornerRadius="10"
+                            <Button Click="PreviewZoomIn_Click" FontSize="15" Padding="10,6"
                                     Background="#25FFFFFF" Foreground="#FFFFFF" ToolTipService.ToolTip="放大">
                                 <FontIcon Glyph="&#xE8A3;" FontSize="13"/>
                             </Button>
                             <Button x:Name="PreviewSlideshowBtn" Content="▶ 播放" Click="PreviewSlideshow_Click"
-                                    FontSize="12" Padding="10,6" CornerRadius="6"
+                                    FontSize="12" Padding="10,6"
                                     Background="#25FFFFFF" Foreground="#FFFFFF"
                                     ToolTipService.ToolTip="幻灯片播放（空格键）"/>
-                            <Button Click="CompareAdjacent_Click" Padding="10,6" CornerRadius="6"
+                            <Button Click="CompareAdjacent_Click" Padding="10,6"
                                     Background="#25FFFFFF" Foreground="#FFFFFF" ToolTipService.ToolTip="对比相邻照片（Ctrl+D）"
                                     AutomationProperties.Name="对比相邻照片">
                                 <FontIcon Glyph="&#xE8A5;" FontSize="13"/>
                             </Button>
                             <Button x:Name="PreviewInfoToggleBtn" Content="信息" Click="PreviewInfoToggle_Click"
-                                    FontSize="12" Padding="10,6" CornerRadius="6"
+                                    FontSize="12" Padding="10,6"
                                     Background="#25FFFFFF" Foreground="#FFFFFF"/>
                             <Button Content="旋转" Click="PreviewRotate_Click"
-                                    FontSize="12" Padding="10,6" CornerRadius="6"
+                                    FontSize="12" Padding="10,6"
                                     Background="#25FFFFFF" Foreground="#FFFFFF"/>
                             <Button Content="裁剪/编辑" Click="PreviewEdit_Click"
-                                    FontSize="12" Padding="10,6" CornerRadius="6"
+                                    FontSize="12" Padding="10,6"
                                     Background="#25FFFFFF" Foreground="#FFFFFF"/>
                             <Button x:Name="PreviewShareBtn" Click="ShareImage_Click"
-                                    FontSize="12" Padding="10,6" CornerRadius="6"
+                                    FontSize="12" Padding="10,6"
                                     Background="#25FFFFFF" Foreground="#FFFFFF">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <FontIcon Glyph="&#xE72D;" FontSize="12"/>
@@ -416,7 +412,7 @@
                                 </StackPanel>
                             </Button>
                             <Button Content="✕" Click="ClosePreview_Click"
-                                    FontSize="14" Padding="14,6" CornerRadius="6"
+                                    FontSize="14" Padding="14,6"
                                     Background="#30FFFFFF" Foreground="#FFFFFF"/>
                         </StackPanel>
                     </Grid>
@@ -505,7 +501,7 @@
                                                   PlaceholderText="未分类" FontSize="13"
                                                   SelectionChanged="PreviewCategory_Changed"/>
                                         <Button Content="管理" Click="ManageCategories_Click"
-                                                Padding="10,6" CornerRadius="6" FontSize="12"/>
+                                                Padding="10,6" FontSize="12"/>
                                     </StackPanel>
                                 </StackPanel>
 
@@ -521,13 +517,13 @@
 
                                 <StackPanel Spacing="8">
                                     <Button x:Name="PreviewFavButton" Click="PreviewFav_Click"
-                                            HorizontalAlignment="Stretch" Height="40" CornerRadius="8" FontSize="14"/>
+                                            HorizontalAlignment="Stretch" Height="40" FontSize="14"/>
                                     <Button Content="📋 复制图片" Click="CopyImage_Click"
-                                            HorizontalAlignment="Stretch" Height="40" CornerRadius="8" FontSize="13"/>
+                                            HorizontalAlignment="Stretch" Height="40" FontSize="13"/>
                                     <Button Content="📁 在文件夹中显示" Click="RevealInExplorer_Click"
-                                            HorizontalAlignment="Stretch" Height="40" CornerRadius="8" FontSize="13"/>
+                                            HorizontalAlignment="Stretch" Height="40" FontSize="13"/>
                                     <Button Content="🗑 从图库移除" Click="RemoveFromLibrary_Click"
-                                            HorizontalAlignment="Stretch" Height="40" CornerRadius="8" FontSize="13"
+                                            HorizontalAlignment="Stretch" Height="40" FontSize="13"
                                             Foreground="{StaticResource SoftRedBrush}"/>
                                 </StackPanel>
                             </StackPanel>

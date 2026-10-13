@@ -1,4 +1,4 @@
-param([string]$Package = "$PSScriptRoot/../release/haruphoto-v1.3.3-portable.zip", [string]$Version = '1.3.3')
+param([string]$Package = "$PSScriptRoot/../release/haruphoto-v1.3.4-portable.zip", [string]$Version = '1.3.4')
 $ErrorActionPreference = 'Stop'
 $Package = [IO.Path]::GetFullPath($Package)
 $script = [IO.Path]::GetFullPath("$PSScriptRoot/../tools/update.ps1")
@@ -29,7 +29,7 @@ foreach ($mode in @('success','bad-hash','rollback','traversal','wrong-channel',
         }
         if ($identity.tag) { $arguments += @('-ExpectedTag',$(if ($mode -eq 'wrong-tag') { 'v0.0.0' } else { $identity.tag })) }
         if ($mode -eq 'rollback') { $arguments += '-FailAfterReplace' }
-        & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" @arguments 2>&1 | Out-Host
+        & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" @arguments 2>$null
         $code = $LASTEXITCODE
         if ($mode -eq 'success') {
             if ($code -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $target 'package-manifest.json'))) { throw 'Fresh update failed.' }

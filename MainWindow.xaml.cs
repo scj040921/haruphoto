@@ -26,6 +26,8 @@ namespace PhotoAlbum;
 
 public sealed partial class MainWindow : Window
 {
+    private bool _windowClosing;
+    private readonly CancellationTokenSource _windowLifetime = new();
     private const int PageSize = 100;
 
     private readonly ObservableCollection<PhotoItem> _photos = new();
@@ -163,6 +165,8 @@ public sealed partial class MainWindow : Window
 
         Closed += (s, e) =>
         {
+            _windowClosing = true;
+            _windowLifetime.Cancel();
             _saveTimer.Stop();
             _slideshowTimer.Stop();
             _filmstripCts?.Cancel();
@@ -1431,86 +1435,27 @@ public sealed partial class MainWindow : Window
         StatusText.Text = page == requested ? $"已跳转到第 {page} 页" : $"页码范围为 1–{maxPage}，已跳转到第 {page} 页";
     }
 
-    private async void CheckUpdateButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_updateInProgress || _updateCheckInProgress || _settingsDialogOpen) return;
-        _updateCheckInProgress = true;
-        if (sender is Button button) button.IsEnabled = false;
-        try
-        {
-            StatusText.Text = "正在检查 GitHub Release…";
-            var release = await UpdateService.CheckLatestAsync(_settings.UpdateChannel, _settings.UsePublicUpdateProxy);
-            _settings.LastUpdateCheckUtc = DateTime.UtcNow;
-            _settings.Save();
-
-            if (release == null)
-            {
-                StatusText.Text = $"{_settings.UpdateChannel} 通道暂无可用更新（当前 {UpdateService.CurrentDisplayVersion}）";
-                var latestDialog = new ContentDialog
-                {
-                    Title = "检查更新",
-                    Content = $"{_settings.UpdateChannel} 通道暂无可用更新；当前版本：{UpdateService.CurrentDisplayVersion}",
-                    CloseButtonText = "确定",
-                    XamlRoot = Content.XamlRoot
-                };
-                await latestDialog.ShowAsync();
-                return;
-            }
-
-            var sizeText = release.PackageSize > 1048576
-                ? $"{release.PackageSize / 1048576.0:F1} MB"
-                : "安装包";
-            var updateDialog = new ContentDialog
-            {
-                Title = "发现新版本",
-                Content = new ScrollViewer { MaxHeight = 340, Content = new TextBlock { Text = $"当前版本：{UpdateService.CurrentDisplayVersion}\n目标版本：{release.Channel} · {release.DisplayVersion}（{sizeText}）\n\n{(release.Channel == "Nightly" ? "Nightly 为测试版，可能不稳定。\n" : "")}{(release.Channel != UpdateService.CurrentBuild.Channel ? "这是发行通道切换，可能回退版本。\n" : "")}将先下载和校验，再退出升级。照片和图库数据不会被修改。\n\n{release.Notes}", TextWrapping = TextWrapping.Wrap } },
-                PrimaryButtonText = "下载并更新",
-                CloseButtonText = "稍后",
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = Content.XamlRoot
-            };
-            if (await updateDialog.ShowAsync() == ContentDialogResult.Primary)
-                await StartUpdateAsync(release);
-        }
-        catch (Exception ex)
-        {
-            StatusText.Text = "更新检查失败：" + ex.Message;
-            var errorDialog = new ContentDialog
-            {
-                Title = "检查更新失败",
-                Content = "无法连接 GitHub Release。\n\n" + ex.Message,
-                CloseButtonText = "确定",
-                XamlRoot = Content.XamlRoot
-            };
-            await errorDialog.ShowAsync();
-        }
-        finally
-        {
-            _updateCheckInProgress = false;
-            if (sender is Button updateButton) updateButton.IsEnabled = true;
-        }
-    }
 
     private async Task StartUpdateAsync(ReleaseInfo release)
     {
-        if (_updateInProgress) return;
+        if (_windowClosing || _updateInProgress) return;
         _updateInProgress = true;
         DownloadedUpdate? download = null;
         Process? helper = null;
         try
         {
-            using var cancel = new CancellationTokenSource();
+            using var cancel = CancellationTokenSource.CreateLinkedTokenSource(_windowLifetime.Token);
             var progressBar = new ProgressBar { Minimum = 0, Maximum = 100, Width = 350 };
             var label = new TextBlock { Text = "正在下载；取消或网络失败不会关闭相册。", TextWrapping = TextWrapping.Wrap };
             var panel = new StackPanel { Spacing = 12 }; panel.Children.Add(label); panel.Children.Add(progressBar);
-            var dialog = new ContentDialog { Title = $"下载 {release.Version}", Content = panel, CloseButtonText = "取消", XamlRoot = Content.XamlRoot };
+            var dialog = new ContentDialog { Title = $"下载 {release.Version}", Content = panel, CloseButtonText = "取消", XamlRoot = Content.XamlRoot, RequestedTheme = ((FrameworkElement)Content).ActualTheme };
             dialog.CloseButtonClick += (_, args) => { args.Cancel = true; cancel.Cancel(); label.Text = "正在取消…"; };
             bool downloadFinished = false;
             dialog.Closing += (_, args) => { if (!downloadFinished) { args.Cancel = true; cancel.Cancel(); label.Text = "正在取消…"; } };
             var task = dialog.ShowAsync();
             try
             {
-                var progress = new Progress<double>(value => { progressBar.IsIndeterminate = value < 0; progressBar.Value = Math.Max(0, value); label.Text = $"下载中 {value:0}% · 完成后将校验 SHA256"; });
+                var progress = new Progress<double>(value => { if (downloadFinished || _windowClosing) return; progressBar.IsIndeterminate = value < 0; progressBar.Value = Math.Max(0, value); label.Text = $"下载中 {value:0}% · 完成后将校验 SHA256"; });
                 download = await UpdateService.DownloadAsync(release, progress, cancel.Token);
             }
             finally { downloadFinished = true; dialog.Hide(); await task; }
@@ -1519,8 +1464,9 @@ public sealed partial class MainWindow : Window
             var ready = Path.Combine(download.Directory, "ready.txt");
             var start = new ProcessStartInfo {
                 FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe"),
-                UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = download.Directory
+                UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath()
             };
+            start.Environment["PSModulePath"] = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\Modules");
             foreach (var arg in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-ProcessId", Environment.ProcessId.ToString(), "-InstallRoot", installRoot, "-PackagePath", download.PackagePath, "-ExpectedSha256", release.Sha256, "-Version", release.Version, "-ExpectedChannel", release.Channel, "-ExpectedTag", release.TagName, "-ReadyFile", ready }) start.ArgumentList.Add(arg);
             helper = Process.Start(start) ?? throw new IOException("无法启动更新器。");
             StatusText.Text = "已完成下载和 SHA256 校验，正在准备升级…";
@@ -1541,8 +1487,8 @@ public sealed partial class MainWindow : Window
             _settings.Save();
             Environment.Exit(0);
         }
-        catch (OperationCanceledException) { StatusText.Text = "已取消更新，相册保持运行"; }
-        catch (Exception ex) { StatusText.Text = "更新失败，应用保持运行：" + ex.Message; }
+        catch (OperationCanceledException) { if (!_windowClosing) StatusText.Text = "已取消更新，相册保持运行"; }
+        catch (Exception ex) { if (!_windowClosing) StatusText.Text = "更新失败，应用保持运行：" + ex.Message; }
         finally
         {
             if (helper != null && !helper.HasExited) { try { helper.Kill(); helper.WaitForExit(3000); } catch { } }
@@ -1553,17 +1499,17 @@ public sealed partial class MainWindow : Window
 
     private async Task CheckForUpdateOnStartupAsync()
     {
-        if (AppPaths.IsTestProfile || _settingsDialogOpen || _updateInProgress || _updateCheckInProgress || !_settings.AutoCheckUpdates || DateTime.UtcNow - _settings.LastUpdateCheckUtc < TimeSpan.FromHours(12)) return;
+        if (_windowClosing || AppPaths.IsTestProfile || _settingsDialogOpen || _updateInProgress || _updateCheckInProgress || !_settings.AutoCheckUpdates || DateTime.UtcNow - _settings.LastUpdateCheckUtc < TimeSpan.FromHours(12)) return;
         _updateCheckInProgress = true;
         try
         {
-            var update = await UpdateService.CheckLatestAsync(_settings.UpdateChannel, _settings.UsePublicUpdateProxy);
+            var update = await UpdateService.CheckLatestAsync(_settings.UpdateChannel, _settings.UsePublicUpdateProxy, _windowLifetime.Token);
+            if (_windowClosing) return;
             _settings.LastUpdateCheckUtc = DateTime.UtcNow;
             _settings.Save();
             if (update != null)
             {
-                CheckUpdateNavButton.Content = $"● {update.Channel} 更新";
-                StatusText.Text = $"发现 {update.Channel}：{update.DisplayVersion}，点击左侧更新入口安装";
+                StatusText.Text = $"发现 {update.Channel}：{update.DisplayVersion}，请到设置页的「关于与更新」安装";
             }
         }
         catch { /* 静默失败，不影响离线使用 */ }
@@ -1573,7 +1519,7 @@ public sealed partial class MainWindow : Window
     /// <summary>分区设置编辑器：全部修改在保存时一次提交。</summary>
     private async void SettingsButton_Click(object s, RoutedEventArgs e)
     {
-        if (_settingsDialogOpen || _updateInProgress) return;
+        if (_windowClosing || _settingsDialogOpen || _updateInProgress) return;
         var root = (FrameworkElement)Content;
         var editor = new SettingsEditor(_settings, _photos,
             WinRT.Interop.WindowNative.GetWindowHandle(this),
@@ -1601,11 +1547,13 @@ public sealed partial class MainWindow : Window
         ContentDialogResult result;
         _settingsDialogOpen = true;
         try { result = await dialog.ShowAsync(); }
-        finally { _settingsDialogOpen = false; }
+        catch (Exception ex) { if (!_windowClosing) StatusText.Text = "设置窗口打开失败：" + ex.Message; return; }
+        finally { editor.CancelPendingOperations(); _settingsDialogOpen = false; }
+        if (_windowClosing) return;
         if (requestedUpdate != null) { await StartUpdateAsync(requestedUpdate); return; }
         if (result != ContentDialogResult.Primary) return;
 
-        if (_settings.UpdateChannel != editor.Draft.UpdateChannel) { editor.Draft.LastUpdateCheckUtc = DateTime.MinValue; CheckUpdateNavButton.Content = "↻ 检查更新"; }
+        if (_settings.UpdateChannel != editor.Draft.UpdateChannel) editor.Draft.LastUpdateCheckUtc = DateTime.MinValue;
         _settings = editor.Draft;
         _slideshowTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(_settings.SlideshowIntervalSeconds, 2, 15));
         ApplyTheme();
@@ -2912,7 +2860,6 @@ public sealed partial class MainWindow : Window
                         Content = "移除",
                         FontSize = 11,
                         Padding = new Thickness(8, 3, 8, 3),
-                        CornerRadius = new CornerRadius(4),
                         Tag = p,
                     };
                     rmBtn.Click += DupeRemove_Click;

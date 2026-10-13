@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$AppOutput,
-    [string]$Version = '1.3.3',
+    [string]$Version = '1.3.4',
     [string]$Tag = '',
     [ValidateSet('Stable','Nightly')][string]$Channel = 'Stable',
     [string]$Commit = '',

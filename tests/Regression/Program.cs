@@ -43,6 +43,8 @@ try
     Check(UpdateService.ParseRelease(releaseDoc.RootElement,"1.3.3","Stable","Nightly",nightlyTag)!=null,"explicit return to Stable allowed even at lower base version");
     Check(UpdateService.ParseRelease(releaseDoc.RootElement,"1.3.1","Nightly")==null,"Nightly ignores Stable releases");
     Check(UpdateService.NormalizeChannel("invalid")=="Stable","invalid saved update channel falls back to Stable");
+    Check(UpdateStartup.IsOwnedSignal(Path.Combine(Path.GetTempPath(),"haruphoto-update-"+Guid.NewGuid().ToString("N"),"restarted.json")),"restart handshake accepts owned workspace");
+    Check(!UpdateStartup.IsOwnedSignal(Path.Combine(root,"restarted.json")),"restart handshake cannot write outside updater workspace");
     Reject(()=>UpdateService.ValidateRelease(release with {PackageUrl=release.PackageUrl+"?token=secret"}),"update URLs cannot carry credentials");
     Reject(()=>UpdateService.ProxyUrl("https://api.github.com/repos/scj040921/haruphoto/releases"),"metadata API never sent to third-party proxy");
     Check(UpdateService.ProxyUrl(release.PackageUrl)==UpdateService.PublicProxy+release.PackageUrl,"public proxy only wraps official release URL");

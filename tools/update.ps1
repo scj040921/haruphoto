@@ -11,8 +11,15 @@ param(
     [switch]$FailAfterReplace
 )
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 must not auto-load modules inherited from a PowerShell 7 launcher.
+$env:PSModulePath = Join-Path $PSHOME 'Modules'
 $InstallRoot = [IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
 $work = [IO.Path]::GetFullPath((Split-Path -Parent $PackagePath))
+Set-Location -LiteralPath ([IO.Path]::GetTempPath())
+[Environment]::CurrentDirectory = [IO.Path]::GetTempPath()
+$qaProfile = $env:HARUPHOTO_TEST_DATA
+$qaPrefix = Join-Path ([IO.Path]::GetTempPath()) 'haruphoto-ui-test-'
+$isolatedQa = $qaProfile -and $qaProfile.StartsWith($qaPrefix,[StringComparison]::OrdinalIgnoreCase) -and $qaProfile.Substring($qaPrefix.Length) -match '^[a-f0-9]{32}$' -and $InstallRoot -eq (Join-Path $qaProfile 'app')
 $prefix = Join-Path ([IO.Path]::GetTempPath()) 'haruphoto-update-'
 if (-not $work.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) -or $work.Substring($prefix.Length) -notmatch '^[a-fA-F0-9]{32}$') { throw 'Invalid update workspace.' }
 if ([IO.Path]::GetFullPath($ReadyFile) -ne (Join-Path $work 'ready.txt')) { throw 'Invalid ready signal path.' }
@@ -86,9 +93,21 @@ try {
     $committed = $true
     if ($FailAfterReplace) { throw 'Simulated launch failure.' }
     if (-not $TestMode) {
-        $newProcess = Start-Process -FilePath (Join-Path $InstallRoot 'PhotoAlbum.exe') -WorkingDirectory $InstallRoot -PassThru
-        Start-Sleep -Seconds 5
-        if ($newProcess.HasExited) { throw ('Updated application exited before becoming ready: ' + $newProcess.ExitCode) }
+        $restartSignal = Join-Path $work 'restarted.json'
+        $previousSignal = $env:HARUPHOTO_UPDATE_READY_FILE
+        try {
+            $env:HARUPHOTO_UPDATE_READY_FILE = $restartSignal
+            $newProcess = Start-Process -FilePath (Join-Path $InstallRoot 'PhotoAlbum.exe') -WorkingDirectory $InstallRoot -PassThru
+        } finally { $env:HARUPHOTO_UPDATE_READY_FILE = $previousSignal }
+        $watch = [Diagnostics.Stopwatch]::StartNew()
+        while (-not (Test-Path -LiteralPath $restartSignal)) {
+            $newProcess.Refresh()
+            if ($newProcess.HasExited) { throw ('Updated application exited before its window was ready: ' + $newProcess.ExitCode) }
+            if ($watch.Elapsed.TotalSeconds -gt 60) { throw 'Updated application did not confirm window readiness.' }
+            Start-Sleep -Milliseconds 200
+        }
+        $started = Get-Content -LiteralPath $restartSignal -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($started.pid -ne $newProcess.Id -or $started.version -ne $Version -or ($ExpectedChannel -and $started.channel -ne $ExpectedChannel) -or ($ExpectedTag -and $started.tag -ne $ExpectedTag)) { throw 'Restarted application identity mismatch.' }
         $registered = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\haruphoto' -ErrorAction SilentlyContinue
         if ($registered.InstallLocation -eq $InstallRoot) { Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\haruphoto' -Name DisplayVersion -Value $Version }
     }
@@ -104,8 +123,8 @@ catch {
     }
     [IO.File]::WriteAllText($ReadyFile, 'Update failed: ' + $failure)
     $log = Join-Path ([IO.Path]::GetTempPath()) ('haruphoto-update-failure-' + [Guid]::NewGuid().ToString('N') + '.log')
-    [IO.File]::WriteAllText($log, $failure)
-    if (-not $TestMode) {
+    if (-not $TestMode) { [IO.File]::WriteAllText($log, $_.Exception.ToString()) }
+    if (-not $TestMode -and -not $isolatedQa) {
         Add-Type -AssemblyName PresentationFramework
         [System.Windows.MessageBox]::Show(('Update failed. The previous version was preserved/restored. Log: ' + $log + [Environment]::NewLine + $failure), 'haruphoto update') | Out-Null
     }
@@ -114,5 +133,5 @@ catch {
 finally {
     Remove-OwnedFolder $stage ($InstallRoot + '.stage-')
     # Failed payloads remain available for diagnosis; user photos/settings are never touched.
-    Remove-OwnedFolder $work $prefix
+    try { Remove-OwnedFolder $work $prefix } catch { Write-Warning 'Temporary update files could not be removed; installation result is unchanged.' }
 }

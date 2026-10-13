@@ -36,7 +36,10 @@ public partial class App : Application
         }
 
         _window = new MainWindow();
+        if (_window.Content is FrameworkElement root)
+            root.Loaded += (_, _) => UpdateStartup.SignalReady();
         _window.Activate();
+        if (_window.Content is FrameworkElement readyRoot && readyRoot.IsLoaded) UpdateStartup.SignalReady();
 
         // 首次运行自动创建桌面快捷方式
         if (Settings.FirstRun && !AppPaths.IsTestProfile)

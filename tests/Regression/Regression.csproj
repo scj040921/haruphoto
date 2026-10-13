@@ -7,6 +7,7 @@
   <ItemGroup>
     <Compile Include="../../UpdateService.cs" Link="UpdateService.cs" />
     <Compile Include="../../BuildIdentity.cs" Link="BuildIdentity.cs" />
+    <Compile Include="../../UpdateStartup.cs" Link="UpdateStartup.cs" />
     <Compile Include="../../AppPaths.cs" Link="AppPaths.cs" />
     <Compile Include="../../AppSettings.cs" Link="AppSettings.cs" />
     <Compile Include="../../AppearanceProfile.cs" Link="AppearanceProfile.cs" />
