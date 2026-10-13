@@ -55,6 +55,7 @@ public sealed class AppSettings
     public double CardMinWidth { get; set; } = 220;
     public int SortMode { get; set; } = 0;   // 0=最近添加, 1=文件名, 2=评分
     public int DisplayMode { get; set; } = 0; // 0=规整网格 1=瀑布流
+    public int ThumbnailCacheLimitMb { get; set; } = 128;
     public bool PreviewPaletteEnabled { get; set; } = true; // 详情页取色背景
     public int SlideshowIntervalSeconds { get; set; } = 4;
     public bool PreviewInfoDefaultVisible { get; set; } = true;
@@ -74,6 +75,7 @@ public sealed class AppSettings
                 var json = File.ReadAllText(FilePath);
                 var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
                 settings.UpdateChannel = UpdateService.NormalizeChannel(settings.UpdateChannel);
+                settings.ThumbnailCacheLimitMb = Math.Clamp(settings.ThumbnailCacheLimitMb, 64, 512);
                 return settings;
             }
         }

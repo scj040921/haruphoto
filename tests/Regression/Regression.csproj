@@ -13,6 +13,11 @@
     <Compile Include="../../AppearanceProfile.cs" Link="AppearanceProfile.cs" />
     <Compile Include="../../PhotoItem.cs" Link="PhotoItem.cs" />
     <Compile Include="../../LibraryStore.cs" Link="LibraryStore.cs" />
+    <Compile Include="../../GalleryQuery.cs" Link="GalleryQuery.cs" />
+    <Compile Include="../../RangeObservableCollection.cs" Link="RangeObservableCollection.cs" />
+    <Compile Include="../../BoundedLru.cs" Link="BoundedLru.cs" />
+    <Compile Include="../../PhotoFileScanner.cs" Link="PhotoFileScanner.cs" />
+    <Compile Include="../../ThumbnailCacheMaintenance.cs" Link="ThumbnailCacheMaintenance.cs" />
     <Reference Include="Microsoft.WinUI"><HintPath>$(AppOutput)/Microsoft.WinUI.dll</HintPath></Reference>
     <Reference Include="WinRT.Runtime"><HintPath>$(AppOutput)/WinRT.Runtime.dll</HintPath></Reference>
     <Reference Include="Microsoft.Windows.SDK.NET"><HintPath>$(AppOutput)/Microsoft.Windows.SDK.NET.dll</HintPath></Reference>

@@ -1,8 +1,6 @@
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.IO;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Graphics.Imaging;
@@ -23,19 +21,22 @@ public sealed class ThumbnailService
     private const int ThumbWidth = 400;
     private readonly SemaphoreSlim _semaphore = new(4);
 
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _fileLocks = new(StringComparer.OrdinalIgnoreCase);
+    // 固定数量的分片锁，避免每浏览一个文件就永久保留一个 SemaphoreSlim。
+    private readonly SemaphoreSlim[] _fileLocks = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1)).ToArray();
+    private int _cacheWrites;
+    public long CacheBudgetBytes { get; set; } = 128L * 1024 * 1024;
 
     public async Task<BitmapImage?> GetThumbnailAsync(string filePath, CancellationToken ct = default)
     {
         // 图库与胶片条可能同时请求同一张照片；同一路径串行写缓存。
-        var fileLock = _fileLocks.GetOrAdd(filePath, _ => new SemaphoreSlim(1));
+        var fileLock = _fileLocks[(uint)StringComparer.OrdinalIgnoreCase.GetHashCode(filePath) % (uint)_fileLocks.Length];
         await fileLock.WaitAsync(ct);
         try
         {
             await _semaphore.WaitAsync(ct);
             try
             {
-                var cachePath = GetCachePath(filePath);
+                var cachePath = ThumbnailCacheMaintenance.CachePath(filePath, LibraryStore.ThumbnailCacheDir);
                 if (IsCacheValid(cachePath, filePath))
                 {
                     var hit = await LoadFromFileAsync(cachePath, ct);
@@ -44,6 +45,7 @@ public sealed class ThumbnailService
                 if (await TryWriteCacheAsync(filePath, cachePath, ct))
                 {
                     var cached = await LoadFromFileAsync(cachePath, ct);
+                    if (Interlocked.Increment(ref _cacheWrites) % 64 == 0) _ = MaintainCacheAsync();
                     if (cached != null) return cached;
                 }
                 return await LoadFromFileAsync(filePath, ct);
@@ -55,10 +57,10 @@ public sealed class ThumbnailService
         finally { fileLock.Release(); }
     }
 
-    private static string GetCachePath(string filePath)
+    private async Task MaintainCacheAsync()
     {
-        var key = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(filePath.ToLowerInvariant())));
-        return Path.Combine(LibraryStore.ThumbnailCacheDir, key + ".jpg");
+        try { await ThumbnailCacheMaintenance.TrimAsync(LibraryStore.ThumbnailCacheDir, CacheBudgetBytes); }
+        catch { /* 缓存是可重建数据；被占用时下次维护再处理。 */ }
     }
 
     private static bool IsCacheValid(string cachePath, string sourcePath)
@@ -74,13 +76,14 @@ public sealed class ThumbnailService
     /// <summary>解码原图并按比例缩放到 400px 宽，编码为 JPEG 写入缓存文件。</summary>
     private static async Task<bool> TryWriteCacheAsync(string filePath, string cachePath, CancellationToken ct)
     {
+        var temporary = cachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
             ct.ThrowIfCancellationRequested();
             using var stream = File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             var decoder = await BitmapDecoder.CreateAsync(stream.AsRandomAccessStream());
 
-            double scale = Math.Min(1.0, ThumbWidth / (double)decoder.PixelWidth);
+            double scale = Math.Min(1.0, Math.Min(ThumbWidth / (double)decoder.PixelWidth, 1200d / decoder.PixelHeight));
             var transform = new BitmapTransform
             {
                 ScaledWidth = (uint)Math.Max(1, Math.Round(decoder.PixelWidth * scale)),
@@ -88,23 +91,28 @@ public sealed class ThumbnailService
                 InterpolationMode = BitmapInterpolationMode.Fant,
             };
 
-            var bitmap = await decoder.GetSoftwareBitmapAsync(
+            using var bitmap = await decoder.GetSoftwareBitmapAsync(
                 BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, transform,
                 ExifOrientationMode.RespectExifOrientation, ColorManagementMode.DoNotColorManage);
 
             ct.ThrowIfCancellationRequested();
-            using var outStream = File.Create(cachePath);
-            var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, outStream.AsRandomAccessStream());
-            encoder.SetSoftwareBitmap(bitmap);
-            await encoder.FlushAsync();
+            using (var outStream = File.Create(temporary))
+            {
+                var properties = new BitmapPropertySet { ["ImageQuality"] = new BitmapTypedValue(0.78f, Windows.Foundation.PropertyType.Single) };
+                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, outStream.AsRandomAccessStream(), properties);
+                encoder.SetSoftwareBitmap(bitmap);
+                await encoder.FlushAsync();
+            }
+            ct.ThrowIfCancellationRequested();
+            File.Move(temporary, cachePath, overwrite: true);
             return true;
         }
         catch (OperationCanceledException) { throw; }
         catch
         {
-            try { if (File.Exists(cachePath)) File.Delete(cachePath); } catch { }
             return false;
         }
+        finally { try { File.Delete(temporary); } catch { } }
     }
 
     private static async Task<BitmapImage?> LoadFromFileAsync(string path, CancellationToken ct)

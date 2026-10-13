@@ -4,8 +4,8 @@
     <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>PhotoAlbum</RootNamespace>
-    <Version>1.3.4</Version>
-    <FileVersion>1.3.4.0</FileVersion>
+    <Version>1.3.5</Version>
+    <FileVersion>1.3.5.0</FileVersion>
     <Platforms>x86;x64;ARM64</Platforms>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <!-- WindowsAppSDKSelfContained alone does not include the .NET runtime. -->
@@ -19,11 +19,20 @@
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <!-- 打包/测试产物不得再次作为内容复制进应用，否则 release/payload 会递归膨胀。 -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);release\**;tests\**;installer\**;artifacts\**;.preview-fix\**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(PerformanceSmoke)' == 'true'">
+    <DefineConstants>$(DefineConstants);PERFORMANCE_TEST</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Remove="release\**;tests\**;installer\**;artifacts\**;.preview-fix\**" />
+    <None Remove="release\**;tests\**;installer\**;artifacts\**;.preview-fix\**" />
     <Compile Remove="installer\**\*.cs" />
     <Compile Remove="tests\**\*.cs" />
+    <Compile Include="tests\AppPerformanceSmoke.cs" Condition="'$(PerformanceSmoke)' == 'true'" />
     <Content Include="tools\update.ps1" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="tools\uninstall.ps1" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="tools\update.ps1" LogicalName="PhotoAlbum.update.ps1" />

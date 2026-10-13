@@ -101,6 +101,7 @@ public sealed class SettingsEditor : UserControl
         BuildGallery();
         BuildPreview();
         BuildFiles();
+        BuildPerformance();
         BuildUpdates();
         var content = new StackPanel { Spacing = 16, Margin = new Thickness(0, 0, 8, 0) };
         foreach (var section in _sections)
@@ -276,7 +277,7 @@ public sealed class SettingsEditor : UserControl
             var swatches = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
             foreach (var (name, hex) in new[] { ("晴空蓝", "#5B6EAE"), ("湖水青", "#5B9EAE"), ("薄荷绿", "#5B9C6B"), ("暖沙橙", "#AE8A5B"), ("樱粉", "#AE6B9C"), ("黛紫", "#8A6BAE") })
             {
-                var swatch = new Button { Width = 28, Height = 28, Padding = new Thickness(0), CornerRadius = new CornerRadius(8), Background = new SolidColorBrush(ParseColor(hex)) };
+                var swatch = new Button { Width = 28, Height = 28, MinWidth = 28, MinHeight = 28, Padding = new Thickness(0), Background = new SolidColorBrush(ParseColor(hex)) };
                 ToolTipService.SetToolTip(swatch, name); AutomationProperties.SetName(swatch, name);
                 swatch.Click += (_, _) => { set(hex); Changed(s); RefreshControls(); };
                 swatches.Children.Add(swatch);
@@ -335,6 +336,45 @@ public sealed class SettingsEditor : UserControl
         remove.Click += (_, _) => { if (list.SelectedItem is string path) { Draft.WatchedFolders.Remove(path); RefreshControls(); ShowNotice("已从草稿移除监控文件夹，点击保存生效。"); } };
         buttons.Children.Add(add); buttons.Children.Add(remove); body.Children.Add(count); body.Children.Add(list); body.Children.Add(buttons);
         AddSetting(s, "监控文件夹", "文件夹的添加与移除也支持取消。", body);
+    }
+
+    private void BuildPerformance()
+    {
+        var section = AddSection("性能与缓存");
+        section.Reset = () => Draft.ThumbnailCacheLimitMb = 128;
+        var limits = new[] { 64, 128, 256, 512 };
+        Combo(section, "缩略图缓存上限", "按较早生成的缓存逐步清理，原始照片和图库记录保留。保存后生效。",
+            limits.Select(v => v + " MB").ToArray(), () => Math.Max(0, Array.IndexOf(limits, Draft.ThumbnailCacheLimitMb)),
+            index => Draft.ThumbnailCacheLimitMb = limits[index]);
+        var body = new StackPanel { Spacing = 8 };
+        var usage = Label("正在计算缓存占用…");
+        var clear = new Button { Content = "清理缩略图缓存" };
+        body.Children.Add(usage); body.Children.Add(clear);
+        Loaded += async (_, _) =>
+        {
+            try
+            {
+                var value = await System.Threading.Tasks.Task.Run(() => ThumbnailCacheMaintenance.Usage(LibraryStore.ThumbnailCacheDir), _lifetime.Token);
+                if (!_closed) usage.Text = $"{value.Count} 个缓存 · {value.Bytes / 1048576d:F1} MB";
+            }
+            catch (OperationCanceledException) { }
+            catch { if (!_closed) usage.Text = "暂时无法读取缓存占用"; }
+        };
+        clear.Click += async (_, _) =>
+        {
+            clear.IsEnabled = false;
+            try
+            {
+                var result = await ThumbnailCacheMaintenance.TrimAsync(LibraryStore.ThumbnailCacheDir, 0, _lifetime.Token);
+                if (_closed) return;
+                usage.Text = $"{result.Remaining.Count} 个缓存 · {result.Remaining.Bytes / 1048576d:F1} MB";
+                ShowNotice($"已释放 {result.FreedBytes / 1048576d:F1} MB；重新浏览时会自动生成缩略图。此清理操作立即生效。");
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { if (!_closed) ShowNotice("清理未完成：" + ex.Message); }
+            finally { if (!_closed) clear.IsEnabled = true; }
+        };
+        AddSetting(section, "缓存占用", "清理立即生效，可重新生成；正在使用的缓存可能暂时保留。", body);
     }
 
     private void BuildUpdates()

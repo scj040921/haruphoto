@@ -12,14 +12,25 @@
 
             <!-- MiSans 系统字体 -->
             <FontFamily x:Key="MiSans">MiSans</FontFamily>
+            <Style x:Key="AppActionButtonStyle" TargetType="Button">
+                <Setter Property="FontFamily" Value="{StaticResource MiSans}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="CornerRadius" Value="12" />
+                <Setter Property="MinHeight" Value="36" />
+                <Setter Property="Padding" Value="12,7" />
+            </Style>
 
             <!-- 全局默认样式 -->
             <Style TargetType="TextBlock">
                 <Setter Property="FontFamily" Value="{StaticResource MiSans}" />
             </Style>
-            <Style TargetType="Button">
+            <Style TargetType="Button" BasedOn="{StaticResource AppActionButtonStyle}" />
+            <Style TargetType="ToggleButton">
                 <Setter Property="FontFamily" Value="{StaticResource MiSans}" />
+                <Setter Property="FontSize" Value="12" />
                 <Setter Property="CornerRadius" Value="12" />
+                <Setter Property="MinHeight" Value="36" />
+                <Setter Property="Padding" Value="12,7" />
             </Style>
             <Style TargetType="ComboBoxItem">
                 <Setter Property="FontFamily" Value="{StaticResource MiSans}" />
@@ -49,12 +60,7 @@
             <SolidColorBrush x:Key="SoftGreenBrush" Color="#5B9C6B"/>
 
             <!-- 控件层级：仅在需要强调操作时使用品牌色，避免整个界面争抢注意力 -->
-            <Style x:Key="ToolbarButtonStyle" TargetType="Button">
-                <Setter Property="MinHeight" Value="36"/>
-                <Setter Property="Padding" Value="12,7"/>
-                <Setter Property="CornerRadius" Value="12"/>
-                <Setter Property="FontSize" Value="12"/>
-            </Style>
+            <Style x:Key="ToolbarButtonStyle" TargetType="Button" BasedOn="{StaticResource AppActionButtonStyle}" />
             <Style x:Key="PrimaryActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
                 <Setter Property="Background" Value="{ThemeResource AppAccentBrush}"/>
                 <Setter Property="Foreground" Value="White"/>
@@ -62,7 +68,7 @@
                 <Setter Property="Padding" Value="15,8"/>
                 <Setter Property="CornerRadius" Value="12"/>
             </Style>
-            <Style x:Key="PhotoCardActionButtonStyle" TargetType="Button">
+            <Style x:Key="PhotoCardActionButtonStyle" TargetType="Button" BasedOn="{StaticResource AppActionButtonStyle}">
                 <Setter Property="MinWidth" Value="32"/>
                 <Setter Property="MinHeight" Value="30"/>
                 <Setter Property="Padding" Value="7,5"/>
@@ -74,6 +80,16 @@
                 <Setter Property="MinHeight" Value="32"/>
                 <Setter Property="Padding" Value="11,6"/>
                 <Setter Property="FontSize" Value="12"/>
+            </Style>
+            <Style TargetType="ContentDialog">
+                <Setter Property="PrimaryButtonStyle" Value="{StaticResource PrimaryActionButtonStyle}" />
+                <Setter Property="SecondaryButtonStyle" Value="{StaticResource AppActionButtonStyle}" />
+                <Setter Property="CloseButtonStyle" Value="{StaticResource AppActionButtonStyle}" />
+            </Style>
+            <Style TargetType="MenuFlyoutItem">
+                <Setter Property="FontFamily" Value="{StaticResource MiSans}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="MinHeight" Value="36" />
             </Style>
 
             <!-- 主题自适应资源（深浅模式）-->

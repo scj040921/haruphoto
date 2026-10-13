@@ -107,6 +107,7 @@ try
     Check(!Directory.EnumerateFiles(root,"*.tmp").Any(),"no abandoned save temporaries");
     LibraryStore.ForgetMissingEntries(); await LibraryStore.SaveAsync(Array.Empty<PhotoItem>());
     using var cleared=JsonDocument.Parse(await File.ReadAllTextAsync(LibraryStore.LibraryPath));Check(cleared.RootElement.GetProperty("photos").GetArrayLength()==0,"explicit clear forgets offline entries");
+    await PerformanceChecks.RunAsync(Check, root, args.Contains("--performance"));
     Console.WriteLine($"TOTAL {passed} PASSED");
     if (args.Contains("--live-check"))
     {

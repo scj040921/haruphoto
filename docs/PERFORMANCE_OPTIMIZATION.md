@@ -1,0 +1,27 @@
+# 1.3.5 本地性能优化构建
+
+翻页现在直接切片已筛选排序的结果，只有筛选条件或图库内容变化才重建结果。分页集合一次发出 Reset 通知，相同页不重建容器；缩略图到达时合并瀑布流布局请求。
+
+文件、文件夹、拖放和自动扫描共用扫描与导入代码。扫描在后台执行，支持取消和重叠目录去重，读取文件大小和源修改时间后直接入库，消除重复补日期和二次刷新。
+
+缩略图保留最近使用的 256 项，可见图库、胶片条和对比项目受到保护。每次解码及时释放 SoftwareBitmap，超长图片按比例限制解码尺寸。缓存写入采用临时文件后替换，文件锁改为固定 64 个分片。设置新增“性能与缓存”，默认磁盘预算 128 MB，可选 64/128/256/512 MB，显示占用并提供立即清理。清理只识别缓存根目录中的 SHA1 命名 JPEG，不递归移除未知文件。
+
+构建和打包都排除 release、tests、installer、artifacts 等开发产物，修复本地打包目录被再次递归复制的问题。继续保留完整 .NET、WinUI 和 VC++ 运行库，不启用容易破坏 XAML/WinRT 的裁剪。
+
+按钮、切换按钮、上下文菜单及弹窗操作共享字号、间距和圆角规则。颜色选择小色块和照片卡片保留适合自身用途的尺寸。
+
+## 自动验证
+
+- 74 项逻辑回归，包括筛选排序与旧逻辑结果相同、分页通知、内存淘汰保护、扫描取消、缓存安全边界和旧设置默认值。
+- 421 张隔离照片运行 27 项 WinUI 检查：连续翻页后保留 256 张缩略图，旧页可重载，损坏图片有错误提示；横图、竖图、方图、极长图解码均通过；详情缩放、切换动画、对比、胶片条、深浅色设置与弹窗按钮通过。
+- 20,000 条记录、50 次翻页的数据处理基准：旧流程约 100.0 ms，新分页切片约 0.01 ms。已有排序结果在测量前准备，因此这个数字不包含首次排序、图片解码、磁盘读写和界面绘制，不能解释为整体界面的倍数提升。
+- 验证脚本在 QA 构建内调用应用自己的操作；正式构建不包含自动操作代码。未进行人工逐项点击或全部视觉像素检查。
+
+```powershell
+dotnet build PhotoAlbum.csproj -c Release -r win-x64 --self-contained true -p:OutputPath=artifacts/app/
+dotnet run --project tests/Regression/Regression.csproj -p:AppOutput=../../artifacts/app -- --performance
+dotnet build PhotoAlbum.csproj -c Release -r win-x64 --self-contained true -p:OutputPath=artifacts/qa/ -p:PerformanceSmoke=true
+./tests/ui-performance.ps1 -AppExe ./artifacts/qa/PhotoAlbum.exe
+```
+
+桌面部署脚本复制完整构建，核对文件哈希与启动路径，保留仅含变化文件的回滚副本。移除旧的误打包 release 目录前，会核对每个文件有独立的相同保留原件，并检查图库/设置引用。

@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$AppOutput,
-    [string]$Version = '1.3.4',
+    [string]$Version = '',
     [string]$Tag = '',
     [ValidateSet('Stable','Nightly')][string]$Channel = 'Stable',
     [string]$Commit = '',
@@ -10,6 +10,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+if (-not $Version) { [xml]$appProject = Get-Content -LiteralPath (Join-Path $root 'PhotoAlbum.csproj'); $Version = [string]($appProject.Project.PropertyGroup | Select-Object -First 1).Version }
 if (-not $Tag) { $Tag = "v$Version" }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid package version.' }
 if ($Channel -eq 'Stable' -and ($Tag -notmatch '^[vV]\d+\.\d+\.\d+$' -or $Tag.Substring(1) -ne $Version)) { throw 'Release tag does not match package version.' }
@@ -21,7 +22,9 @@ $payload = Join-Path $release ('payload-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $release | Out-Null
 if (Test-Path -LiteralPath $payload) { throw 'Use a clean release/payload directory to avoid packaging stale files.' }
 New-Item -ItemType Directory -Path $payload | Out-Null
-Copy-Item -Path (Join-Path $AppOutput '*') -Destination $payload -Recurse
+# 已有输出也可能残留旧版递归带入的开发目录，打包入口再次过滤。
+Get-ChildItem -LiteralPath $AppOutput -Force | Where-Object Name -notin @('release','tests','installer','artifacts','bin','obj','.preview-fix','.git') |
+    ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $payload -Recurse }
 $actualVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $payload 'PhotoAlbum.dll')).FileVersion
 if ($actualVersion -ne ($Version + '.0')) { throw "Compiled app version $actualVersion does not match package $Version." }
 

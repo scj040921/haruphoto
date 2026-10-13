@@ -1,5 +1,7 @@
-param([string]$Package = "$PSScriptRoot/../release/haruphoto-v1.3.4-portable.zip", [string]$Version = '1.3.4')
+param([string]$Package = '', [string]$Version = '')
 $ErrorActionPreference = 'Stop'
+if (-not $Version) { [xml]$appProject = Get-Content -LiteralPath "$PSScriptRoot/../PhotoAlbum.csproj"; $Version = [string]($appProject.Project.PropertyGroup | Select-Object -First 1).Version }
+if (-not $Package) { $Package = "$PSScriptRoot/../release/haruphoto-v$Version-portable.zip" }
 $Package = [IO.Path]::GetFullPath($Package)
 $script = [IO.Path]::GetFullPath("$PSScriptRoot/../tools/update.ps1")
 $hash = (Get-FileHash -LiteralPath $Package -Algorithm SHA256).Hash

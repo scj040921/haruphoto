@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$AppExe)
+param([Parameter(Mandatory=$true)][string]$AppExe,[ValidateRange(3,1000)][int]$PhotoCount=130,[switch]$PerformanceSmoke)
 $ErrorActionPreference = 'Stop'
 $root = Join-Path ([IO.Path]::GetTempPath()) ('haruphoto-ui-test-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $root | Out-Null
@@ -6,8 +6,10 @@ $images = Join-Path $root 'images'
 New-Item -ItemType Directory -Path $images | Out-Null
 Add-Type -AssemblyName System.Drawing
 $photos = @()
-for ($i = 0; $i -lt 130; $i++) {
+for ($i = 0; $i -lt $PhotoCount; $i++) {
     $size = @(@(720,480),@(320,640),@(480,480))[$i % 3]
+    if($PerformanceSmoke -and $i -eq 3){$size=@(64,4096)}
+    if($PerformanceSmoke -and $i -eq 4){$size=@(4096,64)}
     $bitmap = [Drawing.Bitmap]::new($size[0],$size[1])
     $graphics = [Drawing.Graphics]::FromImage($bitmap)
     $graphics.Clear([Drawing.Color]::FromArgb(255,50 + $i % 150,90 + $i % 110,160))
@@ -31,6 +33,7 @@ Copy-Item -Path (Join-Path (Split-Path ([IO.Path]::GetFullPath($AppExe))) '*') -
 $start.FileName = Join-Path $testApp 'PhotoAlbum.exe'
 $start.UseShellExecute = $false
 $start.Environment['HARUPHOTO_TEST_DATA'] = $root
+if($PerformanceSmoke){$start.Environment['HARUPHOTO_PERFORMANCE_SMOKE']='1'}
 $process = [Diagnostics.Process]::Start($start)
 Write-Output ("QA profile: " + $root)
 Write-Output ("QA process: " + $process.Id)

@@ -7,7 +7,6 @@ using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -30,11 +29,15 @@ public sealed partial class MainWindow : Window
     private readonly CancellationTokenSource _windowLifetime = new();
     private const int PageSize = 100;
 
-    private readonly ObservableCollection<PhotoItem> _photos = new();
+    private readonly RangeObservableCollection<PhotoItem> _photos = new();
+    private readonly BoundedLru<PhotoItem> _thumbnailResidency = new(256);
+    private readonly HashSet<PhotoItem> _filmstripRealized = new();
+    private bool _galleryMeasureQueued;
     private readonly List<PhotoItem> _allPhotos = new();
     private List<PhotoItem> _currentView = new();
     private readonly ThumbnailService _thumbService = new();
     private CancellationTokenSource? _thumbCts;
+    private Task _thumbnailBatchTask = Task.CompletedTask;
     private CancellationTokenSource? _filmstripCts;
     private readonly Dictionary<PhotoItem, CancellationToken> _filmstripPending = new();
     private readonly FolderWatcherService _folderWatcher = new();
@@ -44,8 +47,6 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer _saveTimer;
     private readonly DispatcherTimer _slideshowTimer;
     private readonly HashSet<string> _selectedPaths = new();
-    private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
-        { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".heic", ".tif", ".tiff" };
     private bool _batchMode;
 
     private int _currentPage, _sortBy;
@@ -156,7 +157,9 @@ public sealed partial class MainWindow : Window
                 ShowPreviewAt((_previewIndex + 1) % _currentView.Count);
         };
 
+        _folderWatcher.KnownPaths = () => _allPhotos.Select(p => p.FilePath).ToArray();
         _folderWatcher.NewFilesFound += OnNewFilesFound;
+        _thumbService.CacheBudgetBytes = Math.Clamp(_settings.ThumbnailCacheLimitMb, 64, 512) * 1024L * 1024;
         _updateCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(1) };
         _updateCheckTimer.Tick += async (_, _) => await CheckForUpdateOnStartupAsync();
         _updateCheckTimer.Start();
@@ -186,7 +189,8 @@ public sealed partial class MainWindow : Window
         StatusText.Text = "正在加载照片库…";
         try
         {
-            var (photos, missing) = await LibraryStore.LoadAsync();
+            var (photos, missing) = await Task.Run(LibraryStore.LoadAsync, _windowLifetime.Token);
+            if (_windowClosing) return;
             _libraryLoaded = true;
             _allPhotos.AddRange(photos);
             _sortBy = Math.Clamp(_settings.SortMode, 0, SortCombo.Items.Count - 1);
@@ -203,12 +207,18 @@ public sealed partial class MainWindow : Window
 
             if (_settings.AutoScan) _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
 
+            _ = MaintainThumbnailCacheAsync();
             _ = CheckForUpdateOnStartupAsync();
         }
+        catch (OperationCanceledException) { }
         finally
         {
-            BusyRing.Visibility = Visibility.Collapsed;
+            if (!_windowClosing) BusyRing.Visibility = Visibility.Collapsed;
         }
+#if PERFORMANCE_TEST
+        if (AppPaths.IsTestProfile && Environment.GetEnvironmentVariable("HARUPHOTO_PERFORMANCE_SMOKE") == "1")
+            await RunPerformanceSmokeAsync();
+#endif
     }
 
     // ══════════ 毛玻璃 & 动画 ══════════
@@ -256,7 +266,7 @@ public sealed partial class MainWindow : Window
 
     /// <summary>查找 NavigationView 模板内的内容区 ContentGrid（SplitView.Content 的宿主）。
     /// 直接设置其 Background（属性级，切主题即时生效），绕开模板 Setter 静态解析问题</summary>
-    private Microsoft.UI.Xaml.Controls.Grid FindNavContentGrid()
+    private Microsoft.UI.Xaml.Controls.Grid? FindNavContentGrid()
     {
         try
         {
@@ -265,7 +275,7 @@ public sealed partial class MainWindow : Window
         catch { return null; }
     }
 
-    private Microsoft.UI.Xaml.Controls.Grid FindContentGridIn(DependencyObject parent)
+    private Microsoft.UI.Xaml.Controls.Grid? FindContentGridIn(DependencyObject parent)
     {
         int count = VisualTreeHelper.GetChildrenCount(parent);
         for (int i = 0; i < count; i++)
@@ -282,7 +292,7 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
-    private Microsoft.UI.Xaml.Controls.Grid FindGridNamed(DependencyObject parent, string name)
+    private Microsoft.UI.Xaml.Controls.Grid? FindGridNamed(DependencyObject? parent, string name)
     {
         if (parent == null) return null;
         if (parent is Microsoft.UI.Xaml.Controls.Grid g && g.Name == name) return g;
@@ -897,63 +907,45 @@ public sealed partial class MainWindow : Window
 
     private void RefreshPhotos()
     {
-        if (!_uiReady) return;
-
-        IEnumerable<PhotoItem> q = _allPhotos;
-        if (_favoritesOnly) q = q.Where(p => p.IsFavorite);
-        if (!string.IsNullOrEmpty(_categoryFilter))
-            q = _categoryFilter == "__UNCATEGORIZED__"
-                ? q.Where(p => string.IsNullOrEmpty(p.Category))
-                : q.Where(p => p.Category == _categoryFilter);
-        if (!string.IsNullOrEmpty(_timelineFilter))
-            q = q.Where(p => p.TimelineDate.ToString("yyyy-MM") == _timelineFilter);
-        if (_minRatingFilter > 0)
-            q = q.Where(p => p.Rating >= _minRatingFilter);
-        if (_dateFilterDays != 0)
-        {
-            if (_dateFilterDays < 0)
-                q = q.Where(p => !p.DateTaken.HasValue);
-            else
-            {
-                var cutoff = DateTime.Now.AddDays(-_dateFilterDays);
-                q = q.Where(p => p.DateAdded >= cutoff);
-            }
-        }
-        if (_organizeFilter == "FavUnrated")
-            q = q.Where(p => p.IsFavorite && p.Rating == 0);
-        else if (_organizeFilter == "Unfavorite")
-            q = q.Where(p => !p.IsFavorite);
-        if (!string.IsNullOrWhiteSpace(_searchKeyword))
-            q = q.Where(p => p.Filename.Contains(_searchKeyword, StringComparison.OrdinalIgnoreCase)
-                          || p.Category.Contains(_searchKeyword, StringComparison.OrdinalIgnoreCase)
-                          || p.DateText.Contains(_searchKeyword, StringComparison.OrdinalIgnoreCase));
-
-        q = _sortBy switch
-        {
-            1 => q.OrderBy(p => p.Filename, StringComparer.CurrentCultureIgnoreCase),
-            2 => q.OrderByDescending(p => p.Rating).ThenByDescending(p => p.DateAdded),
-            _ => q.OrderByDescending(p => p.DateAdded),
-        };
-
-        _currentView = q.ToList();
+        if (!_uiReady || _windowClosing) return;
+        _currentView = GalleryQuery.Apply(_allPhotos, new GalleryFilter(_favoritesOnly, _categoryFilter,
+            _timelineFilter, _minRatingFilter, _dateFilterDays, _organizeFilter, _searchKeyword, _sortBy));
         UpdateEmptyState();
+        UpdateStats();
+        RenderCurrentPage();
+    }
+
+    // 翻页只切片已有结果，不重复筛选/排序整个图库。
+    private void RenderCurrentPage()
+    {
         var maxPage = Math.Max(0, (_currentView.Count - 1) / PageSize);
         _currentPage = Math.Clamp(_currentPage, 0, maxPage);
-
-        _photos.Clear();
-        foreach (var p in _currentView.Skip(_currentPage * PageSize).Take(PageSize))
+        var page = GalleryQuery.Page(_currentView, _currentPage, PageSize);
+        foreach (var photo in page)
         {
-            p.IsSelected = _selectedPaths.Contains(p.FilePath);
-            _photos.Add(p);
+            photo.IsSelected = _selectedPaths.Contains(photo.FilePath);
+            if (photo.ThumbnailSource != null) _thumbnailResidency.Touch(photo);
         }
-
+        var changed = _photos.ReplaceAll(page);
+        TrimThumbnailMemory();
         PageInfo.Text = $"第 {_currentPage + 1}/{maxPage + 1} 页 · 共 {_currentView.Count} 张";
         PrevPageBtn.IsEnabled = _currentPage > 0;
         NextPageBtn.IsEnabled = _currentPage < maxPage;
-        UpdateStats();
         LoadThumbnailsForCurrentPage();
         UpdateFilterSummary();
-        AnimateGalleryTransition();
+        if (changed) AnimateGalleryTransition();
+    }
+
+    private void TrimThumbnailMemory() => _thumbnailResidency.Trim(
+        p => _photos.Contains(p) || _filmstripRealized.Contains(p) || _comparePanes.Any(pane => pane.Photo == p),
+        p => p.ThumbnailSource = null);
+
+    private async Task MaintainThumbnailCacheAsync()
+    {
+        _thumbService.CacheBudgetBytes = Math.Clamp(_settings.ThumbnailCacheLimitMb, 64, 512) * 1024L * 1024;
+        try { await ThumbnailCacheMaintenance.TrimAsync(LibraryStore.ThumbnailCacheDir, _thumbService.CacheBudgetBytes, _windowLifetime.Token); }
+        catch (OperationCanceledException) { }
+        catch { /* 缓存维护失败不影响查看原图。 */ }
     }
 
     private void UpdateEmptyState()
@@ -1015,7 +1007,17 @@ public sealed partial class MainWindow : Window
     private void Thumbnail_ImageOpened(object sender, RoutedEventArgs e)
     {
         if (_settings.DisplayMode == 1)
-            PhotoGrid.InvalidateMeasure();
+            RequestGalleryMeasure();
+    }
+
+    private void RequestGalleryMeasure()
+    {
+        if (_galleryMeasureQueued || _windowClosing) return;
+        _galleryMeasureQueued = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            _galleryMeasureQueued = false;
+            if (!_windowClosing) PhotoGrid.InvalidateMeasure();
+        });
     }
 
     private void UpdateStats()
@@ -1033,11 +1035,7 @@ public sealed partial class MainWindow : Window
         _thumbCts?.Cancel();
         _thumbCts?.Dispose();
         var cts = _thumbCts = new CancellationTokenSource();
-        foreach (var p in _photos)
-        {
-            if (p.ThumbnailSource != null) continue;
-            _ = LoadThumbnailAsync(p, cts.Token);
-        }
+        _thumbnailBatchTask = Task.WhenAll(_photos.Where(p => p.ThumbnailSource == null).Select(p => LoadThumbnailAsync(p, cts.Token)));
     }
 
     private async Task LoadThumbnailAsync(PhotoItem photo, CancellationToken ct)
@@ -1048,8 +1046,10 @@ public sealed partial class MainWindow : Window
             if (img != null && !ct.IsCancellationRequested)
             {
                 photo.ThumbnailSource = img;
-                if (_settings.DisplayMode == 1)
-                    PhotoGrid.InvalidateMeasure();
+                if (img.PixelWidth > 0 && img.PixelHeight > 0) photo.ThumbnailAspectRatio = (double)img.PixelWidth / img.PixelHeight;
+                _thumbnailResidency.Touch(photo);
+                TrimThumbnailMemory();
+                if (_settings.DisplayMode == 1) RequestGalleryMeasure();
             }
             else if (!ct.IsCancellationRequested) photo.ThumbnailStatus = "无法读取";
         }
@@ -1367,7 +1367,7 @@ public sealed partial class MainWindow : Window
 
     private void PrevPage_Click(object s, RoutedEventArgs e)
     {
-        if (_currentPage > 0) { _currentPage--; MainScroll.ChangeView(null, 0, null, true); RefreshPhotos(); }
+        if (_currentPage > 0) { _currentPage--; MainScroll.ChangeView(null, 0, null, true); RenderCurrentPage(); }
     }
 
     private void UpdateFilterSummary()
@@ -1409,7 +1409,7 @@ public sealed partial class MainWindow : Window
 
     private void NextPage_Click(object s, RoutedEventArgs e)
     {
-        if (_currentPage < Math.Max(0, (_currentView.Count - 1) / PageSize)) { _currentPage++; MainScroll.ChangeView(null, 0, null, true); RefreshPhotos(); }
+        if (_currentPage < Math.Max(0, (_currentView.Count - 1) / PageSize)) { _currentPage++; MainScroll.ChangeView(null, 0, null, true); RenderCurrentPage(); }
     }
 
     private void PageJump_Click(object sender, RoutedEventArgs e) => JumpToPage();
@@ -1431,7 +1431,7 @@ public sealed partial class MainWindow : Window
         _currentPage = page - 1;
         PageJumpBox.Value = page;
         MainScroll.ChangeView(null, 0, null, true);
-        RefreshPhotos();
+        RenderCurrentPage();
         StatusText.Text = page == requested ? $"已跳转到第 {page} 页" : $"页码范围为 1–{maxPage}，已跳转到第 {page} 页";
     }
 
@@ -1555,6 +1555,7 @@ public sealed partial class MainWindow : Window
 
         if (_settings.UpdateChannel != editor.Draft.UpdateChannel) editor.Draft.LastUpdateCheckUtc = DateTime.MinValue;
         _settings = editor.Draft;
+        _ = MaintainThumbnailCacheAsync();
         _slideshowTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(_settings.SlideshowIntervalSeconds, 2, 15));
         ApplyTheme();
         ApplyGalleryLayout();
@@ -2532,13 +2533,17 @@ public sealed partial class MainWindow : Window
 
     private void PreviewFilmstrip_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
-        if (args.InRecycleQueue || args.Item is not PhotoItem photo || _filmstripCts == null || _settings.FilmstripMode == 2) return;
+        if (args.Item is not PhotoItem photo) return;
+        if (args.InRecycleQueue) { _filmstripRealized.Remove(photo); return; }
+        if (_filmstripCts == null || _settings.FilmstripMode == 2) return;
+        _filmstripRealized.Add(photo);
         _ = EnsureFilmstripThumbnailAsync(photo, _filmstripCts.Token);
     }
 
     private async Task EnsureFilmstripThumbnailAsync(PhotoItem photo, CancellationToken token)
     {
-        if (photo.ThumbnailSource != null || token.IsCancellationRequested) return;
+        if (token.IsCancellationRequested) return;
+        if (photo.ThumbnailSource != null) { _thumbnailResidency.Touch(photo); return; }
         if (_filmstripPending.TryGetValue(photo, out var pending) && pending == token) return;
         _filmstripPending[photo] = token;
         try { await LoadThumbnailAsync(photo, token); }
@@ -2550,7 +2555,9 @@ public sealed partial class MainWindow : Window
         _filmstripCts?.Cancel();
         _filmstripCts?.Dispose();
         _filmstripCts = null;
+        _filmstripRealized.Clear();
         PreviewFilmstrip.ItemsSource = null;
+        TrimThumbnailMemory();
     }
 
     private void PreviewInfoToggle_Click(object sender, RoutedEventArgs e)
@@ -3077,209 +3084,81 @@ public sealed partial class MainWindow : Window
         await ImportPathsAsync(paths, "正在导入拖入内容…");
     }
 
-    private async Task ImportPathsAsync(IEnumerable<string> sourcePaths, string status)
+    private async Task<bool> ImportPathsAsync(IEnumerable<string> sourcePaths, string status)
     {
-        var paths = sourcePaths.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (paths.Count == 0 || _importing) return;
+        var paths = sourcePaths.Where(p => !string.IsNullOrWhiteSpace(p)).ToArray();
+        if (paths.Length == 0 || _importing || _windowClosing) return false;
         _importing = true;
         BusyRing.Visibility = Visibility.Visible;
         StatusText.Text = status;
         try
         {
-            var known = new HashSet<string>(_allPhotos.Select(p => p.FilePath), StringComparer.OrdinalIgnoreCase);
-            var found = await Task.Run(() =>
-            {
-                var files = new List<string>();
-                foreach (var path in paths)
-                {
-                    try
-                    {
-                        if (File.Exists(path) && ImageExtensions.Contains(Path.GetExtension(path))) files.Add(path);
-                        else if (Directory.Exists(path))
-                        {
-                            var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
-                            files.AddRange(Directory.EnumerateFiles(path, "*", options).Where(f => ImageExtensions.Contains(Path.GetExtension(f))));
-                        }
-                    }
-                    catch { }
-                }
-                return files.Distinct(StringComparer.OrdinalIgnoreCase).Where(f => !known.Contains(f)).ToList();
-            });
-            var imported = new List<PhotoItem>();
-            foreach (var file in found)
-            {
-                var info = new FileInfo(file);
-                var photo = new PhotoItem { Filename = info.Name, FilePath = info.FullName, FileSize = info.Length, DateAdded = DateTime.Now };
-                _allPhotos.Add(photo);
-                imported.Add(photo);
-            }
-            if (imported.Count > 0) _ = SyncSourceModifiedTimesAsync(imported);
+            var known = _allPhotos.Select(p => p.FilePath).ToArray();
+            var found = await Task.Run(() => PhotoFileScanner.Scan(paths, known, _windowLifetime.Token), _windowLifetime.Token);
+            if (_windowClosing) return false;
+            var added = AppendImportedPhotos(found);
             RebuildCategories();
             RefreshPhotos();
-            ScheduleSave();
-            StatusText.Text = imported.Count > 0 ? $"已导入 {imported.Count} 张照片" : "没有发现新的图片文件";
+            if (added > 0) ScheduleSave();
+            StatusText.Text = added > 0 ? $"已导入 {added} 张照片" : "没有发现新的图片文件";
+            return true;
         }
-        catch (Exception ex) { StatusText.Text = "导入失败：" + ex.Message; }
-        finally { BusyRing.Visibility = Visibility.Collapsed; _importing = false; }
+        catch (OperationCanceledException) { return false; }
+        catch (Exception ex) { if (!_windowClosing) StatusText.Text = "导入失败：" + ex.Message; return false; }
+        finally { if (!_windowClosing) BusyRing.Visibility = Visibility.Collapsed; _importing = false; }
+    }
+
+    private int AppendImportedPhotos(IEnumerable<PhotoFile> files)
+    {
+        var known = new HashSet<string>(_allPhotos.Select(p => p.FilePath), StringComparer.OrdinalIgnoreCase);
+        var added = 0; var now = DateTime.Now;
+        foreach (var file in files)
+        {
+            if (!known.Add(file.Path)) continue;
+            _allPhotos.Add(new PhotoItem { Filename = Path.GetFileName(file.Path), FilePath = file.Path,
+                FileSize = file.Size, DateAdded = now, DateTaken = file.Modified });
+            added++;
+        }
+        return added;
     }
 
     private async void ImportButton_Click(object s, RoutedEventArgs e)
     {
         if (_importing) return;
-
         var picker = new FolderPicker { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
         picker.FileTypeFilter.Add("*");
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
         var folder = await picker.PickSingleFolderAsync();
         if (folder == null) return;
-
-        _importing = true;
-        BusyRing.Visibility = Visibility.Visible;
-        StatusText.Text = "正在扫描文件夹…";
-
-        var rootPath = folder.Path;
-        var exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".heic", ".tif", ".tiff" };
-        var known = new HashSet<string>(_allPhotos.Select(p => p.FilePath), StringComparer.OrdinalIgnoreCase);
-
-        try
+        if (await ImportPathsAsync(new[] { folder.Path }, "正在扫描文件夹…") &&
+            !_settings.WatchedFolders.Contains(folder.Path, StringComparer.OrdinalIgnoreCase))
         {
-            var found = await Task.Run(() =>
-            {
-                var list = new List<(string Path, long Size)>();
-                var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = System.IO.FileAttributes.System };
-                var scanned = 0;
-                foreach (var f in Directory.EnumerateFiles(rootPath, "*", options))
-                {
-                    scanned++;
-                    if (scanned % 200 == 0) { var n = scanned; var c = list.Count; DispatcherQueue.TryEnqueue(() => StatusText.Text = $"正在扫描… 已检查 {n} 个文件，发现 {c} 张新照片"); }
-                    if (!exts.Contains(Path.GetExtension(f))) continue;
-                    if (known.Contains(f)) continue;
-                    try { var fi = new FileInfo(f); list.Add((fi.FullName, fi.Length)); } catch { }
-                }
-                return list;
-            });
-
-            var imported = new List<PhotoItem>();
-            foreach (var f in found)
-            {
-                var p = new PhotoItem { Filename = Path.GetFileName(f.Path), FilePath = f.Path, FileSize = f.Size, DateAdded = DateTime.Now };
-                _allPhotos.Add(p);
-                imported.Add(p);
-            }
-
-            // 后台补齐源文件修改时间。
-            if (imported.Count > 0)
-                _ = SyncSourceModifiedTimesAsync(imported);
-
-            if (!_settings.WatchedFolders.Contains(rootPath, StringComparer.OrdinalIgnoreCase))
-            {
-                _settings.WatchedFolders.Add(rootPath);
-                _settings.Save();
-                if (_settings.AutoScan) _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
-            }
-
-            RebuildCategories();
-            RefreshPhotos();
-            ScheduleSave();
-            StatusText.Text = $"导入完成：新增 {found.Count} 张";
+            _settings.WatchedFolders.Add(folder.Path);
+            _settings.Save();
+            if (_settings.AutoScan) _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
         }
-        catch (Exception ex) { StatusText.Text = "导入失败：" + ex.Message; }
-        finally { BusyRing.Visibility = Visibility.Collapsed; _importing = false; }
     }
 
-    /// <summary>导入单个/多个图片文件（SPW 借鉴：导入文件模式，FolderPicker 之外的另一入口）</summary>
     private async void ImportFiles_Click(object s, RoutedEventArgs e)
     {
         if (_importing) return;
-
         var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
-        var exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".heic", ".tif", ".tiff" };
-        foreach (var ex in exts) picker.FileTypeFilter.Add(ex);
+        foreach (var extension in PhotoFileScanner.Extensions) picker.FileTypeFilter.Add(extension);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
         var files = await picker.PickMultipleFilesAsync();
-        if (files == null || files.Count == 0) return;
-
-        _importing = true;
-        BusyRing.Visibility = Visibility.Visible;
-        StatusText.Text = "正在导入文件…";
-
-        var known = new HashSet<string>(_allPhotos.Select(p => p.FilePath), StringComparer.OrdinalIgnoreCase);
-        var imported = new List<PhotoItem>();
-        try
-        {
-            foreach (var f in files)
-            {
-                if (known.Contains(f.Path)) continue;
-                var p = new PhotoItem { Filename = f.Name, FilePath = f.Path, FileSize = 0, DateAdded = DateTime.Now };
-                try { p.FileSize = new FileInfo(f.Path).Length; } catch { }
-                _allPhotos.Add(p);
-                imported.Add(p);
-            }
-            if (imported.Count > 0)
-                _ = SyncSourceModifiedTimesAsync(imported);
-
-            RebuildCategories();
-            RefreshPhotos();
-            ScheduleSave();
-            StatusText.Text = $"导入完成：新增 {imported.Count} 张";
-        }
-        catch (Exception ex) { StatusText.Text = "导入失败：" + ex.Message; }
-        finally { BusyRing.Visibility = Visibility.Collapsed; _importing = false; }
+        if (files?.Count > 0) await ImportPathsAsync(files.Select(f => f.Path), "正在导入文件…");
     }
 
     // ══════════ 自动扫描 ══════════
 
-    /// <summary>读取源文件修改时间，和图库加载时使用同一日期来源。</summary>
-    private async Task SyncSourceModifiedTimesAsync(List<PhotoItem> photos)
+    private void OnNewFilesFound(List<PhotoFile> files)
     {
-        var snapshot = photos.ToList();
-        var results = await Task.Run(() => snapshot.Select(p =>
-        {
-            try
-            {
-                var file = new FileInfo(p.FilePath);
-                return (Photo: p, Date: file.Exists ? (DateTime?)file.LastWriteTime : null);
-            }
-            catch { return (Photo: p, Date: (DateTime?)null); }
-        }).ToList());
-        foreach (var (photo, date) in results)
-            if (date.HasValue) photo.DateTaken = date;
-        ScheduleSave();
-        RebuildTimelineNavItems();
+        if (_windowClosing) return;
+        var added = AppendImportedPhotos(files);
+        if (added == 0) return;
+        RebuildCategories();
         RefreshPhotos();
-    }
-
-    private void OnNewFilesFound(List<string> files)
-    {
-        var known = new HashSet<string>(_allPhotos.Select(p => p.FilePath), StringComparer.OrdinalIgnoreCase);
-        var added = 0;
-        var pending = new List<PhotoItem>();
-
-        foreach (var path in files)
-        {
-            if (known.Contains(path)) continue;
-            try
-            {
-                var fi = new FileInfo(path);
-                if (!fi.Exists) continue;
-                var p = new PhotoItem { Filename = fi.Name, FilePath = fi.FullName, FileSize = fi.Length, DateAdded = DateTime.Now };
-                _allPhotos.Add(p);
-                pending.Add(p);
-                added++;
-            }
-            catch { }
-        }
-
-        if (added > 0)
-        {
-            RebuildCategories();
-            RefreshPhotos();
-            ScheduleSave();
-            if (pending.Count > 0)
-                _ = SyncSourceModifiedTimesAsync(pending);
-            StatusText.Text = $"🔍 自动发现 {added} 张新照片";
-        }
+        ScheduleSave();
+        StatusText.Text = $"自动发现 {added} 张新照片";
     }
 }

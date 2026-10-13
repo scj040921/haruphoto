@@ -1,5 +1,9 @@
-param([Parameter(Mandatory=$true)][string]$Profile,[Parameter(Mandatory=$true)][int]$ParentId,[string]$Package="$PSScriptRoot/../release/haruphoto-v1.3.4-portable.zip",[switch]$SimulateFailure)
+param([Parameter(Mandatory=$true)][string]$Profile,[Parameter(Mandatory=$true)][int]$ParentId,[string]$Package='',[switch]$SimulateFailure)
 $ErrorActionPreference='Stop'
+if (-not $Package) { [xml]$appProject = Get-Content -LiteralPath "$PSScriptRoot/../PhotoAlbum.csproj"; $Package = "$PSScriptRoot/../release/haruphoto-v$([string]($appProject.Project.PropertyGroup | Select-Object -First 1).Version)-portable.zip" }
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive=[IO.Compression.ZipFile]::OpenRead([IO.Path]::GetFullPath($Package))
+try { $reader=[IO.StreamReader]::new($archive.GetEntry('package-manifest.json').Open()); try { $identity=$reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() } } finally { $archive.Dispose() }
 $Profile=[IO.Path]::GetFullPath($Profile)
 $prefix=Join-Path ([IO.Path]::GetTempPath()) 'haruphoto-ui-test-'
 if (-not $Profile.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase) -or $Profile.Substring($prefix.Length) -notmatch '^[a-f0-9]{32}$') { throw 'Not an owned QA profile.' }
@@ -18,7 +22,7 @@ $start.FileName=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/power
 $start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.WorkingDirectory=$work
 $start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
 $start.Environment['HARUPHOTO_TEST_DATA']=$Profile
-foreach ($arg in @('-NoProfile','-ExecutionPolicy','Bypass','-File',[IO.Path]::GetFullPath("$PSScriptRoot/../tools/update.ps1"),'-ProcessId',"$ParentId",'-InstallRoot',$install,'-PackagePath',$payload,'-ExpectedSha256',$hash,'-Version','1.3.4','-ExpectedChannel','Stable','-ExpectedTag','v1.3.4','-ReadyFile',(Join-Path $work 'ready.txt'))) { $start.ArgumentList.Add($arg) }
+foreach ($arg in @('-NoProfile','-ExecutionPolicy','Bypass','-File',[IO.Path]::GetFullPath("$PSScriptRoot/../tools/update.ps1"),'-ProcessId',"$ParentId",'-InstallRoot',$install,'-PackagePath',$payload,'-ExpectedSha256',$hash,'-Version',$identity.version,'-ExpectedChannel',$identity.channel,'-ExpectedTag',$identity.tag,'-ReadyFile',(Join-Path $work 'ready.txt'))) { $start.ArgumentList.Add([string]$arg) }
 if ($SimulateFailure) { $start.ArgumentList.Add('-FailAfterReplace') }
 $helper=[Diagnostics.Process]::Start($start)
 $standardOutput=$helper.StandardOutput.ReadToEndAsync();$standardError=$helper.StandardError.ReadToEndAsync()
