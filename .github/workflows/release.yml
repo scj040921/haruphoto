@@ -1,111 +1,164 @@
-name: Release haruphoto
+name: Stable and Nightly builds
 
 on:
   push:
-    tags:
-      - 'V*'
-      - 'v*'
+    branches: [master]
+    tags: ['v*', 'V*']
+  schedule:
+    # 北京时间每日 02:23；错开整点，GitHub 调度仍可能有延迟。
+    - cron: '23 18 * * *'
   workflow_dispatch:
     inputs:
+      channel:
+        description: 'Stable requires a version tag; Nightly uses current source'
+        type: choice
+        options: [Nightly, Stable]
+        default: Nightly
       tag:
-        description: 'Release tag, for example V1.2.0'
-        required: true
+        description: 'Stable tag, e.g. v1.3.3; leave empty for Nightly'
         type: string
+        required: false
+      force:
+        description: 'Publish Nightly even if source commit has not changed'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
+concurrency:
+  group: haruphoto-${{ github.event_name }}-${{ github.ref }}-${{ inputs.channel || '' }}
+  cancel-in-progress: ${{ github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/') }}
+
 env:
-  DOTNET_VERSION: '8.0.x'
-  PROJECT: PhotoAlbum.csproj
-  RID: win-x64
   TFM: net8.0-windows10.0.26100.0
+  GH_TOKEN: ${{ github.token }}
 
 jobs:
-  release:
+  build:
     runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 1
 
-      - name: Resolve release tag
+      - name: Resolve immutable source and channel
         id: meta
         shell: pwsh
+        env:
+          REQUEST_CHANNEL: ${{ inputs.channel }}
+          REQUEST_TAG: ${{ inputs.tag }}
+          FORCE_NIGHTLY: ${{ inputs.force }}
         run: |
-          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
-            $tag = '${{ inputs.tag }}'
+          $ErrorActionPreference = 'Stop'
+          $sha = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve source commit.' }
+          $isTag = '${{ github.event_name }}' -eq 'push' -and '${{ github.ref }}'.StartsWith('refs/tags/')
+          $channel = if ($isTag -or $env:REQUEST_CHANNEL -eq 'Stable') { 'Stable' } else { 'Nightly' }
+          $publish = '${{ github.event_name }}' -ne 'push' -or $isTag
+          $build = $true
+          [xml]$project = Get-Content PhotoAlbum.csproj
+          $property = $project.Project.PropertyGroup | Select-Object -First 1
+          $version = [string]$property.Version
+          if ($channel -eq 'Stable') {
+            $tag = if ($isTag) { '${{ github.ref_name }}' } else { $env:REQUEST_TAG }
+            if ($tag -notmatch '^[vV](\d+\.\d+\.\d+)$') { throw 'Stable requires an existing vX.Y.Z tag.' }
+            $version = $Matches[1]
           } else {
-            $tag = '${{ github.ref_name }}'
+            $date = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow,'China Standard Time').ToString('yyyyMMdd')
+            $tag = 'nightly-' + $date + '-${{ github.run_number }}'
+            if ($publish -and $env:FORCE_NIGHTLY -ne 'true') {
+              $releases = gh api 'repos/${{ github.repository }}/releases?per_page=100' | ConvertFrom-Json
+              if ($LASTEXITCODE -ne 0) { throw 'Cannot check previous Nightly; refusing to publish blindly.' }
+              $last = $releases | Where-Object { $_.prerelease -and -not $_.draft -and $_.tag_name -match '^nightly-\d{8}-\d+$' } | Select-Object -First 1
+              if ($last -and $last.target_commitish -eq $sha) { $build = $false; Write-Output 'No source changes; Nightly publication skipped.' }
+            }
           }
-          $version = $tag.TrimStart('v','V')
-          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid release tag: $tag" }
-          "tag=$tag" >> $env:GITHUB_OUTPUT
-          "version=$version" >> $env:GITHUB_OUTPUT
+          $property.Version = $version
+          $property.FileVersion = $version + '.0'
+          $project.Save((Join-Path $PWD 'PhotoAlbum.csproj'))
+          $stem = if ($channel -eq 'Stable') { 'haruphoto-v' + $version } else { 'haruphoto-' + $tag }
+          "sha=$sha", "channel=$channel", "tag=$tag", "version=$version", "stem=$stem", "publish=$($publish.ToString().ToLowerInvariant())", "build=$($build.ToString().ToLowerInvariant())" | Add-Content $env:GITHUB_OUTPUT
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v4
+        if: steps.meta.outputs.build == 'true'
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          dotnet-version: '8.0.x'
 
-      - name: Set project version
+      - name: Compile complete self-contained application
+        if: steps.meta.outputs.build == 'true'
         shell: pwsh
         run: |
-          [xml]$xml = Get-Content $env:PROJECT
-          $ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
-          $property = $xml.Project.PropertyGroup | Select-Object -First 1
-          if (-not $property.Version) { $property.AppendChild($xml.CreateElement('Version')) | Out-Null }
-          if (-not $property.FileVersion) { $property.AppendChild($xml.CreateElement('FileVersion')) | Out-Null }
-          $property.Version = '${{ steps.meta.outputs.version }}'
-          $property.FileVersion = '${{ steps.meta.outputs.version }}.0'
-          $xml.Save($env:PROJECT)
+          dotnet build PhotoAlbum.csproj -c Release -r win-x64 --self-contained true
+          if ($LASTEXITCODE -ne 0) { throw 'Application build failed.' }
 
-      - name: Build Release
+      - name: Package Stable or Nightly installer and portable build
+        if: steps.meta.outputs.build == 'true'
         shell: pwsh
         run: |
-          dotnet build $env:PROJECT -c Release -r $env:RID --self-contained true
-          $out = "bin/Release/$env:TFM/$env:RID"
-          if (-not (Test-Path "$out/PhotoAlbum.exe")) { throw 'PhotoAlbum.exe was not produced' }
+          ./tools/package.ps1 -AppOutput "bin/Release/$env:TFM/win-x64" -Version '${{ steps.meta.outputs.version }}' -Tag '${{ steps.meta.outputs.tag }}' -Channel '${{ steps.meta.outputs.channel }}' -Commit '${{ steps.meta.outputs.sha }}'
 
-      - name: Assemble packages
-        shell: pwsh
-        run: |
-          ./tools/package.ps1 -AppOutput "bin/Release/$env:TFM/$env:RID" -Version '${{ steps.meta.outputs.version }}' -Tag '${{ steps.meta.outputs.tag }}'
-
-      - name: Regression tests
+      - name: Run regression tests
+        if: steps.meta.outputs.build == 'true'
         shell: pwsh
         run: |
           dotnet run --project tests/Regression/Regression.csproj
           if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed.' }
 
-      - name: Verify standalone installer
+      - name: Verify standalone installer and updater rollback
+        if: steps.meta.outputs.build == 'true'
         shell: pwsh
         run: |
           $report = Join-Path $PWD 'release/setup-test.txt'
-          $exe = Join-Path $PWD 'release/haruphoto-v${{ steps.meta.outputs.version }}-Setup.exe'
-          $p = Start-Process -FilePath $exe -ArgumentList '--self-test', $report -Wait -PassThru
+          $exe = Join-Path $PWD 'release/${{ steps.meta.outputs.stem }}-Setup.exe'
+          $p = Start-Process -FilePath $exe -ArgumentList '--self-test', $report -WindowStyle Hidden -Wait -PassThru
           Get-Content $report
-          if ($p.ExitCode -ne 0) { throw 'Installer validation failed; refusing to publish.' }
-
-      - name: Verify update rollback and integrity
-        shell: pwsh
-        run: |
-          ./tests/update-regression.ps1 -Package "release/haruphoto-v${{ steps.meta.outputs.version }}-portable.zip" -Version '${{ steps.meta.outputs.version }}'
-          # Negative test cases intentionally invoke a failing child process.
-          # Assertions throw on real failures; older tags leave that child's exit code behind.
+          if ($p.ExitCode -ne 0) { throw 'Installer self-test failed.' }
+          ./tests/update-regression.ps1 -Package 'release/${{ steps.meta.outputs.stem }}-portable.zip' -Version '${{ steps.meta.outputs.version }}'
           $global:LASTEXITCODE = 0
 
-      - name: Create or update GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Keep push build artifacts (not a Release)
+        if: steps.meta.outputs.build == 'true' && steps.meta.outputs.publish != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: haruphoto-ci-${{ steps.meta.outputs.sha }}
+          retention-days: 7
+          path: |
+            release/${{ steps.meta.outputs.stem }}-Setup.exe
+            release/${{ steps.meta.outputs.stem }}-portable.zip
+            release/SHA256SUMS.txt
+            release/update.json
+
+      - name: Publish tested immutable Release
+        if: steps.meta.outputs.build == 'true' && steps.meta.outputs.publish == 'true'
         shell: pwsh
         run: |
           $tag = '${{ steps.meta.outputs.tag }}'
-          gh release view $tag 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --draft --verify-tag --title "haruphoto ${{ steps.meta.outputs.version }}" --generate-notes
+          $channel = '${{ steps.meta.outputs.channel }}'
+          $existingText = gh release view $tag --json isDraft 2>$null
+          if ($LASTEXITCODE -eq 0 -and -not ($existingText | ConvertFrom-Json).isDraft) { throw 'Release already published; refusing to overwrite immutable assets.' }
+          $notes = "<!-- haruphoto-version:${{ steps.meta.outputs.version }} -->`n<!-- haruphoto-channel:$channel -->`nSource commit: ${{ steps.meta.outputs.sha }}`n`n"
+          if ($channel -eq 'Nightly') {
+            $notes += 'Nightly 每日测试版：根据当前远端源码构建，可能不稳定。可在设置中切回 Stable。' + "`n`n"
+          } else {
+            $notes += 'Stable 稳定发行版。' + "`n`n"
           }
-          gh release upload $tag "release/haruphoto-v${{ steps.meta.outputs.version }}-Setup.exe" "release/haruphoto-v${{ steps.meta.outputs.version }}-portable.zip" release/SHA256SUMS.txt release/update.json --clobber
-          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed; keep the release unpublished.' }
-          gh release edit $tag --draft=false --latest
+          $notes += '安装请下载 Setup.exe；便携版请完整解压 portable.zip。无需 CMD 或额外安装 .NET。安装器未商业签名，Windows 可能提示未知发布者。' + "`n`n"
+          $notesPath = 'docs/RELEASE_NOTES_v${{ steps.meta.outputs.version }}.md'
+          if (Test-Path -LiteralPath $notesPath) { $notes += Get-Content -LiteralPath $notesPath -Raw -Encoding UTF8 }
+          [IO.File]::WriteAllText((Join-Path $PWD 'release/notes.md'),$notes,[Text.UTF8Encoding]::new($false))
+          if ($LASTEXITCODE -ne 0) {
+            $args = @('release','create',$tag,'--draft','--target','${{ steps.meta.outputs.sha }}','--title',"haruphoto ${{ steps.meta.outputs.version }} $channel · $tag",'--notes-file','release/notes.md')
+            if ($channel -eq 'Nightly') { $args += '--prerelease' } else { $args += '--verify-tag' }
+            & gh @args
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot create draft release.' }
+          } else {
+            gh release edit $tag --notes-file release/notes.md
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot update draft notes.' }
+          }
+          gh release upload $tag 'release/${{ steps.meta.outputs.stem }}-Setup.exe' 'release/${{ steps.meta.outputs.stem }}-portable.zip' release/SHA256SUMS.txt release/update.json --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Asset upload failed; draft remains unpublished.' }
+          if ($channel -eq 'Nightly') { gh release edit $tag --draft=false --prerelease --latest=false }
+          else { gh release edit $tag --draft=false --prerelease=false --latest }
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }

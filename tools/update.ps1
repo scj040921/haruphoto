@@ -5,6 +5,8 @@ param(
     [Parameter(Mandatory=$true)][string]$ExpectedSha256,
     [Parameter(Mandatory=$true)][string]$Version,
     [Parameter(Mandatory=$true)][string]$ReadyFile,
+    [string]$ExpectedChannel = '',
+    [string]$ExpectedTag = '',
     [switch]$TestMode,
     [switch]$FailAfterReplace
 )
@@ -57,6 +59,12 @@ try {
     } finally { $zip.Dispose() }
     $manifest = Get-Content -LiteralPath (Join-Path $stage 'package-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($manifest.version -ne $Version -or $manifest.architecture -ne 'win-x64') { throw 'Package version/architecture mismatch.' }
+    if ($ExpectedChannel -and $manifest.channel -ne $ExpectedChannel) { throw 'Package channel mismatch.' }
+    if ($ExpectedTag -and $manifest.tag -ne $ExpectedTag) { throw 'Package tag mismatch.' }
+    if ($manifest.channel) {
+        $build = Get-Content -LiteralPath (Join-Path $stage 'build-info.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($build.version -ne $manifest.version -or $build.channel -ne $manifest.channel -or $build.tag -ne $manifest.tag -or $build.commit -ne $manifest.commit) { throw 'Build identity mismatch.' }
+    }
     foreach ($file in $manifest.files) {
         $target = [IO.Path]::GetFullPath((Join-Path $stage $file.path))
         if (-not $target.StartsWith($stage + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe manifest path.' }

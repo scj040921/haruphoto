@@ -43,7 +43,7 @@ internal sealed class SetupWindow : Form
 
     public SetupWindow()
     {
-        Text = "haruphoto " + Installer.Version + " 安装";
+        Text = "haruphoto " + Installer.DisplayVersion + " 安装";
         ClientSize = new Size(530, 320);
         Font = new Font("Microsoft YaHei UI", 10);
         StartPosition = FormStartPosition.CenterScreen;
@@ -105,6 +105,17 @@ internal sealed class SetupWindow : Form
 internal static class Installer
 {
     internal static string Version => Assembly.GetExecutingAssembly().GetName().Version!.ToString(3);
+    internal static string DisplayVersion
+    {
+        get
+        {
+            using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("haruphoto.payload.zip")!;
+            using var zip = new ZipArchive(stream, ZipArchiveMode.Read);
+            using var manifest = JsonDocument.Parse(zip.GetEntry("package-manifest.json")!.Open());
+            return Version + (manifest.RootElement.GetProperty("channel").GetString() == "Nightly"
+                ? " Nightly · " + manifest.RootElement.GetProperty("tag").GetString() : " Stable");
+        }
+    }
     internal static string DefaultRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "haruphoto");
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\haruphoto";
 
@@ -194,6 +205,12 @@ internal static class Installer
         foreach (var required in new[] { "PhotoAlbum.exe", "PhotoAlbum.dll", "PhotoAlbum.runtimeconfig.json", "coreclr.dll", "hostfxr.dll", "hostpolicy.dll", "System.Private.CoreLib.dll", "Microsoft.UI.Xaml.dll", "PhotoAlbum.pri", "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "tools/uninstall.ps1", "tools/update.ps1" })
             if (!File.Exists(Path.Combine(stage, required))) throw new IOException("安装包缺少运行文件：" + required);
         using var runtime = JsonDocument.Parse(File.ReadAllText(Path.Combine(stage, "PhotoAlbum.runtimeconfig.json")));
+        if (manifest.TryGetProperty("channel", out _))
+        {
+            using var build = JsonDocument.Parse(File.ReadAllText(Path.Combine(stage, "build-info.json")));
+            foreach (var key in new[] { "version", "channel", "tag", "commit" })
+                if (build.RootElement.GetProperty(key).GetString() != manifest.GetProperty(key).GetString()) throw new IOException("安装包构建标识不一致。");
+        }
         var options = runtime.RootElement.GetProperty("runtimeOptions");
         if (options.TryGetProperty("framework", out _) || options.TryGetProperty("frameworks", out _)) throw new IOException("程序包未包含完整 .NET 运行时。");
     }

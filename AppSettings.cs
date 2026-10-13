@@ -22,6 +22,8 @@ public sealed class AppSettings
 
     // ── 更新 ──
     public bool AutoCheckUpdates { get; set; } = true;
+    public string UpdateChannel { get; set; } = UpdateService.CurrentBuild.Channel;
+    public bool UsePublicUpdateProxy { get; set; } = true;
     public DateTime LastUpdateCheckUtc { get; set; } = DateTime.MinValue;
 
     // ── 外观（SPW 风格）──
@@ -70,7 +72,9 @@ public sealed class AppSettings
             if (File.Exists(FilePath))
             {
                 var json = File.ReadAllText(FilePath);
-                return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+                var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+                settings.UpdateChannel = UpdateService.NormalizeChannel(settings.UpdateChannel);
+                return settings;
             }
         }
         catch { /* 文件损坏时用默认值 */ }

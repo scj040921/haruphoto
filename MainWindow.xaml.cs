@@ -1439,17 +1439,17 @@ public sealed partial class MainWindow : Window
         try
         {
             StatusText.Text = "正在检查 GitHub Release…";
-            var release = await UpdateService.CheckLatestAsync();
+            var release = await UpdateService.CheckLatestAsync(_settings.UpdateChannel, _settings.UsePublicUpdateProxy);
             _settings.LastUpdateCheckUtc = DateTime.UtcNow;
             _settings.Save();
 
             if (release == null)
             {
-                StatusText.Text = $"当前已是最新版本（{UpdateService.CurrentVersion}）";
+                StatusText.Text = $"{_settings.UpdateChannel} 通道暂无可用更新（当前 {UpdateService.CurrentDisplayVersion}）";
                 var latestDialog = new ContentDialog
                 {
                     Title = "检查更新",
-                    Content = $"当前已是最新版本：{UpdateService.CurrentVersion}",
+                    Content = $"{_settings.UpdateChannel} 通道暂无可用更新；当前版本：{UpdateService.CurrentDisplayVersion}",
                     CloseButtonText = "确定",
                     XamlRoot = Content.XamlRoot
                 };
@@ -1463,7 +1463,7 @@ public sealed partial class MainWindow : Window
             var updateDialog = new ContentDialog
             {
                 Title = "发现新版本",
-                Content = new ScrollViewer { MaxHeight = 340, Content = new TextBlock { Text = $"当前版本：{UpdateService.CurrentVersion}\n最新版本：{release.Version}（{sizeText}）\n\n将先下载和校验，再退出升级。照片和图库数据不会被修改。\n\n{release.Notes}", TextWrapping = TextWrapping.Wrap } },
+                Content = new ScrollViewer { MaxHeight = 340, Content = new TextBlock { Text = $"当前版本：{UpdateService.CurrentDisplayVersion}\n目标版本：{release.Channel} · {release.DisplayVersion}（{sizeText}）\n\n{(release.Channel == "Nightly" ? "Nightly 为测试版，可能不稳定。\n" : "")}{(release.Channel != UpdateService.CurrentBuild.Channel ? "这是发行通道切换，可能回退版本。\n" : "")}将先下载和校验，再退出升级。照片和图库数据不会被修改。\n\n{release.Notes}", TextWrapping = TextWrapping.Wrap } },
                 PrimaryButtonText = "下载并更新",
                 CloseButtonText = "稍后",
                 DefaultButton = ContentDialogButton.Primary,
@@ -1521,7 +1521,7 @@ public sealed partial class MainWindow : Window
                 FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe"),
                 UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = download.Directory
             };
-            foreach (var arg in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-ProcessId", Environment.ProcessId.ToString(), "-InstallRoot", installRoot, "-PackagePath", download.PackagePath, "-ExpectedSha256", release.Sha256, "-Version", release.Version, "-ReadyFile", ready }) start.ArgumentList.Add(arg);
+            foreach (var arg in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-ProcessId", Environment.ProcessId.ToString(), "-InstallRoot", installRoot, "-PackagePath", download.PackagePath, "-ExpectedSha256", release.Sha256, "-Version", release.Version, "-ExpectedChannel", release.Channel, "-ExpectedTag", release.TagName, "-ReadyFile", ready }) start.ArgumentList.Add(arg);
             helper = Process.Start(start) ?? throw new IOException("无法启动更新器。");
             StatusText.Text = "已完成下载和 SHA256 校验，正在准备升级…";
             var watch = Stopwatch.StartNew();
@@ -1535,6 +1535,9 @@ public sealed partial class MainWindow : Window
             if (message != "ready") throw new IOException(message);
             _saveTimer.Stop();
             await LibraryStore.SaveAsync(_allPhotos);
+            _settings.UpdateChannel = release.Channel;
+            _settings.UsePublicUpdateProxy = release.UsePublicProxy;
+            _settings.LastUpdateCheckUtc = DateTime.MinValue;
             _settings.Save();
             Environment.Exit(0);
         }
@@ -1554,13 +1557,13 @@ public sealed partial class MainWindow : Window
         _updateCheckInProgress = true;
         try
         {
-            var update = await UpdateService.CheckLatestAsync();
+            var update = await UpdateService.CheckLatestAsync(_settings.UpdateChannel, _settings.UsePublicUpdateProxy);
             _settings.LastUpdateCheckUtc = DateTime.UtcNow;
             _settings.Save();
             if (update != null)
             {
-                CheckUpdateNavButton.Content = $"● 更新至 {update.Version}";
-                StatusText.Text = $"发现新版本 {update.Version}，点击左侧更新入口安装";
+                CheckUpdateNavButton.Content = $"● {update.Channel} 更新";
+                StatusText.Text = $"发现 {update.Channel}：{update.DisplayVersion}，点击左侧更新入口安装";
             }
         }
         catch { /* 静默失败，不影响离线使用 */ }
@@ -1602,6 +1605,7 @@ public sealed partial class MainWindow : Window
         if (requestedUpdate != null) { await StartUpdateAsync(requestedUpdate); return; }
         if (result != ContentDialogResult.Primary) return;
 
+        if (_settings.UpdateChannel != editor.Draft.UpdateChannel) { editor.Draft.LastUpdateCheckUtc = DateTime.MinValue; CheckUpdateNavButton.Content = "↻ 检查更新"; }
         _settings = editor.Draft;
         _slideshowTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(_settings.SlideshowIntervalSeconds, 2, 15));
         ApplyTheme();

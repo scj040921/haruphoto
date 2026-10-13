@@ -327,10 +327,13 @@ public sealed class SettingsEditor : UserControl
     private void BuildUpdates()
     {
         var s = AddSection("关于与更新");
-        s.Reset = () => Draft.AutoCheckUpdates = true;
+        s.Reset = () => { Draft.AutoCheckUpdates = true; Draft.UpdateChannel = "Stable"; Draft.UsePublicUpdateProxy = true; Draft.LastUpdateCheckUtc = DateTime.MinValue; };
+        Combo(s, "更新通道", "Stable：稳定发行版。Nightly：每日测试版，可能有未验证的问题；可切回 Stable。", new[] { "Stable · 稳定版", "Nightly · 每日测试版" },
+            () => Draft.UpdateChannel == "Nightly" ? 1 : 0, v => { Draft.UpdateChannel = v == 1 ? "Nightly" : "Stable"; Draft.LastUpdateCheckUtc = DateTime.MinValue; });
+        Toggle(s, "公益下载代理", "直连失败后尝试 gh-proxy.org。仅传输公开更新包，不上传照片或令牌；仍验证 GitHub 直接提供的 SHA256。公共服务不保证可用。", () => Draft.UsePublicUpdateProxy, v => Draft.UsePublicUpdateProxy = v);
         Toggle(s, "自动检查更新", "启动及运行期间每 12 小时检查一次；只提示，不会自动安装。", () => Draft.AutoCheckUpdates, v => Draft.AutoCheckUpdates = v);
         var body = new StackPanel { Spacing = 8 };
-        var status = Label($"当前版本：{UpdateService.CurrentVersion}");
+        var status = Label($"当前版本：{UpdateService.CurrentDisplayVersion}");
         var check = new Button { Content = "检查更新", FontSize = 12 };
         var install = new Button { Content = "下载并更新", FontSize = 12, Visibility = Visibility.Collapsed };
         ReleaseInfo? release = null;
@@ -339,14 +342,16 @@ public sealed class SettingsEditor : UserControl
             check.IsEnabled = false; status.Text = "正在检查更新…"; install.Visibility = Visibility.Collapsed;
             try
             {
-                release = await UpdateService.CheckLatestAsync();
-                status.Text = release == null ? $"当前已是最新版本（{UpdateService.CurrentVersion}）" : $"发现版本 {release.Version}";
+                release = await UpdateService.CheckLatestAsync(Draft.UpdateChannel, Draft.UsePublicUpdateProxy);
+                status.Text = release == null ? $"{Draft.UpdateChannel} 通道暂无可用更新（当前 {UpdateService.CurrentDisplayVersion}）" : $"发现 {release.Channel}：{release.DisplayVersion}";
+                if (release != null && release.Channel != UpdateService.CurrentBuild.Channel) status.Text += "。切换发行通道可能回退版本；照片和图库数据保留。";
+                install.Content = release?.Channel == "Nightly" ? "安装 Nightly 测试版" : "下载并更新";
                 install.Visibility = release == null ? Visibility.Collapsed : Visibility.Visible;
             }
             catch (Exception ex) { status.Text = "检查失败：" + ex.Message; }
             finally { check.IsEnabled = true; }
         };
-        install.Click += (_, _) => { if (release != null) UpdateRequested?.Invoke(release); };
+        install.Click += (_, _) => { if (release != null && release.Channel == Draft.UpdateChannel) UpdateRequested?.Invoke(release with { UsePublicProxy = Draft.UsePublicUpdateProxy }); else ShowNotice("通道已修改，请重新检查更新。"); };
         body.Children.Add(status); body.Children.Add(check); body.Children.Add(install);
         AddSetting(s, "应用版本", "", body);
     }

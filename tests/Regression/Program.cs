@@ -29,6 +29,26 @@ try
     Check(UpdateService.ParseManifest(manifest.RootElement,"1.3.1")!.Version == "1.3.2", "API-independent update manifest");
     using var badManifest = JsonDocument.Parse(JsonSerializer.Serialize(new {tag="v1.3.2",version="1.3.2",architecture="arm64",url=release.PackageUrl,sha256=sha,size=123}));
     Reject(() => UpdateService.ParseManifest(badManifest.RootElement,"1.3.1"), "reject incompatible architecture");
+    var nightlyTag = "nightly-20261013-12";
+    var nightlyAssets = new[] { new {name="haruphoto-"+nightlyTag+"-portable.zip",browser_download_url="https://github.com/scj040921/haruphoto/releases/download/"+nightlyTag+"/haruphoto-"+nightlyTag+"-portable.zip",digest=sha,size=123} };
+    using var nightlyDoc=JsonDocument.Parse(JsonSerializer.Serialize(new {tag_name=nightlyTag,draft=false,prerelease=true,assets=nightlyAssets,body="<!-- haruphoto-version:1.3.3 -->",target_commitish=new string('b',40)}));
+    Check(UpdateService.ParseRelease(nightlyDoc.RootElement,"1.3.2")==null,"Stable ignores Nightly prereleases");
+    var nightly=UpdateService.ParseRelease(nightlyDoc.RootElement,"1.3.3","Nightly","Stable")!;
+    Check(nightly.Channel=="Nightly" && nightly.Version=="1.3.3" && nightly.Commit.Length==40,"Stable to Nightly without artificial version inflation");
+    UpdateService.ValidateRelease(nightly);
+    Check(UpdateService.ParseRelease(nightlyDoc.RootElement,"1.3.3","Nightly","Nightly",nightlyTag)==null,"same Nightly never reinstalls");
+    Check(UpdateService.ParseRelease(nightlyDoc.RootElement,"1.3.3","Nightly","Nightly","nightly-20261013-9")!=null,"Nightly build numbers compare numerically");
+    Check(UpdateService.ParseRelease(nightlyDoc.RootElement,"1.3.3","Nightly","Nightly","nightly-20261014-1")==null,"Nightly rejects old date");
+    Check(UpdateService.ParseRelease(nightlyDoc.RootElement,"1.4.0","Nightly","Nightly","nightly-20261012-9")==null,"Nightly rejects semantic downgrade");
+    Check(UpdateService.ParseRelease(releaseDoc.RootElement,"1.3.3","Stable","Nightly",nightlyTag)!=null,"explicit return to Stable allowed even at lower base version");
+    Check(UpdateService.ParseRelease(releaseDoc.RootElement,"1.3.1","Nightly")==null,"Nightly ignores Stable releases");
+    Check(UpdateService.NormalizeChannel("invalid")=="Stable","invalid saved update channel falls back to Stable");
+    Reject(()=>UpdateService.ValidateRelease(release with {PackageUrl=release.PackageUrl+"?token=secret"}),"update URLs cannot carry credentials");
+    Reject(()=>UpdateService.ProxyUrl("https://api.github.com/repos/scj040921/haruphoto/releases"),"metadata API never sent to third-party proxy");
+    Check(UpdateService.ProxyUrl(release.PackageUrl)==UpdateService.PublicProxy+release.PackageUrl,"public proxy only wraps official release URL");
+    await File.WriteAllTextAsync(Path.Combine(root,"build-info.json"),JsonSerializer.Serialize(new {version="1.3.3",channel="Nightly",tag=nightlyTag,commit=new string('b',40)}));
+    Check(BuildIdentity.Load(root,"1.3.3").Channel=="Nightly","installed build identity is independent from settings");
+    Check(BuildIdentity.Load(root,"1.3.2").Channel=="Stable","mismatched build metadata rejected");
     var bytes = System.Text.Encoding.UTF8.GetBytes("verified package fixture");
     var actualHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
     using var client = new HttpClient(new PackageHandler(bytes));
@@ -44,6 +64,18 @@ try
     try { await UpdateService.DownloadUsingClientAsync(validDownload,null,canceled.Token,client); throw new Exception("canceled download accepted"); }
     catch (OperationCanceledException) { Check(true,"canceled download aborts safely"); }
     Check(!Directory.GetDirectories(Path.GetTempPath(),"haruphoto-update-*").Except(beforeDownloads).Any(), "failed/canceled downloads leave no temporary payload");
+    using var fallbackHandler=new FallbackHandler(bytes);
+    using var fallbackClient=new HttpClient(fallbackHandler);
+    var viaProxy=await UpdateService.DownloadUsingClientAsync(validDownload with {UsePublicProxy=true},null,CancellationToken.None,fallbackClient);
+    Check(fallbackHandler.Urls.Count==2 && fallbackHandler.Urls[0]==validDownload.PackageUrl && fallbackHandler.Urls[1].StartsWith(UpdateService.PublicProxy),"direct failure retries via public proxy");
+    Check((await File.ReadAllBytesAsync(viaProxy.PackagePath)).SequenceEqual(bytes),"proxy result still verifies GitHub checksum");
+    UpdateService.CleanupDownload(viaProxy.Directory);
+    using var corruptProxy=new HttpClient(new FallbackHandler(System.Text.Encoding.UTF8.GetBytes("bad proxy")));
+    try { await UpdateService.DownloadUsingClientAsync(validDownload with {UsePublicProxy=true},null,CancellationToken.None,corruptProxy); throw new Exception("untrusted proxy accepted"); }
+    catch (InvalidDataException) { Check(true,"corrupt proxy response rejected"); }
+    using var canceledProxyHandler=new FallbackHandler(bytes);using var canceledProxyClient=new HttpClient(canceledProxyHandler);
+    try { await UpdateService.DownloadUsingClientAsync(validDownload with {UsePublicProxy=true},null,canceled.Token,canceledProxyClient); throw new Exception("canceled proxy accepted"); }
+    catch (OperationCanceledException) { Check(canceledProxyHandler.Urls.Count<=1,"user cancellation never retries via proxy"); }
     var original = new AppSettings { BackgroundImagePath="original", WatchedFolders=new() {"original"} };
     var clone = original.Clone(); clone.BackgroundImagePath="changed";clone.WatchedFolders.Clear();
     Check(original.BackgroundImagePath=="original" && original.WatchedFolders.Count==1,"settings cancel preserves original");
@@ -69,6 +101,15 @@ try
     LibraryStore.ForgetMissingEntries(); await LibraryStore.SaveAsync(Array.Empty<PhotoItem>());
     using var cleared=JsonDocument.Parse(await File.ReadAllTextAsync(LibraryStore.LibraryPath));Check(cleared.RootElement.GetProperty("photos").GetArrayLength()==0,"explicit clear forgets offline entries");
     Console.WriteLine($"TOTAL {passed} PASSED");
+    if (args.Contains("--live-check"))
+    {
+        foreach (var channel in new[] { "Stable", "Nightly" })
+        {
+            var actual = await UpdateService.CheckLatestAsync(channel, true);
+            if (actual != null) { UpdateService.ValidateRelease(actual); Check(actual.Channel==channel,"live GitHub Release selection: "+channel); }
+            Console.WriteLine($"LIVE {channel}: {actual?.DisplayVersion ?? "no release"}");
+        }
+    }
 }
 finally { Directory.Delete(root,true); }
 
@@ -78,5 +119,17 @@ sealed class PackageHandler(byte[] bytes) : HttpMessageHandler
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) });
+    }
+}
+
+sealed class FallbackHandler(byte[] bytes) : HttpMessageHandler
+{
+    public List<string> Urls {get;}=new();
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested(); Urls.Add(request.RequestUri!.AbsoluteUri);
+        if (!request.RequestUri.AbsoluteUri.StartsWith(UpdateService.PublicProxy)) throw new HttpRequestException("simulated direct failure");
+        if (request.Headers.Authorization != null) throw new Exception("proxy received credentials");
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK){Content=new ByteArrayContent(bytes)});
     }
 }
