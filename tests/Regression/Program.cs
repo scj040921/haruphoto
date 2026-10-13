@@ -49,6 +49,11 @@ try
     await File.WriteAllTextAsync(Path.Combine(root,"build-info.json"),JsonSerializer.Serialize(new {version="1.3.3",channel="Nightly",tag=nightlyTag,commit=new string('b',40)}));
     Check(BuildIdentity.Load(root,"1.3.3").Channel=="Nightly","installed build identity is independent from settings");
     Check(BuildIdentity.Load(root,"1.3.2").Channel=="Stable","mismatched build metadata rejected");
+    using var nightlyManifest=JsonDocument.Parse(JsonSerializer.Serialize(new {tag=nightlyTag,version="1.3.3",channel="Nightly",architecture="win-x64",url=nightly.PackageUrl,sha256=sha,size=123}));
+    Check(UpdateService.ParseChannelManifest(nightlyManifest.RootElement,"1.3.3","Nightly","Stable","")?.Channel=="Nightly","direct Release asset fallback understands Nightly");
+    Check(UpdateService.ParseChannelManifest(nightlyManifest.RootElement,"1.3.3","Nightly","Nightly",nightlyTag)==null,"fallback also avoids repeat Nightly install");
+    Reject(()=>UpdateService.ParseChannelManifest(nightlyManifest.RootElement,"1.3.3","Stable","Stable",""),"fallback cannot cross channels silently");
+    Check(UpdateService.ParseChannelManifest(manifest.RootElement,"1.3.1","Stable","Stable","")?.Version=="1.3.2","direct Release asset fallback supports old Stable manifest");
     var bytes = System.Text.Encoding.UTF8.GetBytes("verified package fixture");
     var actualHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
     using var client = new HttpClient(new PackageHandler(bytes));

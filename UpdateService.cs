@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 namespace PhotoAlbum;
 
@@ -38,6 +39,16 @@ public static class UpdateService
     public static async Task<ReleaseInfo?> CheckLatestAsync(string channel, bool usePublicProxy, CancellationToken cancellationToken = default)
     {
         channel = NormalizeChannel(channel);
+        try { return await CheckApiAsync(channel, usePublicProxy, cancellationToken); }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException)
+        {
+            return await CheckReleaseAssetsAsync(channel, usePublicProxy, cancellationToken);
+        }
+    }
+
+    private static async Task<ReleaseInfo?> CheckApiAsync(string channel, bool usePublicProxy, CancellationToken cancellationToken)
+    {
+        channel = NormalizeChannel(channel);
         // 元数据只从 GitHub HTTPS API 获取，绝不将代理提供的哈希作为信任根。
         using var response = await Client.GetAsync(channel == "Stable" ? ApiUrl + "/latest" : ApiUrl + "?per_page=30", cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
@@ -65,6 +76,54 @@ public static class UpdateService
             release = release with { Sha256 = ReadChecksum(content, Path.GetFileName(new Uri(release.PackageUrl).AbsolutePath)) };
         }
         release = release with { UsePublicProxy = usePublicProxy };
+        ValidateRelease(release);
+        return release;
+    }
+
+    private static async Task<ReleaseInfo?> CheckReleaseAssetsAsync(string channel, bool usePublicProxy, CancellationToken token)
+    {
+        var expectedTag = "";
+        string url;
+        if (channel == "Stable") url = RepoUrl + "/releases/latest/download/update.json";
+        else
+        {
+            var xml = await Client.GetStringAsync(RepoUrl + "/releases.atom", token);
+            var feed = XDocument.Parse(xml);
+            XNamespace atom = "http://www.w3.org/2005/Atom";
+            var tags = feed.Descendants(atom + "entry").Elements(atom + "link")
+                .Select(e => (string?)e.Attribute("href") ?? "")
+                .Where(link => link.StartsWith(RepoUrl + "/releases/tag/", StringComparison.Ordinal))
+                .Select(link => Uri.UnescapeDataString(link[(RepoUrl + "/releases/tag/").Length..]))
+                .Where(tag => IsChannelTag(tag, "Nightly")).ToList();
+            if (tags.Count == 0) return null;
+            tags.Sort(CompareNightlyTags);
+            expectedTag = tags[^1];
+            url = RepoUrl + "/releases/download/" + expectedTag + "/update.json";
+        }
+        // 备用清单也是本仓库的 Release 资产，直接经 GitHub HTTPS 下载，不经第三方代理。
+        using var response = await Client.GetAsync(url, token);
+        if (response.StatusCode == HttpStatusCode.NotFound) return null;
+        response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
+        var result = ParseChannelManifest(doc.RootElement, CurrentVersion, channel, CurrentBuild.Channel, CurrentBuild.Tag);
+        if (result != null && expectedTag.Length > 0 && result.TagName != expectedTag) throw new InvalidDataException("Release 标签与清单不一致。");
+        return result == null ? null : result with { UsePublicProxy = usePublicProxy };
+    }
+
+    internal static ReleaseInfo? ParseChannelManifest(JsonElement root, string currentVersion, string channel, string currentChannel, string currentTag)
+    {
+        var tag = root.GetProperty("tag").GetString() ?? "";
+        var version = root.GetProperty("version").GetString() ?? "";
+        var declaredChannel = root.TryGetProperty("channel", out var ch) ? ch.GetString() : "Stable";
+        if (declaredChannel != channel || !IsChannelTag(tag, channel) || root.GetProperty("architecture").GetString() != "win-x64") throw new InvalidDataException("Release 清单通道或架构不匹配。");
+        if (channel == "Stable")
+        {
+            if (version != tag[1..]) throw new InvalidDataException("Release 清单版本不匹配。");
+            if (currentChannel == "Stable" && !IsNewer(tag, currentVersion, out _)) return null;
+        }
+        else if (currentChannel == "Nightly" && (CompareNightlyTags(tag, currentTag) <= 0 || System.Version.Parse(version) < System.Version.Parse(currentVersion))) return null;
+        var release = new ReleaseInfo(tag, version, root.GetProperty("url").GetString() ?? "", root.GetProperty("sha256").GetString() ?? "", root.GetProperty("size").GetInt64(),
+            root.TryGetProperty("notes", out var notes) ? notes.GetString() ?? "" : "", channel, root.TryGetProperty("commit", out var commit) ? commit.GetString() ?? "" : "");
         ValidateRelease(release);
         return release;
     }

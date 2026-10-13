@@ -3,12 +3,12 @@
 ## 应用端
 
 设置 → 关于与更新 → 更新通道：Stable 或 Nightly。默认使用安装包所属通道；已有明确的通道偏好继续保留。
-Stable 从 `GET /repos/scj040921/haruphoto/releases/latest` 获取正式版，Nightly 从 Releases 列表中选取 `nightly-YYYYMMDD-run` 预发行版。
+Stable 从 `GET /repos/scj040921/haruphoto/releases/latest` 获取正式版，Nightly 从 Releases 列表中选取 `nightly-YYYYMMDD-run` 预发行版。API 限流/连接失败时，直连本仓库 Release 页面 Atom feed 与 Release 内的 update.json 作为备用信息源；不会读取无关服务器或代理提供的元数据。
 只提示，不强制安装；跨通道安装可能回退版本。自动检查间隔十二小时，修改通道会重置检查时间。
 Nightly 用日期和构建编号判断新旧，不依赖人为扩大软件版本号。同一 Nightly 不重复安装，同通道不自动回退基础版本。
 
 第三方公益代理 `gh-proxy.org` 仅在直连公开 Release 资产失败时使用，设置中可关闭。
-代理不是系统代理，不代理 GitHub API，不发送身份凭据、照片或图库信息。完整包 SHA256 必须匹配 GitHub HTTPS API 直接给出的 digest；无可信校验值则拒绝更新。
+代理不是系统代理，不代理 GitHub API 或更新元数据，不发送身份凭据、照片或图库信息。完整包 SHA256 必须匹配 GitHub HTTPS 直接给出的 digest 或本仓库 Release 资产里的原始校验值；无可信校验值则拒绝更新。
 下载先完成、校验再退出，安装前核对包内版本/通道/标签及逐文件哈希，替换失败保留或恢复旧安装。
 公共服务的可用性不保证；使用规则见 [服务方文档](https://gh-proxy.org/docs/github-accelerator)。
 
