@@ -39,6 +39,10 @@ Write-Output $standardOutput.GetAwaiter().GetResult()
 Write-Output $standardError.GetAwaiter().GetResult()
 $running=Get-Process PhotoAlbum -ErrorAction SilentlyContinue | Where-Object { try { $_.Path -eq (Join-Path $install 'PhotoAlbum.exe') } catch { $false } }
 if (-not $running) { throw 'No restarted QA process.' }
+if (@($running).Count -ne 1) { throw 'Expected one restarted QA process.' }
+$windowDeadline=(Get-Date).AddSeconds(20)
+do { $running.Refresh(); if ($running.HasExited) { throw 'Restarted QA app exited before creating a window.' }; if ($running.MainWindowHandle -ne 0) { break }; Start-Sleep -Milliseconds 200 } while ((Get-Date) -lt $windowDeadline)
+if ($running.MainWindowHandle -eq 0) { throw 'Restarted QA app did not create a window.' }
 if (-not $SimulateFailure -and $helper.ExitCode -ne 0) { throw 'Update failed.' }
 if ($SimulateFailure -and -not (Test-Path -LiteralPath $marker)) { throw 'Rollback lost original installation.' }
 if (-not $SimulateFailure -and (Test-Path -LiteralPath $marker)) { throw 'Old files survived replacement.' }

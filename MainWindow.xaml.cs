@@ -31,7 +31,7 @@ public sealed partial class MainWindow : Window
 
     private readonly RangeObservableCollection<PhotoItem> _photos = new();
     private readonly BoundedLru<PhotoItem> _thumbnailResidency = new(256);
-    private readonly HashSet<PhotoItem> _filmstripRealized = new();
+    private readonly Dictionary<DependencyObject, PhotoItem> _filmstripContainers = new();
     private bool _galleryMeasureQueued;
     private readonly List<PhotoItem> _allPhotos = new();
     private List<PhotoItem> _currentView = new();
@@ -937,7 +937,7 @@ public sealed partial class MainWindow : Window
     }
 
     private void TrimThumbnailMemory() => _thumbnailResidency.Trim(
-        p => _photos.Contains(p) || _filmstripRealized.Contains(p) || _comparePanes.Any(pane => pane.Photo == p),
+        p => _photos.Contains(p) || _filmstripContainers.Values.Contains(p) || _comparePanes.Any(pane => pane.Photo == p),
         p => p.ThumbnailSource = null);
 
     private async Task MaintainThumbnailCacheAsync()
@@ -2533,10 +2533,11 @@ public sealed partial class MainWindow : Window
 
     private void PreviewFilmstrip_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
+        // 回收事件的 Item 可能已清空；以容器为键才能及时撤销旧图片的保护。
+        if (args.InRecycleQueue) { _filmstripContainers.Remove(args.ItemContainer); return; }
         if (args.Item is not PhotoItem photo) return;
-        if (args.InRecycleQueue) { _filmstripRealized.Remove(photo); return; }
         if (_filmstripCts == null || _settings.FilmstripMode == 2) return;
-        _filmstripRealized.Add(photo);
+        _filmstripContainers[args.ItemContainer] = photo;
         _ = EnsureFilmstripThumbnailAsync(photo, _filmstripCts.Token);
     }
 
@@ -2555,7 +2556,7 @@ public sealed partial class MainWindow : Window
         _filmstripCts?.Cancel();
         _filmstripCts?.Dispose();
         _filmstripCts = null;
-        _filmstripRealized.Clear();
+        _filmstripContainers.Clear();
         PreviewFilmstrip.ItemsSource = null;
         TrimThumbnailMemory();
     }

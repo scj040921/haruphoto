@@ -42,6 +42,12 @@ public sealed partial class MainWindow
             await WaitFor(()=>PreviewLoading.Visibility!=Visibility.Visible);
             await EnsureFilmstripThumbnailAsync(view[120],_filmstripCts!.Token);
             Check(view[120].ThumbnailSource!=null,"filmstrip loads a photo outside current gallery page");
+            for(var index=0;index<400;index+=40)
+            {
+                ShowPreviewAt(index); await WaitFor(()=>PreviewLoading.Visibility!=Visibility.Visible);
+                await EnsureFilmstripThumbnailAsync(view[index],_filmstripCts!.Token); await Task.Delay(75);
+                Check(_allPhotos.Count(p=>p.ThumbnailSource!=null)<=256,"filmstrip jump "+index+" releases recycled protection");
+            }
             PreviewZoomIn_Click(this,new RoutedEventArgs()); await Task.Delay(250);
             Check(PreviewImageScroll.ZoomFactor>1,"detail zoom remains functional");
             ShowPreviewAt(121); await WaitFor(()=>PreviewLoading.Visibility!=Visibility.Visible); await Task.Delay(450);
