@@ -17,6 +17,9 @@
                 <NavigationViewItem Content="收藏" Tag="Favorites">
                     <NavigationViewItem.Icon><FontIcon Glyph="&#xE734;" FontSize="16"/></NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="地图相册" Tag="Map">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE707;" FontSize="16"/></NavigationViewItem.Icon>
+                </NavigationViewItem>
 
                 <!-- 时间线（代码动态添加年份子项）-->
                 <NavigationViewItem Content="时间线" Tag="Timeline" IsExpanded="True">
@@ -273,7 +276,8 @@
                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                         <TextBlock x:Name="StatusBarHint" Grid.Column="1" Text="⌃  操作" VerticalAlignment="Center" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <StackPanel x:Name="StatusBarActions" Grid.Column="1" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                        <ScrollViewer x:Name="StatusBarActionScroll" Grid.Column="1" MaxWidth="550" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Enabled">
+                        <StackPanel x:Name="StatusBarActions" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
                             <Button Content="对比选片" Click="CompareSelected_Click"
                                     FontSize="12" Padding="10,6"
                                     ToolTipService.ToolTip="选择 2–4 张照片后对比（Ctrl+D）"/>
@@ -293,6 +297,9 @@
                                     FontSize="12" Padding="12,6" Visibility="Collapsed"/>
                             <Button x:Name="MoreBatchBtn" Content="更多操作" Click="MoreBatch_Click"
                                     FontSize="12" Padding="12,6" Visibility="Collapsed"/>
+                            <Button x:Name="RemoveSelectedBtn" Content="移除所选" Click="RemoveSelected_Click"
+                                    FontSize="12" Padding="12,6" Visibility="Collapsed"
+                                    ToolTipService.ToolTip="仅移除图库记录，不删除原始照片；支持撤销"/>
                             <Button x:Name="RemoveFromCatBtn" Content="移出分类" Click="RemoveFromCategory_Click"
                                     FontSize="12" Padding="12,6" Visibility="Collapsed"/>
                             <Button x:Name="DissolveCatBtn" Content="解散分类" Click="DissolveCategory_Click"
@@ -307,6 +314,7 @@
                             <Button Content="常用操作" Click="BatchClassify_Click"
                                     FontSize="12" Padding="12,6"/>
                         </StackPanel>
+                        </ScrollViewer>
                     </Grid>
                 </Border>
 
@@ -335,6 +343,7 @@
                               VerticalScrollBarVisibility="Auto" Padding="24,132,24,96">
                     <StackPanel x:Name="OrganizePanel" Spacing="12" MaxWidth="720" HorizontalAlignment="Left">
                         <TextBlock Text="整理中心" FontSize="22" FontWeight="SemiBold"/>
+                        <Button Content="规则自动分类" Click="AutoClassify_Click" HorizontalAlignment="Left"/>
                         <TextBlock Text="根据现有元数据找出值得优先处理的照片。这里的操作不会删除磁盘文件。"
                                    FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                         <ItemsControl x:Name="OrganizeItems">
@@ -346,6 +355,57 @@
                 </ScrollViewer>
             </Grid>
         </NavigationView>
+
+        <Grid x:Name="MapOverlay" Visibility="Collapsed" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <Grid Padding="18,12">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="地图相册" FontSize="22" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="MapStatus" Text="拖动地图 · 滚轮缩放 · 选择照片后点击位置" TextWrapping="Wrap" MaxWidth="500" HorizontalAlignment="Left"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Content="＋ 放置照片" Click="MapChoosePhotos_Click"/>
+                    <Button x:Name="MapUndoBtn" Content="撤销" Click="Undo_Click" Visibility="Collapsed"/>
+                    <Button x:Name="MapCancelPlacementBtn" Content="取消放置" Click="MapCancelPlacement_Click" Visibility="Collapsed"/>
+                    <Button Content="＋" Click="MapZoomIn_Click" ToolTipService.ToolTip="放大地图"/>
+                    <Button Content="−" Click="MapZoomOut_Click" ToolTipService.ToolTip="缩小地图"/>
+                    <Button Content="返回相册" Click="MapClose_Click"/>
+                </StackPanel>
+            </Grid>
+            <Grid x:Name="MapViewport" Grid.Row="1" Background="#263A45" SizeChanged="MapViewport_SizeChanged">
+                <Canvas x:Name="MapTiles" IsHitTestVisible="False"/>
+                <Canvas x:Name="MapMarkers"/>
+                <Border VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="12" Padding="10,6" Background="#DD202830" CornerRadius="8" IsHitTestVisible="False">
+                    <TextBlock x:Name="MapNetworkStatus" Text="在线底图；照片、地点和批注只保存在本机" Foreground="White" FontSize="12"/>
+                </Border>
+                <HyperlinkButton Content="© OpenStreetMap contributors" NavigateUri="https://www.openstreetmap.org/copyright"
+                                 HorizontalAlignment="Right" VerticalAlignment="Bottom" Background="White" Foreground="Black" FontSize="11"/>
+            </Grid>
+            <Grid x:Name="MapPlaceOverlay" Grid.Row="1" Visibility="Collapsed" Background="#FF151A22" Padding="24" RequestedTheme="Dark">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel Spacing="6"><TextBlock x:Name="MapPlaceTitle" FontSize="22" Foreground="White"/>
+                        <TextBlock x:Name="MapPlaceNote" Foreground="#CCCCCC" TextWrapping="Wrap" MaxHeight="100"/></StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                        <Button Content="编辑地点 / 批注" Click="MapEditPlace_Click"/>
+                        <Button Content="加入照片" Click="MapAddToPlace_Click"/>
+                        <Button Content="移除地点" Click="MapRemovePlace_Click" ToolTipService.ToolTip="仅清除地图位置，不从图库删除"/>
+                        <Button Content="返回地图" Click="MapPlaceClose_Click"/>
+                    </StackPanel>
+                </Grid>
+                <GridView x:Name="MapPlacePhotos" Grid.Row="1" Margin="0,20,0,0" SelectionMode="None" IsItemClickEnabled="True" ItemClick="MapPhoto_ItemClick" ContainerContentChanging="MapPhoto_ContainerContentChanging">
+                    <GridView.ItemTemplate><DataTemplate>
+                        <StackPanel Width="180" Spacing="6" Margin="6">
+                            <Grid Height="138" Background="#30343B"><TextBlock Text="{Binding ThumbnailStatus}" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <Image Source="{Binding ThumbnailSource}" Stretch="Uniform"/></Grid>
+                            <TextBlock Text="{Binding Filename}" Foreground="White" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                    </DataTemplate></GridView.ItemTemplate>
+                </GridView>
+            </Grid>
+        </Grid>
 
         <!-- 全屏预览浮层 -->
         <Grid x:Name="PreviewOverlay" Visibility="Collapsed">
@@ -360,7 +420,7 @@
                 </Grid.RowDefinitions>
 
                 <!-- 预览工具栏 -->
-                <Border Grid.Row="0" Padding="14,10" Background="#32000000">
+                <Border x:Name="PreviewToolbar" Grid.Row="0" Padding="14,10" Background="#32000000">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -372,7 +432,8 @@
                         <TextBlock x:Name="PreviewTitleBar" Grid.Column="1" Text="照片预览"
                                    FontSize="14" FontWeight="SemiBold" Foreground="#FFFFFF"
                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                        <ScrollViewer Grid.Column="2" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Enabled" MaxWidth="740">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
                             <Button Click="PreviewZoomOut_Click" FontSize="15" Padding="10,6"
                                     Background="#25FFFFFF" Foreground="#FFFFFF" ToolTipService.ToolTip="缩小">
                                 <FontIcon Glyph="&#xE71F;" FontSize="13"/>
@@ -397,6 +458,10 @@
                             <Button x:Name="PreviewInfoToggleBtn" Content="信息" Click="PreviewInfoToggle_Click"
                                     FontSize="12" Padding="10,6"
                                     Background="#25FFFFFF" Foreground="#FFFFFF"/>
+                            <Button x:Name="PreviewFilmstripToggleBtn" Content="隐藏胶片条" Click="PreviewFilmstripToggle_Click"
+                                    Background="#25FFFFFF" Foreground="White" ToolTipService.ToolTip="显示/隐藏胶片条（H）"/>
+                            <Button x:Name="PreviewFullscreenBtn" Content="全屏" Click="PreviewFullscreen_Click"
+                                    Background="#25FFFFFF" Foreground="White" ToolTipService.ToolTip="全屏欣赏（F11），Esc 退出全屏"/>
                             <Button Content="旋转" Click="PreviewRotate_Click"
                                     FontSize="12" Padding="10,6"
                                     Background="#25FFFFFF" Foreground="#FFFFFF"/>
@@ -415,6 +480,7 @@
                                     FontSize="14" Padding="14,6"
                                     Background="#30FFFFFF" Foreground="#FFFFFF"/>
                         </StackPanel>
+                        </ScrollViewer>
                     </Grid>
                 </Border>
 
@@ -434,7 +500,7 @@
                     </Button>
 
                     <Grid x:Name="PreviewImageStage" Grid.Column="1" Margin="12,20">
-                        <ScrollViewer x:Name="PreviewImageScroll" ZoomMode="Enabled" MinZoomFactor="0.1" MaxZoomFactor="8"
+                        <ScrollViewer x:Name="PreviewImageScroll" ZoomMode="Enabled" MinZoomFactor="1" MaxZoomFactor="8"
                                       HorizontalScrollMode="Enabled" VerticalScrollMode="Enabled"
                                       HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
                             <Grid x:Name="PreviewImageCanvas">
@@ -559,6 +625,9 @@
                     </Border>
                 </Grid>
             </Grid>
+            <Button x:Name="PreviewFullscreenExit" Content="退出全屏 · Esc" Click="PreviewFullscreen_Click"
+                    Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="16"
+                    Background="#CC202028" Foreground="White"/>
         </Grid>
         <Grid x:Name="CompareOverlay" Visibility="Collapsed" Background="#FF12141A" RequestedTheme="Dark" KeyDown="Compare_KeyDown">
             <Grid.RowDefinitions>

@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Runtime.InteropServices.WindowsRuntime;
 
 namespace PhotoAlbum;
 
@@ -62,7 +63,82 @@ public sealed partial class MainWindow
             ShowPreviewAt(121); await WaitFor(()=>PreviewLoading.Visibility!=Visibility.Visible); await Task.Delay(450);
             Check(PreviewImage.Source is BitmapImage b&&b.PixelWidth>0,"detail image switch finishes decoding");
             Check(PreviewContentRoot.Opacity>0.95,"detail transition restores visible content");
+            ApplyFitPreviewZoom(); await Task.Delay(150);
+            ZoomPreviewAt(new Windows.Foundation.Point(PreviewImageScroll.ActualWidth / 2, PreviewImageScroll.ActualHeight / 2), 2);
+            await Task.Delay(150);
+            Check(PreviewImageScroll.ZoomFactor >= 1.95 && PreviewImageScroll.HorizontalOffset > 0,"pointer centered wheel handler zooms and positions actual viewport");
+            var previousX=PreviewImageScroll.HorizontalOffset;
+            _previewDragStart=new Windows.Foundation.Point(300,200); _previewDragX=previousX; _previewDragY=PreviewImageScroll.VerticalOffset;
+            PanPreviewTo(new Windows.Foundation.Point(240,180)); await Task.Delay(100);
+            Check(PreviewImageScroll.HorizontalOffset>previousX,"drag handler pans a zoomed photo");
+            ZoomPreviewAt(new Windows.Foundation.Point(100,100),.01f); await Task.Delay(100);
+            Check(Math.Abs(PreviewImageScroll.ZoomFactor-1)<.01&&PreviewImageScroll.HorizontalOffset==0,"wheel zoom out returns to fit without stale offset");
+            _filmstripHidden=false; ApplyFilmstripVisibility();
+            PreviewFilmstripToggle_Click(this,new RoutedEventArgs());
+            Check(PreviewFilmstripBar.Visibility==Visibility.Collapsed&&PreviewImageStage.Margin.Bottom==20,"hiding filmstrip frees photo space");
+            PreviewFilmstripToggle_Click(this,new RoutedEventArgs()); await Task.Delay(100);
+            Check(PreviewFilmstripBar.Visibility==Visibility.Visible,"filmstrip restores after explicit toggle");
+            var presenter=AppWindow.Presenter;
+            SetPreviewFullscreen(true); await Task.Delay(150);
+            Check(AppWindow.Presenter.Kind==Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen&&DetailPanel.Visibility==Visibility.Collapsed&&PreviewFullscreenExit.Visibility==Visibility.Visible,"fullscreen hides information and filmstrip with visible exit");
+            await CaptureFeatureSnapshotAsync("fullscreen.png");
+            SetPreviewFullscreen(false); await Task.Delay(150);
+            Check(AppWindow.Presenter.Kind==presenter.Kind&&PreviewToolbar.Visibility==Visibility.Visible&&DetailPanel.Visibility==Visibility.Visible,"exiting fullscreen restores previous presenter and information panel");
             ClosePreview(); await Task.Delay(450);
+
+            EnterBatchMode(); _selectedPaths.Add(view[0].FilePath); _selectedPaths.Add(view[120].FilePath);
+            Check(RemoveSelectedBtn.Visibility==Visibility.Visible&&_statusBarExpanded,"batch removal has a visible direct action");
+            var total=_allPhotos.Count; var originalBytes=await File.ReadAllBytesAsync(view[0].FilePath);
+            var cancelRemoval=RemoveSelectedAsync();
+            await Task.Delay(100); await RemoveSelectedAsync();
+            Check(_allPhotos.Count==total&&_removalDialogOpen,"repeated removal request cannot open overlapping dialogs");
+            await InvokeDialogActionAsync("取消"); await cancelRemoval;
+            Check(_allPhotos.Count==total,"canceling batch remove leaves the library untouched");
+            var remove=RemoveSelectedAsync(); await InvokeDialogActionAsync("移除"); await remove;
+            Check(_allPhotos.Count==total-2&&File.Exists(view[0].FilePath)&&(await File.ReadAllBytesAsync(view[0].FilePath)).SequenceEqual(originalBytes),"cross page batch removal preserves original photo bytes");
+            Undo_Click(this,new RoutedEventArgs()); ExitBatchMode();
+            Check(_allPhotos.Count==total&&_allPhotos.Select(p=>p.FilePath).Distinct(StringComparer.OrdinalIgnoreCase).Count()==total,"batch remove undo restores records without duplicates");
+            var category=view[0].Category; ApplyClassification(new(){{view[0],"规则测试"}});
+            Check(view[0].Category=="规则测试","rule classification applies preview proposal"); Undo_Click(this,new RoutedEventArgs());
+            Check(view[0].Category==category,"rule classification undo restores manual category");
+
+            SaveMapPlacement(new[]{view[0],view[120],view[400]},31.2,121.5,"qa-place","测试地点","地图批注 <script> & 本地文本");
+            await LibraryStore.SaveAsync(_allPhotos); var restored=await LibraryStore.LoadAsync();
+            Check(restored.Photos.Count(p=>p.MapPlaceId=="qa-place")==3&&restored.Photos.First(p=>p.MapPlaceId=="qa-place").MapNote.Contains("<script>"),"map placement and annotation persist as plain local metadata");
+            _mapLatitude=31.2; _mapLongitude=121.5; OpenMap(); await Task.Delay(250);
+            await RenderMapAsync();
+            Check(MapMarkers.Children.Count==1,"photos at one point render as one stacked marker");
+            await CaptureFeatureSnapshotAsync("map-stack.png");
+            var choose=ChooseMapPhotosAsync(); await Task.Delay(150);
+            var picker=OpenTestDialog(); var list=FindVisual<ListView>((DependencyObject)picker.Content).Single();
+            list.SelectedItems.Add(view[1]);
+            var search=FindVisual<TextBox>((DependencyObject)picker.Content).Single(); search.Text="no-such-photo"; await Task.Delay(75); search.Text=""; await Task.Delay(75);
+            await InvokeDialogActionAsync("下一步"); var selected=await choose;
+            Check(selected.Count==1&&ReferenceEquals(selected[0],view[1]),"map photo selection survives search filtering");
+            _mapPlacement=selected; var place=PlacePhotosAsync(32.1,120.2); await Task.Delay(100);
+            var placementDialog=OpenTestDialog(); var fields=FindVisual<TextBox>((DependencyObject)placementDialog.Content).ToArray();
+            fields.First(b=>b.Header is string h&&h=="地点名称").Text="第二地点";
+            fields.First(b=>b.AcceptsReturn).Text="新的本地批注";
+            await InvokeDialogActionAsync("放在这里"); await place;
+            Check(view[1].MapLabel=="第二地点"&&view[1].MapNote=="新的本地批注"&&MapMarkers.Children.Count==2,"photo placement dialog writes only confirmed coordinates and annotation");
+            Undo_Click(this,new RoutedEventArgs()); await Task.Delay(100);
+            Check(view[1].MapLatitude==null,"confirmed placement can be undone on map toolbar");
+            var originalView=_currentView;
+            AnimateToMapPlace(new(){view[0],view[120],view[400]}); await WaitFor(()=>MapPlaceOverlay.Visibility==Visibility.Visible);
+            await Task.Delay(400);
+            Check(!_mapAnimating&&MapPlacePhotos.Items.Count==3&&MapPlaceNote.Text.Contains("<script>"),"map point zoom transition unfolds local photo cards and safe notes");
+            await CaptureFeatureSnapshotAsync("map-place.png");
+            _mapPreviewRestore=_currentView; _currentView=_mapPlace.ToList(); OpenPreview(_mapPlace[0]);
+            await WaitFor(()=>PreviewLoading.Visibility!=Visibility.Visible);
+            Check(_currentView.Count==3,"map photo preview is scoped to the chosen location");
+            ClosePreview(); await Task.Delay(400);
+            Check(ReferenceEquals(_currentView,originalView),"closing map detail restores gallery query results");
+            SaveMapPlacement(_mapPlace,null,null,"","","");
+            Check(_mapPlace.All(p=>p.MapLatitude==null)&&_allPhotos.Count==total,"removing a map location preserves library records");
+            Undo_Click(this,new RoutedEventArgs()); await Task.Delay(100);
+            Check(_mapPlace.All(p=>p.MapLatitude==31.2),"map removal undo restores coordinates and notes");
+            MapClose_Click(this,new RoutedEventArgs());
+            Check(MapOverlay.Visibility==Visibility.Collapsed&&_mapThumbnailLifetime.IsCancellationRequested,"closing map cancels pending preview work");
 
             OpenComparison(new[] {view[0],view[1]},null);
             await WaitFor(()=>_comparePanes.Count==2&&_comparePanes.All(p=>p.Image.Source is BitmapImage b&&b.PixelWidth>0));
@@ -97,6 +173,32 @@ public sealed partial class MainWindow
         if(root is Button button) yield return button;
         for(var i=0;i<VisualTreeHelper.GetChildrenCount(root);i++)
             foreach(var child in FindButtons(VisualTreeHelper.GetChild(root,i))) yield return child;
+    }
+
+    private async Task CaptureFeatureSnapshotAsync(string name)
+    {
+        var bitmap = new RenderTargetBitmap();
+        await bitmap.RenderAsync((UIElement)Content);
+        var pixels = await bitmap.GetPixelsAsync();
+        using var output = File.Create(Path.Combine(AppPaths.DataDirectory,name));
+        using var stream = output.AsRandomAccessStream();
+        var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId,stream);
+        encoder.SetPixelData(Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied,
+            (uint)bitmap.PixelWidth,(uint)bitmap.PixelHeight,96,96,pixels.ToArray());
+        await encoder.FlushAsync();
+    }
+
+    private ContentDialog OpenTestDialog() => VisualTreeHelper.GetOpenPopupsForXamlRoot(Content.XamlRoot)
+        .SelectMany(p=>FindVisual<ContentDialog>(p.Child)).First();
+
+    private async Task InvokeDialogActionAsync(string label)
+    {
+        await Task.Delay(150);
+        var dialog=OpenTestDialog();
+        var button=FindButtons(dialog).First(b=>b.Content is string text&&text==label);
+        var peer=Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(button);
+        var invoke=(Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke);
+        invoke.Invoke();
     }
 
     private static IEnumerable<T> FindVisual<T>(DependencyObject root) where T : DependencyObject

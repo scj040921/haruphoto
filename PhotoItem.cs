@@ -134,6 +134,12 @@ public sealed class PhotoItem : INotifyPropertyChanged
     public string SizeText => FileSize > 1048576 ? $"{FileSize / 1048576.0:F1} MB" : $"{FileSize / 1024.0:F0} KB";
     public string DateText => TimelineDate.ToString("yyyy-MM-dd HH:mm");
     public string CategoryDisplay => string.IsNullOrEmpty(Category) ? "" : Category;
+    // 用户手动放置的地图位置，与源文件/EXIF 分离，不回写原照片。
+    public double? MapLatitude { get; set; }
+    public double? MapLongitude { get; set; }
+    public string MapPlaceId { get; set; } = "";
+    public string MapLabel { get; set; } = "";
+    public string MapNote { get; set; } = "";
 
     private bool _selectVisible;
     public bool SelectVisible

@@ -12,6 +12,9 @@
     <Compile Include="../../AppSettings.cs" Link="AppSettings.cs" />
     <Compile Include="../../AppearanceProfile.cs" Link="AppearanceProfile.cs" />
     <Compile Include="../../PhotoItem.cs" Link="PhotoItem.cs" />
+    <Compile Include="../../ViewerGeometry.cs" Link="ViewerGeometry.cs" />
+    <Compile Include="../../MapGeometry.cs" Link="MapGeometry.cs" />
+    <Compile Include="../../PhotoClassification.cs" Link="PhotoClassification.cs" />
     <Compile Include="../../LibraryStore.cs" Link="LibraryStore.cs" />
     <Compile Include="../../GalleryQuery.cs" Link="GalleryQuery.cs" />
     <Compile Include="../../RangeObservableCollection.cs" Link="RangeObservableCollection.cs" />

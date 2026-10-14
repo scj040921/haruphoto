@@ -59,6 +59,7 @@ public sealed partial class MainWindow
 
     private void OpenComparison(IEnumerable<PhotoItem> photos, PhotoItem? returnPhoto)
     {
+        if (_previewFullscreen) SetPreviewFullscreen(false);
         ++_previewVisibilityRequest;
         ++_exifRequestSeq;
         _previewVisibilityAnimation?.Stop();

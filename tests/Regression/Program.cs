@@ -108,6 +108,7 @@ try
     LibraryStore.ForgetMissingEntries(); await LibraryStore.SaveAsync(Array.Empty<PhotoItem>());
     using var cleared=JsonDocument.Parse(await File.ReadAllTextAsync(LibraryStore.LibraryPath));Check(cleared.RootElement.GetProperty("photos").GetArrayLength()==0,"explicit clear forgets offline entries");
     await PerformanceChecks.RunAsync(Check, root, args.Contains("--performance"));
+    await FeatureChecks.RunAsync(Check, root);
     Console.WriteLine($"TOTAL {passed} PASSED");
     if (args.Contains("--live-check"))
     {

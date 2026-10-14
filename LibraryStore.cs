@@ -22,6 +22,11 @@ public static class LibraryStore
         [JsonPropertyName("added")] public DateTime Added { get; set; }
         [JsonPropertyName("category")] public string Category { get; set; } = "";
         [JsonPropertyName("taken")] public DateTime? Taken { get; set; }
+        [JsonPropertyName("latitude")] public double? Latitude { get; set; }
+        [JsonPropertyName("longitude")] public double? Longitude { get; set; }
+        [JsonPropertyName("placeId")] public string PlaceId { get; set; } = "";
+        [JsonPropertyName("placeLabel")] public string PlaceLabel { get; set; } = "";
+        [JsonPropertyName("placeNote")] public string PlaceNote { get; set; } = "";
     }
 
     private sealed class LibraryFile
@@ -78,6 +83,11 @@ public static class LibraryStore
                         IsFavorite = e.Favorite,
                         Rating = e.Rating,
                         Category = e.Category ?? "",
+                        MapLatitude = MapGeometry.Valid(e.Latitude, e.Longitude) ? e.Latitude : null,
+                        MapLongitude = MapGeometry.Valid(e.Latitude, e.Longitude) ? e.Longitude : null,
+                        MapPlaceId = e.PlaceId ?? "",
+                        MapLabel = e.PlaceLabel ?? "",
+                        MapNote = e.PlaceNote ?? "",
                     });
                 }
                 catch { MissingEntries.Add(e); missing++; }
@@ -99,6 +109,11 @@ public static class LibraryStore
                 Added = p.DateAdded,
                 Category = p.Category ?? "",
                 Taken = p.DateTaken,
+                Latitude = MapGeometry.Valid(p.MapLatitude, p.MapLongitude) ? p.MapLatitude : null,
+                Longitude = MapGeometry.Valid(p.MapLatitude, p.MapLongitude) ? p.MapLongitude : null,
+                PlaceId = p.MapPlaceId,
+                PlaceLabel = p.MapLabel,
+                PlaceNote = p.MapNote,
             }).ToList(),
         };
         var paths = new HashSet<string>(lib.Photos.Select(p => p.Path), StringComparer.OrdinalIgnoreCase);

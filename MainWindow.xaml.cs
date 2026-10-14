@@ -97,9 +97,10 @@ public sealed partial class MainWindow : Window
         Title = "haruphoto";
         PreviewImageScroll.ViewChanged += (_, _) => UpdatePreviewZoomText();
         PreviewImageScroll.SizeChanged += (_, _) => SizePreviewCanvas();
+        InitializeViewerGestures();
         PreviewOverlay.PointerMoved += (_, e) =>
         {
-            if (_settings.FilmstripMode != 1) return;
+            if (_settings.FilmstripMode != 1 || _filmstripHidden || _previewFullscreen) return;
             var y = e.GetCurrentPoint(PreviewContentRoot).Position.Y;
             var show = y >= PreviewContentRoot.ActualHeight - 104 && y <= PreviewContentRoot.ActualHeight;
             PreviewFilmstripBar.Opacity = show ? 1 : 0;
@@ -937,7 +938,9 @@ public sealed partial class MainWindow : Window
     }
 
     private void TrimThumbnailMemory() => _thumbnailResidency.Trim(
-        p => _photos.Contains(p) || _filmstripContainers.Values.Contains(p) || _comparePanes.Any(pane => pane.Photo == p),
+        p => (_photos.Contains(p) && MapOverlay.Visibility != Visibility.Visible) || _filmstripContainers.Values.Contains(p) || _comparePanes.Any(pane => pane.Photo == p)
+            || (MapOverlay.Visibility == Visibility.Visible && PreviewOverlay.Visibility != Visibility.Visible
+                && (_mapMarkerPhotos.Contains(p) || _mapPhotoContainers.Values.Contains(p))),
         p => p.ThumbnailSource = null);
 
     private async Task MaintainThumbnailCacheAsync()
@@ -1025,6 +1028,7 @@ public sealed partial class MainWindow : Window
         var fav = _allPhotos.Count(p => p.IsFavorite);
         var sel = _selectedPaths.Count;
         SelectedCountText.Text = sel > 0 ? $"已选择 {sel} 张" : "";
+        RemoveSelectedBtn.IsEnabled = sel > 0;
         StatsText.Text = sel > 0
             ? $"{_allPhotos.Count} 张照片 · {fav} 收藏 · 已选 {sel} 张"
             : $"{_allPhotos.Count} 张照片 · {fav} 收藏";
@@ -1067,6 +1071,7 @@ public sealed partial class MainWindow : Window
         _lastUndoLabel = label;
         _lastUndoAction = restore;
         UndoBtn.Visibility = Visibility.Visible;
+        MapUndoBtn.Visibility = Visibility.Visible;
     }
 
     private void Undo_Click(object sender, RoutedEventArgs e)
@@ -1084,6 +1089,7 @@ public sealed partial class MainWindow : Window
             _lastUndoAction = null;
             _lastUndoLabel = "";
             UndoBtn.Visibility = Visibility.Collapsed;
+            MapUndoBtn.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -1096,6 +1102,7 @@ public sealed partial class MainWindow : Window
         if (e.SelectedItem is NavigationViewItem item)
         {
             var tag = item.Tag?.ToString() ?? "";
+            if (tag == "Map") { OpenMap(); return; }
 
             if (tag == "All")
             {
@@ -1596,7 +1603,8 @@ public sealed partial class MainWindow : Window
         if (_statusBarExpanded == expanded) return;
         _statusBarExpanded = expanded;
         var from = StatusBarGlass.ActualWidth > 0 ? StatusBarGlass.ActualWidth : StatusBarGlass.Width;
-        var to = expanded ? 760d : 230d;
+        var to = expanded ? Math.Min(760d, Math.Max(320d, NavView.ActualWidth - (NavView.IsPaneOpen ? NavView.OpenPaneLength : NavView.CompactPaneLength) - 36)) : 230d;
+        StatusBarActionScroll.MaxWidth = Math.Max(140, to - 180);
         if (expanded)
         {
             StatusBarActions.Visibility = Visibility.Visible;
@@ -2098,9 +2106,12 @@ public sealed partial class MainWindow : Window
         RenameBtn.Visibility = Visibility.Collapsed;
         ExportBtn.Visibility = Visibility.Collapsed;
         MoreBatchBtn.Visibility = Visibility.Visible;
+        RemoveSelectedBtn.Visibility = Visibility.Visible;
+        SetStatusBarExpanded(true);
         DuplicateBtn.Visibility = Visibility.Collapsed;
         UnfavoriteBtn.Visibility = Visibility.Visible;
         ClearLibraryBtn.Visibility = Visibility.Collapsed;
+        UpdateStats();
     }
 
     private void ExitBatchMode()
@@ -2116,6 +2127,7 @@ public sealed partial class MainWindow : Window
         RenameBtn.Visibility = Visibility.Collapsed;
         ExportBtn.Visibility = Visibility.Collapsed;
         MoreBatchBtn.Visibility = Visibility.Collapsed;
+        RemoveSelectedBtn.Visibility = Visibility.Collapsed;
         DuplicateBtn.Visibility = Visibility.Collapsed;
         UnfavoriteBtn.Visibility = Visibility.Collapsed;
         ClearLibraryBtn.Visibility = Visibility.Collapsed;
@@ -2142,6 +2154,8 @@ public sealed partial class MainWindow : Window
         var uncategory = new MenuFlyoutItem { Text = "取消分类" };
         uncategory.Click += BatchUncategorize_Click;
         var clear = new MenuFlyoutItem { Text = "清空图库", Foreground = (Brush)Application.Current.Resources["SoftRedBrush"] };
+        var automatic = new MenuFlyoutItem { Text = "规则自动分类" };
+        automatic.Click += AutoClassify_Click;
         clear.Click += BatchDelete_Click;
         menu.Items.Add(compare);
         menu.Items.Add(selectResults);
@@ -2150,6 +2164,7 @@ public sealed partial class MainWindow : Window
         menu.Items.Add(duplicate);
         menu.Items.Add(unfavorite);
         menu.Items.Add(uncategory);
+        menu.Items.Add(automatic);
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(clear);
         menu.ShowAt(sender as FrameworkElement);
@@ -2179,10 +2194,8 @@ public sealed partial class MainWindow : Window
         _filmstripCts = new CancellationTokenSource();
         _previewInfoVisible = _settings.PreviewInfoDefaultVisible;
         ApplyPreviewInfoVisibility();
-        PreviewFilmstripBar.Visibility = _settings.FilmstripMode == 2 ? Visibility.Collapsed : Visibility.Visible;
-        PreviewFilmstripBar.Opacity = _settings.FilmstripMode == 1 ? 0 : 1;
-        PreviewFilmstripBar.IsHitTestVisible = _settings.FilmstripMode == 0;
-        PreviewImageStage.Margin = new Thickness(12, 20, 12, _settings.FilmstripMode == 0 ? 100 : 20);
+        _filmstripHidden = _settings.FilmstripMode == 2;
+        ApplyFilmstripVisibility();
         PreviewOverlay.Visibility = Visibility.Visible;
         ShowPreviewAt(idx);
         AnimatePreviewIn();
@@ -2190,6 +2203,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowPreviewAt(int idx)
     {
+        EndPreviewDrag();
         _previewImageAnimation?.Stop();
         if (_currentView.Count == 0) { ClosePreview(); return; }
         _previewIndex = Math.Clamp(idx, 0, _currentView.Count - 1);
@@ -2234,7 +2248,7 @@ public sealed partial class MainWindow : Window
         PreviewFilmstrip.ItemsSource = _currentView;
         PreviewFilmstrip.SelectedItem = p;
         PreviewFilmstrip.ScrollIntoView(p);
-        if (_filmstripCts != null && _settings.FilmstripMode != 2)
+        if (_filmstripCts != null && !_filmstripHidden && !_previewFullscreen)
         {
             _ = EnsureFilmstripThumbnailAsync(p, _filmstripCts.Token);
             if (_previewIndex > 0) _ = EnsureFilmstripThumbnailAsync(_currentView[_previewIndex - 1], _filmstripCts.Token);
@@ -2380,6 +2394,8 @@ public sealed partial class MainWindow : Window
 
     private void ClosePreview()
     {
+        EndPreviewDrag();
+        if (_previewFullscreen) SetPreviewFullscreen(false);
         ++_previewTransitionRequest;
         ++_exifRequestSeq;
         _previewImageAnimation?.Stop();
@@ -2388,6 +2404,7 @@ public sealed partial class MainWindow : Window
         LoadThumbnailsForCurrentPage();
         ++_previewPaletteRequest;
         AnimatePreviewOut();
+        RestoreMapPreviewView();
     }
 
     private void PreviewSlideshow_Click(object sender, RoutedEventArgs e) => ToggleSlideshow();
@@ -2427,6 +2444,12 @@ public sealed partial class MainWindow : Window
         // 焦点在输入框时不拦截按键（搜索/分类输入）
         if (FocusManager.GetFocusedElement() is TextBox or PasswordBox)
             return;
+        if (_mapDialogOpen) return;
+        if (MapOverlay.Visibility == Visibility.Visible && PreviewOverlay.Visibility != Visibility.Visible)
+        {
+            if (e.Key == VirtualKey.Escape) { if (MapPlaceOverlay.Visibility == Visibility.Visible) MapPlaceClose_Click(this, new RoutedEventArgs()); else MapClose_Click(this, new RoutedEventArgs()); e.Handled = true; }
+            return;
+        }
         if (ctrl && e.Key == VirtualKey.D)
         {
             if (PreviewOverlay.Visibility == Visibility.Visible) CompareAdjacent_Click(this, new RoutedEventArgs());
@@ -2440,7 +2463,9 @@ public sealed partial class MainWindow : Window
         {
             switch (e.Key)
             {
-                case VirtualKey.Escape: ClosePreview(); e.Handled = true; break;
+                case VirtualKey.Escape: if (_previewFullscreen) SetPreviewFullscreen(false); else ClosePreview(); e.Handled = true; break;
+                case VirtualKey.F11: SetPreviewFullscreen(!_previewFullscreen); e.Handled = true; break;
+                case VirtualKey.H: PreviewFilmstripToggle_Click(this, new RoutedEventArgs()); e.Handled = true; break;
                 case VirtualKey.Left: if (PreviewPrevBtn.IsEnabled) { ShowPreviewAt(_previewIndex - 1); e.Handled = true; } break;
                 case VirtualKey.Right: if (PreviewNextBtn.IsEnabled) { ShowPreviewAt(_previewIndex + 1); e.Handled = true; } break;
                 case VirtualKey.Number0 when ctrl: ApplyFitPreviewZoom(); e.Handled = true; break;
@@ -2448,7 +2473,7 @@ public sealed partial class MainWindow : Window
                 case VirtualKey.Delete:
                     if (_previewIndex >= 0 && _previewIndex < _currentView.Count)
                     {
-                        RemoveFromLibraryAsync(_currentView[_previewIndex]);
+                        _ = RemoveFromLibraryAsync(_currentView[_previewIndex]);
                         e.Handled = true;
                     }
                     break;
@@ -2476,7 +2501,7 @@ public sealed partial class MainWindow : Window
                 else { EnterBatchMode(); SelectAllPage_Click(this, new RoutedEventArgs()); e.Handled = true; }
                 break;
             case VirtualKey.Delete:
-                if (_selectedPaths.Count > 0) { RemoveSelectedAsync(); e.Handled = true; }
+                if (_selectedPaths.Count > 0) { _ = RemoveSelectedAsync(); e.Handled = true; }
                 break;
             case VirtualKey.Escape:
                 if (_batchMode) { ExitBatchMode(); e.Handled = true; }
@@ -2536,8 +2561,8 @@ public sealed partial class MainWindow : Window
         // 回收事件的 Item 可能已清空；以容器为键才能及时撤销旧图片的保护。
         if (args.InRecycleQueue) { _filmstripContainers.Remove(args.ItemContainer); return; }
         if (args.Item is not PhotoItem photo) return;
-        if (_filmstripCts == null || _settings.FilmstripMode == 2) return;
         _filmstripContainers[args.ItemContainer] = photo;
+        if (_filmstripCts == null || _filmstripHidden || _previewFullscreen) return;
         _ = EnsureFilmstripThumbnailAsync(photo, _filmstripCts.Token);
     }
 
@@ -2690,14 +2715,14 @@ public sealed partial class MainWindow : Window
     /// <summary>从图库移除（仅移除图库记录，绝不删除磁盘文件），带确认对话框。</summary>
     private async Task RemoveFromLibraryAsync(PhotoItem p)
     {
-        var dlg = new ContentDialog { Title = "从图库移除", Content = $"将「{p.Filename}」从图库移除？\n磁盘上的文件不会被删除。", PrimaryButtonText = "移除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close, XamlRoot = Content.XamlRoot };
-        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
-
-        _allPhotos.Remove(p);
+        if (!await ConfirmLibraryRemovalAsync(new[] { p }, "从图库移除")) return;
+        var fromMap = _mapPreviewRestore != null;
+        RemoveLibraryRecords(new[] { p });
         RefreshPhotos();
         ScheduleSave();
         StatusText.Text = $"已移除 {p.Filename}（文件仍在磁盘上）";
-        ShowPreviewAt(_previewIndex);
+        if (fromMap) { _mapPreviewRestore = _currentView; ClosePreview(); var remaining = _mapPlace.Where(_allPhotos.Contains).ToList(); if (remaining.Count > 0) ShowMapPlace(remaining); else MapPlaceClose_Click(this, new RoutedEventArgs()); }
+        else if (PreviewOverlay.Visibility == Visibility.Visible) ShowPreviewAt(_previewIndex);
     }
 
     /// <summary>批量移除选中的照片（仅图库记录，不删磁盘文件）。</summary>
@@ -2706,14 +2731,9 @@ public sealed partial class MainWindow : Window
         var targets = _allPhotos.Where(p => _selectedPaths.Contains(p.FilePath)).ToList();
         if (targets.Count == 0) return;
 
-        var dlg = new ContentDialog { Title = "批量移除", Content = $"将选中的 {targets.Count} 张照片从图库移除？\n磁盘上的文件不会被删除。", PrimaryButtonText = "移除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close, XamlRoot = Content.XamlRoot };
-        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+        if (!await ConfirmLibraryRemovalAsync(targets, "批量移除")) return;
 
-        foreach (var p in targets)
-        {
-            _allPhotos.Remove(p);
-            _selectedPaths.Remove(p.FilePath);
-        }
+        RemoveLibraryRecords(targets);
         ExitBatchMode();
         RefreshPhotos();
         ScheduleSave();
