@@ -108,19 +108,44 @@ public sealed partial class MainWindow
             _mapLatitude=31.2; _mapLongitude=121.5; OpenMap(); await Task.Delay(250);
             await RenderMapAsync();
             Check(MapMarkers.Children.Count==1,"photos at one point render as one stacked marker");
+            var tileViews=_mapTileViews.Values.ToArray(); var marker=MapMarkers.Children[0];
+            await RenderMapAsync();
+            Check(tileViews.All(_mapTileViews.Values.Contains)&&ReferenceEquals(marker,MapMarkers.Children[0]),"stationary map reuses tile images and marker controls");
+            var mapRenderWatch=Stopwatch.StartNew();
+            for(var i=0;i<20;i++){_mapLongitude+=.001;await RenderMapAsync();}
+            mapRenderWatch.Stop();
+            Check(_mapTileViews.Count<=80&&ReferenceEquals(marker,MapMarkers.Children[0]),"small pans keep map layers bounded without rebuilding marker controls");
+            var initialMapZoom=_mapZoom;
+            ChangeMapZoom(1,new Windows.Foundation.Point(600,250)); ChangeMapZoom(1,new Windows.Foundation.Point(600,250));
+            await WaitFor(()=>!_mapAnimating);
+            Check(_mapZoom==initialMapZoom+2&&_mapRenderedZoom==_mapZoom,"rapid wheel steps interrupt and retarget compositor zoom without dropping input");
+            Check(Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(MapTiles).Scale.X==1,"finished compositor motion resets scale for accurate map hit testing");
             await CaptureFeatureSnapshotAsync("map-stack.png");
             var choose=ChooseMapPhotosAsync(); await Task.Delay(150);
             var picker=OpenTestDialog(); var list=FindVisual<ListView>((DependencyObject)picker.Content).Single();
             list.SelectedItems.Add(view[1]);
+            var preview=FindVisual<Image>((DependencyObject)picker.Content).Single(i=>i.Name=="MapPickerPreviewImage");
+            await WaitFor(()=>preview.Source is BitmapImage bmp&&bmp.PixelWidth>0);
+            Check(picker.IsPrimaryButtonEnabled,"photo preview selection enables placement confirmation");
+            Check(FindVisual<Image>(list).Any(i=>i.Source!=null),"map picker visible rows load real photo thumbnails");
+            await CaptureFeatureSnapshotAsync("map-picker.png",picker);
             var search=FindVisual<TextBox>((DependencyObject)picker.Content).Single(); search.Text="no-such-photo"; await Task.Delay(75); search.Text=""; await Task.Delay(75);
             await InvokeDialogActionAsync("下一步"); var selected=await choose;
             Check(selected.Count==1&&ReferenceEquals(selected[0],view[1]),"map photo selection survives search filtering");
-            _mapPlacement=selected; var place=PlacePhotosAsync(32.1,120.2); await Task.Delay(100);
+            BeginMapPlacement(selected);
+            await WaitFor(()=>MapPlacementImage.Source is BitmapImage bmp&&bmp.PixelWidth>0);
+            Check(MapPlacementPreview.Visibility==Visibility.Visible&&MapPlacementName.Text==view[1].Filename,"map placement keeps the chosen photo visible beside the map");
+            await CaptureFeatureSnapshotAsync("map-placement-preview.png");
+            BeginMapPlacement(new(){view[1],view[2]}); MapPlacementNext_Click(this,new RoutedEventArgs());
+            await WaitFor(()=>MapPlacementName.Text==view[2].Filename&&MapPlacementImage.Source is BitmapImage bmp&&bmp.PixelWidth>0);
+            Check(_mapPlacement.Count==2&&_mapPlacementPreviewIndex==1,"placement preview navigation preserves the whole selected batch");
+            var place=PlacePhotosAsync(32.1,120.2); await Task.Delay(100);
             var placementDialog=OpenTestDialog(); var fields=FindVisual<TextBox>((DependencyObject)placementDialog.Content).ToArray();
             fields.First(b=>b.Header is string h&&h=="地点名称").Text="第二地点";
             fields.First(b=>b.AcceptsReturn).Text="新的本地批注";
             await InvokeDialogActionAsync("放在这里"); await place;
             Check(view[1].MapLabel=="第二地点"&&view[1].MapNote=="新的本地批注"&&MapMarkers.Children.Count==2,"photo placement dialog writes only confirmed coordinates and annotation");
+            Check(MapPlacementPreview.Visibility==Visibility.Collapsed&&MapPlacementImage.Source==null,"confirmed placement releases preview and prevents stale photo updates");
             Undo_Click(this,new RoutedEventArgs()); await Task.Delay(100);
             Check(view[1].MapLatitude==null,"confirmed placement can be undone on map toolbar");
             AnimateToMapPlace(new(){view[0],view[120],view[400]}); await WaitFor(()=>MapPlaceOverlay.Visibility==Visibility.Visible);
@@ -162,7 +187,8 @@ public sealed partial class MainWindow
                 dialog.Hide(); await shown; editor.CancelPendingOperations();
             }
             File.WriteAllText(Path.Combine(AppPaths.DataDirectory,"performance-smoke.json"),JsonSerializer.Serialize(new {success=true,checks,seconds=watch.Elapsed.TotalSeconds,
-                photos=_allPhotos.Count,residentThumbnails=_allPhotos.Count(p=>p.ThumbnailSource!=null),workingSetMB=Process.GetCurrentProcess().WorkingSet64/1048576d}));
+                photos=_allPhotos.Count,residentThumbnails=_allPhotos.Count(p=>p.ThumbnailSource!=null),workingSetMB=Process.GetCurrentProcess().WorkingSet64/1048576d,
+                mapRender20SmallPansMs=mapRenderWatch.Elapsed.TotalMilliseconds,mapTileViews=_mapTileViews.Count}));
         }
         catch(Exception ex)
         {
@@ -178,10 +204,10 @@ public sealed partial class MainWindow
             foreach(var child in FindButtons(VisualTreeHelper.GetChild(root,i))) yield return child;
     }
 
-    private async Task CaptureFeatureSnapshotAsync(string name)
+    private async Task CaptureFeatureSnapshotAsync(string name, UIElement? target=null)
     {
         var bitmap = new RenderTargetBitmap();
-        await bitmap.RenderAsync((UIElement)Content);
+        await bitmap.RenderAsync(target??(UIElement)Content);
         var pixels = await bitmap.GetPixelsAsync();
         using var output = File.Create(Path.Combine(AppPaths.DataDirectory,name));
         using var stream = output.AsRandomAccessStream();

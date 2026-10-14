@@ -7,6 +7,21 @@
 
     <Grid KeyDown="Root_KeyDown" AllowDrop="True" DragOver="Root_DragOver" Drop="Root_Drop"
           Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.Resources>
+            <DataTemplate x:Key="MapPickerPhotoTemplate">
+                <Grid Padding="4" ColumnSpacing="10">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="96"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Grid Height="72" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                        <TextBlock Text="{Binding ThumbnailStatus}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="11"/>
+                        <Image Source="{Binding ThumbnailSource}" Stretch="Uniform"/>
+                    </Grid>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
+                        <TextBlock Text="{Binding Filename}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding FilePath}"/>
+                        <TextBlock Text="{Binding DateText}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                </Grid>
+            </DataTemplate>
+        </Grid.Resources>
         <NavigationView x:Name="NavView" IsBackButtonVisible="Collapsed" IsSettingsVisible="False"
                         OpenPaneLength="210" CompactPaneLength="48" IsPaneOpen="True"
                         SelectionChanged="NavView_SelectionChanged">
@@ -381,6 +396,20 @@
                 </Border>
                 <HyperlinkButton Content="© OpenStreetMap contributors" NavigateUri="https://www.openstreetmap.org/copyright"
                                  HorizontalAlignment="Right" VerticalAlignment="Bottom" Background="White" Foreground="Black" FontSize="11"/>
+                <Border x:Name="MapPlacementPreview" Width="280" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12"
+                        Visibility="Collapsed" Padding="12" CornerRadius="12" Background="#EE202830" RequestedTheme="Dark">
+                    <ScrollViewer MaxHeight="430" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Spacing="8">
+                        <TextBlock x:Name="MapPlacementCount" Foreground="White" FontWeight="SemiBold"/>
+                        <Grid Height="180" Background="#182029"><Image x:Name="MapPlacementImage" Stretch="Uniform"/></Grid>
+                        <TextBlock x:Name="MapPlacementName" Foreground="White" TextTrimming="CharacterEllipsis"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="上一张" Click="MapPlacementPrev_Click"/><Button Content="下一张" Click="MapPlacementNext_Click"/>
+                        </StackPanel>
+                        <TextBlock Text="对照照片，点击地图位置或已有地点。所有已选照片将一起放置。" Foreground="#DDDDDD" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    </ScrollViewer>
+                </Border>
             </Grid>
             <Grid x:Name="MapPlaceOverlay" Grid.Row="1" Visibility="Collapsed" Background="#FF151A22" Padding="24" RequestedTheme="Dark">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>

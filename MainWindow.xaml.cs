@@ -940,7 +940,7 @@ public sealed partial class MainWindow : Window
     private void TrimThumbnailMemory() => _thumbnailResidency.Trim(
         p => (_photos.Contains(p) && MapOverlay.Visibility != Visibility.Visible) || _filmstripContainers.Values.Contains(p) || _comparePanes.Any(pane => pane.Photo == p)
             || (MapOverlay.Visibility == Visibility.Visible && PreviewOverlay.Visibility != Visibility.Visible
-                && (_mapMarkerPhotos.Contains(p) || _mapPhotoContainers.Values.Contains(p))),
+                && (_mapMarkerPhotos.Contains(p) || _mapPhotoContainers.Values.Contains(p) || _mapPickerPhotos.Contains(p))),
         p => p.ThumbnailSource = null);
 
     private async Task MaintainThumbnailCacheAsync()
