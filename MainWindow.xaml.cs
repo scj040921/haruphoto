@@ -905,18 +905,18 @@ public sealed partial class MainWindow : Window
 
     // ══════════ 筛选 / 排序 / 分页 ══════════
 
-    private void RefreshPhotos()
+    private void RefreshPhotos(bool forceRender = false)
     {
         if (!_uiReady || _windowClosing) return;
         _currentView = GalleryQuery.Apply(_allPhotos, new GalleryFilter(_favoritesOnly, _categoryFilter,
             _timelineFilter, _minRatingFilter, _dateFilterDays, _organizeFilter, _searchKeyword, _sortBy));
         UpdateEmptyState();
         UpdateStats();
-        RenderCurrentPage();
+        RenderCurrentPage(forceRender);
     }
 
     // 翻页只切片已有结果，不重复筛选/排序整个图库。
-    private void RenderCurrentPage()
+    private void RenderCurrentPage(bool forceReset = false)
     {
         var maxPage = Math.Max(0, (_currentView.Count - 1) / PageSize);
         _currentPage = Math.Clamp(_currentPage, 0, maxPage);
@@ -926,7 +926,7 @@ public sealed partial class MainWindow : Window
             photo.IsSelected = _selectedPaths.Contains(photo.FilePath);
             if (photo.ThumbnailSource != null) _thumbnailResidency.Touch(photo);
         }
-        var changed = _photos.ReplaceAll(page);
+        var changed = _photos.ReplaceAll(page, forceReset);
         TrimThumbnailMemory();
         PageInfo.Text = $"第 {_currentPage + 1}/{maxPage + 1} 页 · 共 {_currentView.Count} 张";
         PrevPageBtn.IsEnabled = _currentPage > 0;
@@ -1559,7 +1559,7 @@ public sealed partial class MainWindow : Window
         _slideshowTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(_settings.SlideshowIntervalSeconds, 2, 15));
         ApplyTheme();
         ApplyGalleryLayout();
-        RefreshPhotos();
+        RefreshPhotos(forceRender: true);
         if (_settings.AutoScan) _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
         else _folderWatcher.Stop();
         StatusText.Text = "设置已保存并应用";

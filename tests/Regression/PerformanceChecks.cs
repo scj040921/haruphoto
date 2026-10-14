@@ -13,8 +13,17 @@ internal static class PerformanceChecks
         check(notifications == 1 && collection.Count == 100, "page replacement sends one collection notification");
         collection.ReplaceAll(Enumerable.Range(0, 100).ToArray());
         check(notifications == 1, "unchanged page preserves realized containers");
+        collection.ReplaceAll(Enumerable.Range(0, 100).ToArray(), forceReset: true);
+        check(notifications == 2, "appearance changes can force one container refresh");
         collection.ReplaceAll(Array.Empty<int>());
-        check(notifications == 2 && collection.Count == 0, "empty page clears once");
+        check(notifications == 3 && collection.Count == 0, "empty page clears once");
+
+        var model = new PhotoItem(); var changed = new HashSet<string>();
+        model.PropertyChanged += (_, e) => { if (e.PropertyName != null) changed.Add(e.PropertyName); };
+        model.Filename = "renamed.jpg"; model.FilePath = "renamed-path";
+        check(changed.Contains(nameof(PhotoItem.DisplayName)) && changed.Contains(nameof(PhotoItem.FilePath)), "rename notifies filename and tooltip without rebuilding page");
+        changed.Clear(); model.FileSize = 12345; model.DateTaken = new DateTime(2026,10,1);
+        check(changed.Contains(nameof(PhotoItem.SizeText)) && changed.Contains(nameof(PhotoItem.DateText)), "metadata edits refresh visible derived labels");
 
         var lru = new BoundedLru<int>(2);
         var released = new List<int>();

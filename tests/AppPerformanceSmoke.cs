@@ -37,6 +37,15 @@ public sealed partial class MainWindow
             Check(view[0].ThumbnailSource!=null,"returning page reloads evicted thumbnail");
             Check(view.Take(3).All(p=>p.ThumbnailSource!.PixelWidth>0&&p.ThumbnailAspectRatio>0),"landscape portrait and square dimensions remain available");
             Check(view.Take(5).All(p=>p.ThumbnailSource!.PixelWidth<=400&&p.ThumbnailSource.PixelHeight<=1200),"extreme aspect ratios obey decode size bounds");
+            var filename=view[0].Filename; view[0].Filename="renamed-sample.png";
+            RefreshPhotos(); await Task.Delay(100);
+            Check(FindVisual<TextBlock>(PhotoGrid).Any(t=>ReferenceEquals(t.DataContext,view[0])&&t.Text==view[0].DisplayName),"rename updates label on reused page");
+            view[0].Filename=filename;
+            _settings.DisplayMode=0; _settings.CardCornerRadius=22;
+            ApplyGalleryLayout(); RefreshPhotos(forceRender:true); await _thumbnailBatchTask; await Task.Delay(100);
+            Check(FindVisual<Border>(PhotoGrid).Any(b=>b.Name=="CardRoot"&&b.CornerRadius.TopLeft==22),"appearance settings repaint existing cards");
+            _settings.DisplayMode=1; ApplyGalleryLayout(); RefreshPhotos(forceRender:true); await _thumbnailBatchTask; await Task.Delay(100);
+            Check(FindVisual<Border>(PhotoGrid).Where(b=>b.Name=="CardRoot").All(b=>b.CornerRadius.TopLeft==0),"switching back to masonry restores square joined cards");
 
             OpenPreview(view[120]);
             await WaitFor(()=>PreviewLoading.Visibility!=Visibility.Visible);
@@ -88,5 +97,12 @@ public sealed partial class MainWindow
         if(root is Button button) yield return button;
         for(var i=0;i<VisualTreeHelper.GetChildrenCount(root);i++)
             foreach(var child in FindButtons(VisualTreeHelper.GetChild(root,i))) yield return child;
+    }
+
+    private static IEnumerable<T> FindVisual<T>(DependencyObject root) where T : DependencyObject
+    {
+        if(root is T value) yield return value;
+        for(var i=0;i<VisualTreeHelper.GetChildrenCount(root);i++)
+            foreach(var child in FindVisual<T>(VisualTreeHelper.GetChild(root,i))) yield return child;
     }
 }

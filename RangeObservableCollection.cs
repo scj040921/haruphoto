@@ -7,9 +7,9 @@ namespace PhotoAlbum;
 /// <summary>分页列表一次通知，避免逐张添加引起重复布局；相同页保持现有容器。</summary>
 internal sealed class RangeObservableCollection<T> : ObservableCollection<T>
 {
-    public bool ReplaceAll(IReadOnlyList<T> values)
+    public bool ReplaceAll(IReadOnlyList<T> values, bool forceReset = false)
     {
-        if (this.SequenceEqual(values)) return false;
+        if (!forceReset && this.SequenceEqual(values)) return false;
         CheckReentrancy();
         Items.Clear();
         foreach (var value in values) Items.Add(value);

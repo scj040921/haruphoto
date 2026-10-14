@@ -12,12 +12,37 @@ public sealed class PhotoItem : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public string Filename { get; set; } = "";
-    public string FilePath { get; set; } = "";
-    public long FileSize { get; set; }
-    public DateTime DateAdded { get; set; } = DateTime.Now;
+    private string _filename = "";
+    public string Filename
+    {
+        get => _filename;
+        set { var name = value ?? ""; if (_filename == name) return; _filename = name; OnChanged(); OnChanged(nameof(DisplayName)); }
+    }
+    private string _filePath = "";
+    public string FilePath
+    {
+        get => _filePath;
+        set { var path = value ?? ""; if (_filePath == path) return; _filePath = path; OnChanged(); }
+    }
+    private long _fileSize;
+    public long FileSize
+    {
+        get => _fileSize;
+        set { if (_fileSize == value) return; _fileSize = value; OnChanged(); OnChanged(nameof(SizeText)); }
+    }
+    private DateTime _dateAdded = DateTime.Now;
+    public DateTime DateAdded
+    {
+        get => _dateAdded;
+        set { if (_dateAdded == value) return; _dateAdded = value; OnChanged(); OnChanged(nameof(TimelineDate)); OnChanged(nameof(DateText)); }
+    }
     // 统一记录源文件的最后修改时间，不再使用 EXIF 拍摄日期。
-    public DateTime? DateTaken { get; set; }
+    private DateTime? _dateTaken;
+    public DateTime? DateTaken
+    {
+        get => _dateTaken;
+        set { if (_dateTaken == value) return; _dateTaken = value; OnChanged(); OnChanged(nameof(TimelineDate)); OnChanged(nameof(DateText)); }
+    }
 
     /// <summary>时间线使用源文件修改时间；旧记录缺失时才退化到导入时间。</summary>
     public DateTime TimelineDate => DateTaken ?? DateAdded;
