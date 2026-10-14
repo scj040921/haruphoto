@@ -14,6 +14,7 @@
     <Compile Include="../../PhotoItem.cs" Link="PhotoItem.cs" />
     <Compile Include="../../ViewerGeometry.cs" Link="ViewerGeometry.cs" />
     <Compile Include="../../MapGeometry.cs" Link="MapGeometry.cs" />
+    <Compile Include="../../MapSearchParser.cs" Link="MapSearchParser.cs" />
     <Compile Include="../../PhotoClassification.cs" Link="PhotoClassification.cs" />
     <Compile Include="../../LibraryStore.cs" Link="LibraryStore.cs" />
     <Compile Include="../../GalleryQuery.cs" Link="GalleryQuery.cs" />

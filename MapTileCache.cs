@@ -9,7 +9,7 @@ internal sealed class MapTileCache
     private static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("haruphoto/1.3.7 (+https://github.com/scj040921/haruphoto)");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("haruphoto/1.3.8 (+https://github.com/scj040921/haruphoto)");
         return client;
     }
     public async Task<string?> GetAsync(int zoom, int x, int y, CancellationToken token)

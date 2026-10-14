@@ -57,7 +57,7 @@ public sealed partial class MainWindow
             Activated += (_, e) => { if (e.WindowActivationState == WindowActivationState.Deactivated && _mapPointer != null) { EndMapDrag(); _ = RenderMapAsync(); } };
             MapViewport.PointerWheelChanged += (_, e) =>
             {
-                for (var node = e.OriginalSource as DependencyObject; node != null; node = VisualTreeHelper.GetParent(node)) if (ReferenceEquals(node, MapPlacementPreview)) return;
+                for (var node = e.OriginalSource as DependencyObject; node != null; node = VisualTreeHelper.GetParent(node)) if (ReferenceEquals(node, MapPlacementPreview) || ReferenceEquals(node, MapSearchResultsPanel)) return;
                 var point = e.GetCurrentPoint(MapViewport); if (point.Properties.IsHorizontalMouseWheel) return;
                 ChangeMapZoom(point.Properties.MouseWheelDelta > 0 ? 1 : -1, point.Position); e.Handled = true;
             };
@@ -81,7 +81,7 @@ public sealed partial class MainWindow
         var token = _mapRenderCts.Token;
         _mapRenderedLatitude = _mapLatitude; _mapRenderedLongitude = _mapLongitude; _mapRenderedZoom = _mapZoom;
         ResetMapLayerMotion();
-        MapNetworkStatus.Text = "在线底图；照片、地点和批注只保存在本机";
+        MapNetworkStatus.Text = "在线地图；照片和批注保存在本机；地名仅在确认搜索后发送";
         MapTiles.RenderTransform = MapMarkers.RenderTransform = null;
         _mapMarkerPhotos.Clear();
         var center = MapGeometry.Project(_mapLatitude, _mapLongitude, _mapZoom);
@@ -325,13 +325,13 @@ public sealed partial class MainWindow
         MapStatus.Text = $"准备放置 {photos.Count} 张：对照左侧照片，点击地图位置或已有地点";
     }
 
-    private async Task PlacePhotosAsync(double latitude, double longitude)
+    private async Task PlacePhotosAsync(double latitude, double longitude, string? suggestedLabel = null)
     {
         if (_mapDialogOpen) return;
         _mapDialogOpen = true;
         try
         {
-            var label = new TextBox { Header = "地点名称", Text = "我的地点", MaxLength = 80 };
+            var label = new TextBox { Header = "地点名称", Text = string.IsNullOrWhiteSpace(suggestedLabel) ? "我的地点" : suggestedLabel, MaxLength = 80 };
             var note = new TextBox { Header = "批注（仅保存在本机）", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 120, MaxLength = 2000 };
             var panel = new StackPanel { Spacing = 12 }; panel.Children.Add(new TextBlock { Text = $"{latitude:F5}, {longitude:F5} · {_mapPlacement.Count} 张照片" }); panel.Children.Add(label); panel.Children.Add(note);
             var dialog = new ContentDialog { Title = "放置照片", Content = panel, PrimaryButtonText = "放在这里", CloseButtonText = "取消", XamlRoot = Content.XamlRoot };

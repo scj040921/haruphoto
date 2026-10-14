@@ -1,4 +1,5 @@
 using PhotoAlbum;
+using System.Text.Json;
 
 internal static class FeatureChecks
 {
@@ -18,6 +19,14 @@ internal static class FeatureChecks
         check(!MapGeometry.Valid(double.NaN, 20) && !MapGeometry.Valid(40, 181) && !MapGeometry.Valid(null, null), "invalid and absent map positions rejected");
         var west = MapGeometry.Project(0, -179, 5); var east = MapGeometry.Project(0, 179, 5);
         check(Math.Abs(MapGeometry.WrappedDelta(west.X, east.X, 5)) < 60, "map dateline wraps using nearby world copy");
+        using (var places = JsonDocument.Parse("[{\"lat\":\"31.2\",\"lon\":\"121.5\",\"name\":\"上海\",\"display_name\":\"上海, 中国\"},{\"lat\":40.7,\"lon\":-74.0,\"display_name\":\"纽约, 美国\"},{\"lat\":\"91\",\"lon\":\"0\",\"name\":\"无效\"},{\"lat\":\"bad\",\"lon\":\"0\"}]"))
+        {
+            var placesParsed = MapSearchParser.Parse(places.RootElement);
+            check(placesParsed.Count == 2, "map search parser rejects malformed and out-of-range coordinates");
+            check(placesParsed[0].Name == "上海" && placesParsed[0].Address == "上海, 中国" && placesParsed[0].Latitude == 31.2 && placesParsed[0].Longitude == 121.5, "map search parser preserves localized name and coordinates");
+            check(placesParsed[1].Name == "纽约" && placesParsed[1].Latitude == 40.7 && placesParsed[1].Longitude == -74.0, "map search parser accepts numeric coordinates and localized address fallback");
+        }
+        using (var notArray = JsonDocument.Parse("{}")) check(MapSearchParser.Parse(notArray.RootElement).Count == 0, "map search parser handles a non-array response");
         var photo = new PhotoItem { Filename = "TRAVEL.png", FilePath = Path.Combine(root, "trip", "TRAVEL.png"), DateTaken = new DateTime(2026, 10, 14), Category = "manual" };
         check(PhotoClassification.Suggest(photo, 0) == "2026-10", "date classification uses source timeline month");
         check(PhotoClassification.Suggest(photo, 1) == "trip" && PhotoClassification.Suggest(photo, 2) == "PNG", "folder and image-format classification");
