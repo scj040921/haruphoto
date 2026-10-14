@@ -314,6 +314,18 @@ public sealed partial class MainWindow
     }
     private void RestoreMapPreviewView() { if (_mapPreviewRestore == null) return; _currentView = _mapPreviewRestore; _mapPreviewRestore = null; }
 
+    private void RefreshMapAfterUndo()
+    {
+        if (MapOverlay.Visibility != Visibility.Visible) return;
+        if (MapPlaceOverlay.Visibility == Visibility.Visible && _mapPlace.Count > 0)
+        {
+            var id = _mapPlace[0].MapPlaceId;
+            var photos = _allPhotos.Where(p => p.MapPlaceId == id && MapGeometry.Valid(p.MapLatitude, p.MapLongitude)).ToList();
+            if (photos.Count > 0) ShowMapPlace(photos); else MapPlaceClose_Click(this, new RoutedEventArgs());
+        }
+        _ = RenderMapAsync();
+    }
+
     private void MapPhoto_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
         if (args.InRecycleQueue) { _mapPhotoContainers.Remove(args.ItemContainer); return; }

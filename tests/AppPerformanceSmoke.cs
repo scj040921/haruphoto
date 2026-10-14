@@ -123,11 +123,14 @@ public sealed partial class MainWindow
             Check(view[1].MapLabel=="第二地点"&&view[1].MapNote=="新的本地批注"&&MapMarkers.Children.Count==2,"photo placement dialog writes only confirmed coordinates and annotation");
             Undo_Click(this,new RoutedEventArgs()); await Task.Delay(100);
             Check(view[1].MapLatitude==null,"confirmed placement can be undone on map toolbar");
-            var originalView=_currentView;
             AnimateToMapPlace(new(){view[0],view[120],view[400]}); await WaitFor(()=>MapPlaceOverlay.Visibility==Visibility.Visible);
             await Task.Delay(400);
             Check(!_mapAnimating&&MapPlacePhotos.Items.Count==3&&MapPlaceNote.Text.Contains("<script>"),"map point zoom transition unfolds local photo cards and safe notes");
             await CaptureFeatureSnapshotAsync("map-place.png");
+            SaveMapPlacement(_mapPlace,31.2,121.5,"qa-place","修改后标题","修改后批注"); ShowMapPlace(_mapPlace);
+            Undo_Click(this,new RoutedEventArgs()); await Task.Delay(100);
+            Check(MapPlaceTitle.Text.Contains("测试地点")&&MapPlaceNote.Text.Contains("本地文本"),"map annotation undo refreshes visible title and notes");
+            var originalView=_currentView;
             _mapPreviewRestore=_currentView; _currentView=_mapPlace.ToList(); OpenPreview(_mapPlace[0]);
             await WaitFor(()=>PreviewLoading.Visibility!=Visibility.Visible);
             Check(_currentView.Count==3,"map photo preview is scoped to the chosen location");

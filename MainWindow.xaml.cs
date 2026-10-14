@@ -1081,6 +1081,7 @@ public sealed partial class MainWindow : Window
         {
             _lastUndoAction();
             RefreshPhotos();
+            RefreshMapAfterUndo();
             ScheduleSave();
             StatusText.Text = $"已撤销：{_lastUndoLabel}";
         }
