@@ -14,7 +14,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue?style=flat-square)
 ![Framework](https://img.shields.io/badge/framework-WinUI3%20%2B%20.NET%208-blueviolet?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
-![Release](https://img.shields.io/badge/release-v1.3.2-orange?style=flat-square)
+![Release](https://img.shields.io/github/v/release/scj040921/haruphoto?style=flat-square&color=black)
 
 </div>
 
