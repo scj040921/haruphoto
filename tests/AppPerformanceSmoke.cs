@@ -25,6 +25,22 @@ public sealed partial class MainWindow
         {
             await WaitFor(() => Content.XamlRoot != null);
             Check(_currentView.Count >= 400, "large isolated photo fixture loaded");
+            var summaryVisibility = FilterSummaryBar.Visibility;
+            FilterSummaryBar.Visibility = Visibility.Visible;
+            TopBarOverlay.UpdateLayout();
+            var searchY = SearchBox.TransformToVisual(TopBarOverlay).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+            var pagerY = PageJumpBox.TransformToVisual(TopBarOverlay).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+            var summaryY = FilterSummaryBar.TransformToVisual(TopBarOverlay).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+            var galleryToolbarGeometry = $"search={searchY:F1}+{SearchBox.ActualHeight:F1}, pager={pagerY:F1}+{PageJumpBox.ActualHeight:F1}, summary={summaryY:F1}+{FilterSummaryBar.ActualHeight:F1}, topbar={TopBarOverlay.ActualHeight:F1}+{TopBarOverlay.Margin.Top:F1}";
+            Check(pagerY >= searchY + SearchBox.ActualHeight - 1 &&
+                  summaryY >= pagerY + PageJumpBox.ActualHeight - 1 &&
+                  GalleryContentGrid.Margin.Top >= TopBarOverlay.ActualHeight + TopBarOverlay.Margin.Top + 7,
+                  "gallery filters, pagination, and summary occupy separate non-overlapping rows: " + galleryToolbarGeometry);
+            FilterSummaryBar.Visibility = summaryVisibility;
+            TopBarOverlay.UpdateLayout();
+            Check(GalleryContentGrid.Margin.Top >= TopBarOverlay.ActualHeight + TopBarOverlay.Margin.Top + 7,
+                  "gallery content offset follows the topbar when filter summary collapses");
+            await Task.Delay(250);
             var view = _currentView;
             for(var page=0;page<=(_currentView.Count-1)/PageSize;page++)
             {

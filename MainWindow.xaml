@@ -80,7 +80,7 @@
                               VerticalScrollBarVisibility="Auto" Padding="24,0,24,16">
                     <!-- 内容 Grid：顶部留白供多行悬浮顶栏与筛选摘要使用 + 底部 0
                          （卡片可滚入悬浮底栏玻璃下方透出）-->
-                    <Grid Margin="0,208,0,0">
+                    <Grid x:Name="GalleryContentGrid" Margin="0,170,0,0">
                         <!-- ThemeShadow 阴影接收层（在卡片后面；须有可见背景才能投射阴影）-->
                         <Border x:Name="PhotoShadowReceiver" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
                         <ItemsRepeater x:Name="PhotoGrid" ElementPrepared="PhotoGrid_ElementPrepared">
@@ -174,7 +174,8 @@
                      渐变半透明背景，滚动时下方卡片从渐变区透出。
                      背景由代码构建（ApplyTheme → BuildTopBarGradient），
                      避免 XAML ThemeResource 解析问题 -->
-                <Grid x:Name="TopBarOverlay" Grid.Row="0" VerticalAlignment="Top" Margin="18,10,18,0">
+                <Grid x:Name="TopBarOverlay" Grid.Row="0" VerticalAlignment="Top" Margin="18,10,18,0"
+                      SizeChanged="TopBarOverlay_SizeChanged">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
@@ -208,35 +209,36 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                        <AutoSuggestBox x:Name="SearchBox" PlaceholderText="搜索名称、分类或日期…"
-                                        QueryIcon="Find" Width="250" FontSize="13"
-                                        ToolTipService.ToolTip="Ctrl+F 快速搜索"
-                                        TextChanged="SearchBox_TextChanged"/>
-                        <ComboBox x:Name="SortCombo" SelectedIndex="0" Width="150"
-                                  SelectionChanged="SortCombo_SelectionChanged" FontSize="13">
-                            <ComboBoxItem Content="📅 最近添加"/>
-                            <ComboBoxItem Content="📝 文件名"/>
-                            <ComboBoxItem Content="⭐ 评分"/>
-                        </ComboBox>
-                        <ComboBox x:Name="FilterRatingCombo" SelectedIndex="0" Width="150"
-                                  SelectionChanged="FilterCombo_Changed" FontSize="13">
-                            <ComboBoxItem Content="⭐ 评分不限"/>
-                            <ComboBoxItem Content="★1 以上"/>
-                            <ComboBoxItem Content="★2 以上"/>
-                            <ComboBoxItem Content="★3 以上"/>
-                            <ComboBoxItem Content="★4 以上"/>
-                            <ComboBoxItem Content="★5 满分"/>
-                        </ComboBox>
-                        <ComboBox x:Name="FilterDateCombo" SelectedIndex="0" Width="148"
-                                  SelectionChanged="FilterCombo_Changed" FontSize="13">
-                            <ComboBoxItem Content="🗓 全部时间"/>
-                            <ComboBoxItem Content="最近 7 天"/>
-                            <ComboBoxItem Content="最近 30 天"/>
-                            <ComboBoxItem Content="最近 90 天"/>
-                        </ComboBox>
-                    </StackPanel>
+                            <AutoSuggestBox x:Name="SearchBox" PlaceholderText="搜索名称、分类或日期…"
+                                            QueryIcon="Find" Width="250" FontSize="13"
+                                            ToolTipService.ToolTip="Ctrl+F 快速搜索"
+                                            TextChanged="SearchBox_TextChanged"/>
+                            <ComboBox x:Name="SortCombo" SelectedIndex="0" Width="150"
+                                      SelectionChanged="SortCombo_SelectionChanged" FontSize="13">
+                                <ComboBoxItem Content="📅 最近添加"/>
+                                <ComboBoxItem Content="📝 文件名"/>
+                                <ComboBoxItem Content="⭐ 评分"/>
+                            </ComboBox>
+                            <ComboBox x:Name="FilterRatingCombo" SelectedIndex="0" Width="150"
+                                      SelectionChanged="FilterCombo_Changed" FontSize="13">
+                                <ComboBoxItem Content="⭐ 评分不限"/>
+                                <ComboBoxItem Content="★1 以上"/>
+                                <ComboBoxItem Content="★2 以上"/>
+                                <ComboBoxItem Content="★3 以上"/>
+                                <ComboBoxItem Content="★4 以上"/>
+                                <ComboBoxItem Content="★5 满分"/>
+                            </ComboBox>
+                            <ComboBox x:Name="FilterDateCombo" SelectedIndex="0" Width="148"
+                                      SelectionChanged="FilterCombo_Changed" FontSize="13">
+                                <ComboBoxItem Content="🗓 全部时间"/>
+                                <ComboBoxItem Content="最近 7 天"/>
+                                <ComboBoxItem Content="最近 30 天"/>
+                                <ComboBoxItem Content="最近 90 天"/>
+                            </ComboBox>
+                        </StackPanel>
+                    </Grid>
 
-                    <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="8"
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8"
                                 HorizontalAlignment="Stretch" VerticalAlignment="Center" Margin="0,7,0,9">
                         <CheckBox x:Name="FavOnlyCheckBox" Content="❤️ 仅收藏"
                                   Checked="FavOnly_Changed" Unchecked="FavOnly_Changed"
@@ -261,24 +263,23 @@
                         </Button>
                     </StackPanel>
                     <Border x:Name="FilterSummaryBar" Grid.Row="3" Margin="14,0,14,12" Padding="10,5"
-                        HorizontalAlignment="Stretch" VerticalAlignment="Top"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                        CornerRadius="10" Visibility="Collapsed">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="FilterSummaryText" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                        <Button x:Name="ClearFiltersBtn" Grid.Column="1" Content="清除筛选"
-                                Click="ClearFilters_Click" Padding="8,3" FontSize="12"
-                                Background="Transparent"/>
-                    </Grid>
-                </Border>
-                </Grid>
+                            HorizontalAlignment="Stretch" VerticalAlignment="Top"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                            CornerRadius="10" Visibility="Collapsed">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="FilterSummaryText" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                            <Button x:Name="ClearFiltersBtn" Grid.Column="1" Content="清除筛选"
+                                    Click="ClearFilters_Click" Padding="8,3" FontSize="12"
+                                    Background="Transparent"/>
+                        </Grid>
+                    </Border>
                 </Grid>  <!-- 悬浮顶栏结束 -->
 
 

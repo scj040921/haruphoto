@@ -1399,6 +1399,14 @@ public sealed partial class MainWindow : Window
         FilterSummaryText.Text = active ? $"筛选中：{string.Join(" · ", parts)}   ·   {_currentView.Count} 张结果" : "";
     }
 
+    private void TopBarOverlay_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (GalleryContentGrid == null) return;
+        var contentTop = Math.Ceiling(TopBarOverlay.Margin.Top + e.NewSize.Height + 8);
+        if (Math.Abs(GalleryContentGrid.Margin.Top - contentTop) > 0.5)
+            GalleryContentGrid.Margin = new Thickness(0, contentTop, 0, 0);
+    }
+
     private void ClearFilters_Click(object s, RoutedEventArgs e)
     {
         _searchKeyword = "";
