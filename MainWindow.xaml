@@ -78,9 +78,9 @@
                 <!-- 单行内容区：滚动网格 + 悬浮顶栏 + 悬浮底栏（玻璃条）-->
                 <ScrollViewer x:Name="MainScroll" HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Auto" Padding="24,0,24,16">
-                    <!-- 内容 Grid：顶部 132 留白（悬浮顶栏高度）+ 底部 0
+                    <!-- 内容 Grid：顶部留白供多行悬浮顶栏与筛选摘要使用 + 底部 0
                          （卡片可滚入悬浮底栏玻璃下方透出）-->
-                    <Grid Margin="0,132,0,0">
+                    <Grid Margin="0,208,0,0">
                         <!-- ThemeShadow 阴影接收层（在卡片后面；须有可见背景才能投射阴影）-->
                         <Border x:Name="PhotoShadowReceiver" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
                         <ItemsRepeater x:Name="PhotoGrid" ElementPrepared="PhotoGrid_ElementPrepared">
@@ -175,18 +175,24 @@
                      背景由代码构建（ApplyTheme → BuildTopBarGradient），
                      避免 XAML ThemeResource 解析问题 -->
                 <Grid x:Name="TopBarOverlay" Grid.Row="0" VerticalAlignment="Top" Margin="18,10,18,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
                     <!-- 渐变背景层不拦截鼠标事件（下层卡片可正常悬停/点击）。
                          底部 1px 高光线 = 玻璃底部折射边缘光。
                          承载 Composition 模糊 sprite（BackdropBrush 实时模糊背后卡片）；
                          Background 保持透明，tint 渐变在 TopBarTint 层（声明在后=在上）-->
-                    <Border x:Name="TopBarGradient" IsHitTestVisible="False" CornerRadius="26"
+                    <Border x:Name="TopBarGradient" Grid.RowSpan="4" IsHitTestVisible="False" CornerRadius="26"
                             BorderBrush="{ThemeResource HighlightLineBrush}" BorderThickness="1"/>
                     <!-- tint 渐变层：位于模糊 sprite 之上（Acrylic 结构 =
                          下层实时模糊 + 上层半透明 tint），液态玻璃模式自动调淡 -->
-                    <Border x:Name="TopBarTint" IsHitTestVisible="False" CornerRadius="26"/>
+                    <Border x:Name="TopBarTint" Grid.RowSpan="4" IsHitTestVisible="False" CornerRadius="26"/>
 
                     <!-- 标题栏 -->
-                    <Grid Padding="20,9,20,2">
+                    <Grid Grid.Row="0" Padding="20,9,20,2">
                         <StackPanel Spacing="2">
                             <TextBlock Text="haruphoto" FontSize="19" FontWeight="SemiBold"
                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
@@ -196,24 +202,23 @@
                     </Grid>
 
                     <!-- 工具栏 -->
-                    <Grid Margin="0,64,0,0" Padding="24,6,24,14">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Grid Grid.Row="1" Padding="20,7,20,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
                         <AutoSuggestBox x:Name="SearchBox" PlaceholderText="搜索名称、分类或日期…"
-                                        QueryIcon="Find" MinWidth="220" FontSize="13"
+                                        QueryIcon="Find" Width="250" FontSize="13"
                                         ToolTipService.ToolTip="Ctrl+F 快速搜索"
                                         TextChanged="SearchBox_TextChanged"/>
-                        <ComboBox x:Name="SortCombo" SelectedIndex="0" MinWidth="110"
+                        <ComboBox x:Name="SortCombo" SelectedIndex="0" Width="150"
                                   SelectionChanged="SortCombo_SelectionChanged" FontSize="13">
                             <ComboBoxItem Content="📅 最近添加"/>
                             <ComboBoxItem Content="📝 文件名"/>
                             <ComboBoxItem Content="⭐ 评分"/>
                         </ComboBox>
-                        <ComboBox x:Name="FilterRatingCombo" SelectedIndex="0" MinWidth="100"
+                        <ComboBox x:Name="FilterRatingCombo" SelectedIndex="0" Width="150"
                                   SelectionChanged="FilterCombo_Changed" FontSize="13">
                             <ComboBoxItem Content="⭐ 评分不限"/>
                             <ComboBoxItem Content="★1 以上"/>
@@ -222,29 +227,30 @@
                             <ComboBoxItem Content="★4 以上"/>
                             <ComboBoxItem Content="★5 满分"/>
                         </ComboBox>
-                        <ComboBox x:Name="FilterDateCombo" SelectedIndex="0" MinWidth="110"
+                        <ComboBox x:Name="FilterDateCombo" SelectedIndex="0" Width="148"
                                   SelectionChanged="FilterCombo_Changed" FontSize="13">
                             <ComboBoxItem Content="🗓 全部时间"/>
                             <ComboBoxItem Content="最近 7 天"/>
                             <ComboBoxItem Content="最近 30 天"/>
                             <ComboBoxItem Content="最近 90 天"/>
                         </ComboBox>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="8"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Center" Margin="0,7,0,9">
                         <CheckBox x:Name="FavOnlyCheckBox" Content="❤️ 仅收藏"
                                   Checked="FavOnly_Changed" Unchecked="FavOnly_Changed"
                                   VerticalAlignment="Center" FontSize="13"/>
-                    </StackPanel>
-
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <ProgressRing x:Name="BusyRing" IsIndeterminate="True" Visibility="Collapsed"
-                                      Width="18" Height="18"/>
+                                      Width="16" Height="16"/>
                         <TextBlock x:Name="PageInfo" VerticalAlignment="Center" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="0,0,4,0"/>
                         <NumberBox x:Name="PageJumpBox" Width="72" Height="32" Minimum="1"
                                    SpinButtonPlacementMode="Hidden" PlaceholderText="页码"
                                    VerticalAlignment="Center" ToolTipService.ToolTip="输入页码后按 Enter 跳转"
                                    KeyDown="PageJumpBox_KeyDown"/>
                         <Button x:Name="PageJumpBtn" Content="跳转" Click="PageJump_Click"
-                                Padding="8,5" FontSize="12"/>
+                                Padding="10,5" FontSize="12"/>
                         <Button x:Name="PrevPageBtn" Click="PrevPage_Click" IsEnabled="False"
                                 Padding="10,6">
                             <FontIcon Glyph="&#xE76B;" FontSize="12"/>
@@ -254,12 +260,11 @@
                             <FontIcon Glyph="&#xE76C;" FontSize="12"/>
                         </Button>
                     </StackPanel>
-                </Grid>
-                <Border x:Name="FilterSummaryBar" Margin="24,116,24,0" Padding="10,5"
+                    <Border x:Name="FilterSummaryBar" Grid.Row="3" Margin="14,0,14,12" Padding="10,5"
                         HorizontalAlignment="Stretch" VerticalAlignment="Top"
                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                        CornerRadius="7" Visibility="Collapsed">
+                        CornerRadius="10" Visibility="Collapsed">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -273,6 +278,7 @@
                                 Background="Transparent"/>
                     </Grid>
                 </Border>
+                </Grid>
                 </Grid>  <!-- 悬浮顶栏结束 -->
 
 
@@ -373,35 +379,48 @@
 
         <Grid x:Name="MapOverlay" Visibility="Collapsed" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-            <Grid Padding="18,12">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <StackPanel Spacing="4">
-                    <TextBlock Text="地图相册" FontSize="22" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="MapStatus" Text="拖动地图 · 滚轮缩放 · 选择照片后点击位置" TextWrapping="Wrap" MaxWidth="500" HorizontalAlignment="Left"/>
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBox x:Name="MapSearchBox" Width="270" MaxLength="120" PlaceholderText="搜索地名（回车确认）" ToolTipService.ToolTip="确认后将地名发送给 OpenStreetMap 搜索；不会发送照片。" KeyDown="MapSearchBox_KeyDown"/>
-                        <Button x:Name="MapSearchButton" Content="搜索地点" Click="MapSearchButton_Click"/>
-                    </StackPanel>
-                </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Button Content="＋ 放置照片" Click="MapChoosePhotos_Click"/>
-                    <Button x:Name="MapUndoBtn" Content="撤销" Click="Undo_Click" Visibility="Collapsed"/>
-                    <Button x:Name="MapCancelPlacementBtn" Content="取消放置" Click="MapCancelPlacement_Click" Visibility="Collapsed"/>
-                    <Button Content="＋" Click="MapZoomIn_Click" ToolTipService.ToolTip="放大地图"/>
-                    <Button Content="−" Click="MapZoomOut_Click" ToolTipService.ToolTip="缩小地图"/>
-                    <Button Content="返回相册" Click="MapClose_Click"/>
-                </StackPanel>
-            </Grid>
+            <Border Grid.Row="0" Margin="16,12,16,8" Padding="18,12" CornerRadius="18"
+                    Background="#F2192733" BorderBrush="#263A4A58" BorderThickness="1"
+                    RequestedTheme="Dark">
+                <Grid RowSpacing="10">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="地图相册" FontSize="22" FontWeight="SemiBold" Foreground="#F7FAFC"/>
+                            <TextBlock x:Name="MapStatus" Text="拖动地图 · 滚轮缩放 · 选择照片后点击位置"
+                                       TextWrapping="Wrap" MaxWidth="620" HorizontalAlignment="Left"
+                                       FontSize="12" Foreground="#B9C7D2"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <Button Content="＋ 放置照片" Click="MapChoosePhotos_Click"/>
+                            <Button x:Name="MapUndoBtn" Content="撤销" Click="Undo_Click" Visibility="Collapsed"/>
+                            <Button x:Name="MapCancelPlacementBtn" Content="取消放置" Click="MapCancelPlacement_Click" Visibility="Collapsed"/>
+                            <Button Content="＋" Click="MapZoomIn_Click" ToolTipService.ToolTip="放大地图"/>
+                            <Button Content="−" Click="MapZoomOut_Click" ToolTipService.ToolTip="缩小地图"/>
+                            <Button Content="返回相册" Click="MapClose_Click"/>
+                        </StackPanel>
+                    </Grid>
+                    <Grid Grid.Row="1" ColumnSpacing="8" MaxWidth="510" HorizontalAlignment="Left">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <TextBox x:Name="MapSearchBox" MinWidth="250" MaxLength="120" PlaceholderText="搜索地名或地址…"
+                                 ToolTipService.ToolTip="确认后将地名发送给 OpenStreetMap 搜索；不会发送照片。"
+                                 KeyDown="MapSearchBox_KeyDown"/>
+                        <Button x:Name="MapSearchButton" Grid.Column="1" Content="搜索地点" Click="MapSearchButton_Click"/>
+                    </Grid>
+                </Grid>
+            </Border>
             <Grid x:Name="MapViewport" Grid.Row="1" Background="#263A45" SizeChanged="MapViewport_SizeChanged">
                 <Canvas x:Name="MapTiles" IsHitTestVisible="False"/>
                 <Canvas x:Name="MapMarkers"/>
                 <Border VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="12" Padding="10,6" Background="#DD202830" CornerRadius="8" IsHitTestVisible="False">
                     <TextBlock x:Name="MapNetworkStatus" Text="在线地图；照片和批注保存在本机；地名仅在确认搜索后发送" Foreground="White" FontSize="12"/>
                 </Border>
-                <Border x:Name="MapSearchResultsPanel" Width="380" MaxHeight="300" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="12"
-                        Visibility="Collapsed" Padding="8" CornerRadius="10" Background="#EE202830" RequestedTheme="Dark">
-                    <StackPanel Spacing="6">
-                        <TextBlock Text="搜索结果（选择后定位；准备放置照片时会使用该地点）" Foreground="White" TextWrapping="Wrap"/>
+                <Border x:Name="MapSearchResultsPanel" Width="380" MaxHeight="300" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="14"
+                        Visibility="Collapsed" Padding="12" CornerRadius="16" Background="#F2192733"
+                        BorderBrush="#405A6B78" BorderThickness="1" RequestedTheme="Dark">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="搜索结果" Foreground="White" FontWeight="SemiBold" TextWrapping="Wrap"/>
                         <ListView x:Name="MapSearchResults" MaxHeight="250" SelectionMode="None">
                             <ListView.ItemTemplate>
                                 <DataTemplate>
@@ -418,8 +437,9 @@
                 </Border>
                 <HyperlinkButton Content="© OpenStreetMap 贡献者" NavigateUri="https://www.openstreetmap.org/copyright"
                                  HorizontalAlignment="Right" VerticalAlignment="Bottom" Background="White" Foreground="Black" FontSize="11"/>
-                <Border x:Name="MapPlacementPreview" Width="280" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12"
-                        Visibility="Collapsed" Padding="12" CornerRadius="12" Background="#EE202830" RequestedTheme="Dark">
+                <Border x:Name="MapPlacementPreview" Width="292" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="14"
+                        Visibility="Collapsed" Padding="14" CornerRadius="18" Background="#F2192733"
+                        BorderBrush="#405A6B78" BorderThickness="1" RequestedTheme="Dark">
                     <ScrollViewer MaxHeight="430" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Spacing="8">
                         <TextBlock x:Name="MapPlacementCount" Foreground="White" FontWeight="SemiBold"/>
@@ -433,13 +453,13 @@
                     </ScrollViewer>
                 </Border>
             </Grid>
-            <Grid x:Name="MapPlaceOverlay" Grid.Row="1" Visibility="Collapsed" Background="#FF151A22" Padding="24" RequestedTheme="Dark">
+            <Grid x:Name="MapPlaceOverlay" Grid.Row="1" Visibility="Collapsed" Background="#FF121A22" Padding="24" RequestedTheme="Dark">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <StackPanel Spacing="6"><TextBlock x:Name="MapPlaceTitle" FontSize="22" Foreground="White"/>
-                        <TextBlock x:Name="MapPlaceNote" Foreground="#CCCCCC" TextWrapping="Wrap" MaxHeight="100"/></StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                    <StackPanel Spacing="6" VerticalAlignment="Center"><TextBlock x:Name="MapPlaceTitle" FontSize="24" FontWeight="SemiBold" Foreground="White"/>
+                        <TextBlock x:Name="MapPlaceNote" Foreground="#B9C7D2" TextWrapping="Wrap" MaxHeight="100"/></StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <Button Content="编辑地点 / 批注" Click="MapEditPlace_Click"/>
                         <Button Content="加入照片" Click="MapAddToPlace_Click"/>
                         <Button Content="移除地点" Click="MapRemovePlace_Click" ToolTipService.ToolTip="仅清除地图位置，不从图库删除"/>
@@ -448,10 +468,12 @@
                 </Grid>
                 <GridView x:Name="MapPlacePhotos" Grid.Row="1" Margin="0,20,0,0" SelectionMode="None" IsItemClickEnabled="True" ItemClick="MapPhoto_ItemClick" ContainerContentChanging="MapPhoto_ContainerContentChanging">
                     <GridView.ItemTemplate><DataTemplate>
-                        <StackPanel Width="180" Spacing="6" Margin="6">
-                            <Grid Height="138" Background="#30343B"><TextBlock Text="{Binding ThumbnailStatus}" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                <Image Source="{Binding ThumbnailSource}" Stretch="Uniform"/></Grid>
-                            <TextBlock Text="{Binding Filename}" Foreground="White" TextTrimming="CharacterEllipsis"/>
+                        <StackPanel Width="196" Spacing="8" Margin="8">
+                            <Border Height="148" Background="#202A33" CornerRadius="12">
+                                <Grid><TextBlock Text="{Binding ThumbnailStatus}" Foreground="#B9C7D2" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <Image Source="{Binding ThumbnailSource}" Stretch="Uniform"/></Grid>
+                            </Border>
+                            <TextBlock Text="{Binding Filename}" Foreground="#F4F7FA" TextTrimming="CharacterEllipsis" FontSize="13"/>
                         </StackPanel>
                     </DataTemplate></GridView.ItemTemplate>
                 </GridView>

@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
 
     private readonly RangeObservableCollection<PhotoItem> _photos = new();
     private readonly BoundedLru<PhotoItem> _thumbnailResidency = new(256);
+    private readonly FavoriteCounter _favoriteCounter = new();
     private readonly Dictionary<DependencyObject, PhotoItem> _filmstripContainers = new();
     private bool _galleryMeasureQueued;
     private readonly List<PhotoItem> _allPhotos = new();
@@ -194,6 +195,7 @@ public sealed partial class MainWindow : Window
             if (_windowClosing) return;
             _libraryLoaded = true;
             _allPhotos.AddRange(photos);
+            _favoriteCounter.Initialize(_allPhotos);
             _sortBy = Math.Clamp(_settings.SortMode, 0, SortCombo.Items.Count - 1);
             SortCombo.SelectedIndex = _sortBy;
 
@@ -1025,7 +1027,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdateStats()
     {
-        var fav = _allPhotos.Count(p => p.IsFavorite);
+        var fav = _favoriteCounter.Value;
         var sel = _selectedPaths.Count;
         SelectedCountText.Text = sel > 0 ? $"已选择 {sel} 张" : "";
         RemoveSelectedBtn.IsEnabled = sel > 0;
@@ -1699,7 +1701,7 @@ public sealed partial class MainWindow : Window
         {
             case "open": OpenPreview(photo); break;
             case "fav":
-                photo.IsFavorite = !photo.IsFavorite;
+                _favoriteCounter.Set(photo, !photo.IsFavorite);
                 ScheduleSave(); UpdateStats();
                 if (_favoritesOnly && !photo.IsFavorite) RefreshPhotos();
                 break;
@@ -1849,7 +1851,7 @@ public sealed partial class MainWindow : Window
     private void CardFavorite_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not PhotoItem photo) return;
-        photo.IsFavorite = !photo.IsFavorite;
+        _favoriteCounter.Set(photo, !photo.IsFavorite);
         UpdateStats();
         StatusText.Text = $"{photo.Filename}：{(photo.IsFavorite ? "★ 已收藏" : "已取消收藏")}";
         ScheduleSave();
@@ -2633,7 +2635,7 @@ public sealed partial class MainWindow : Window
         if (_previewIndex < 0 || _previewIndex >= _currentView.Count) return;
         var oldIndex = _previewIndex;
         var p = _currentView[_previewIndex];
-        p.IsFavorite = !p.IsFavorite;
+        _favoriteCounter.Set(p, !p.IsFavorite);
         PreviewFavButton.Content = p.IsFavorite ? "★ 取消收藏" : "☆ 收藏";
         UpdateStats();
         ScheduleSave();
@@ -2797,10 +2799,10 @@ public sealed partial class MainWindow : Window
             return;
         }
         var before = targets.ToDictionary(p => p, p => p.IsFavorite);
-        foreach (var p in targets) p.IsFavorite = favorite;
+        foreach (var p in targets) _favoriteCounter.Set(p, favorite);
         RegisterUndo($"{verb} {targets.Count} 张照片", () =>
         {
-            foreach (var pair in before) pair.Key.IsFavorite = pair.Value;
+            foreach (var pair in before) _favoriteCounter.Set(pair.Key, pair.Value);
         });
         UpdateStats();
         ScheduleSave();
@@ -2922,7 +2924,7 @@ public sealed partial class MainWindow : Window
             var removed = 0;
             foreach (var group in groups)
                 for (var i = 1; i < group.Count; i++)
-                    if (_allPhotos.Remove(group[i])) removed++;
+                    if (_allPhotos.Remove(group[i])) { _favoriteCounter.Removed(group[i]); removed++; }
             RefreshPhotos();
             ScheduleSave();
             StatusText.Text = $"已移除 {removed} 张重复照片（磁盘文件保留）";
@@ -2932,7 +2934,7 @@ public sealed partial class MainWindow : Window
     private void DupeRemove_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button btn || btn.Tag is not PhotoItem p) return;
-        _allPhotos.Remove(p);
+        if (_allPhotos.Remove(p)) _favoriteCounter.Removed(p);
         RefreshPhotos();
         ScheduleSave();
         StatusText.Text = $"已移除 {p.Filename}（磁盘文件保留）";
@@ -2947,6 +2949,7 @@ public sealed partial class MainWindow : Window
         _thumbCts?.Cancel();
         ClosePreview();
         _allPhotos.Clear();
+        _favoriteCounter.Clear();
         LibraryStore.ForgetMissingEntries();
         RefreshPhotos();
         ScheduleSave();
@@ -3137,8 +3140,10 @@ public sealed partial class MainWindow : Window
         foreach (var file in files)
         {
             if (!known.Add(file.Path)) continue;
-            _allPhotos.Add(new PhotoItem { Filename = Path.GetFileName(file.Path), FilePath = file.Path,
-                FileSize = file.Size, DateAdded = now, DateTaken = file.Modified });
+            var photo = new PhotoItem { Filename = Path.GetFileName(file.Path), FilePath = file.Path,
+                FileSize = file.Size, DateAdded = now, DateTaken = file.Modified };
+            _allPhotos.Add(photo);
+            _favoriteCounter.Added(photo);
             added++;
         }
         return added;

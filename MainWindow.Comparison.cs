@@ -151,7 +151,7 @@ public sealed partial class MainWindow
             photo.Rating = Math.Clamp((int)Math.Round(rating.Value), 0, 5);
             ScheduleSave(); UpdateStats();
         };
-        favorite.Click += (_, _) => { SelectComparePane(index); photo.IsFavorite = !photo.IsFavorite; favorite.Content = photo.IsFavorite ? "★ 已收藏" : "☆ 收藏"; ScheduleSave(); UpdateStats(); };
+        favorite.Click += (_, _) => { SelectComparePane(index); _favoriteCounter.Set(photo, !photo.IsFavorite); favorite.Content = photo.IsFavorite ? "★ 已收藏" : "☆ 收藏"; ScheduleSave(); UpdateStats(); };
         var bitmap = new BitmapImage { DecodePixelWidth = 2400 };
         bitmap.ImageOpened += (_, _) => { loading.IsActive = false; loading.Visibility = Visibility.Collapsed; SizeCanvas(); };
         bitmap.ImageFailed += (_, _) =>
@@ -246,7 +246,7 @@ public sealed partial class MainWindow
             case VirtualKey.Number0 when ctrl: CompareFit_Click(this, new RoutedEventArgs()); e.Handled = true; break;
             case VirtualKey.F:
                 var pane = _comparePanes[_compareActive];
-                pane.Photo.IsFavorite = !pane.Photo.IsFavorite;
+                _favoriteCounter.Set(pane.Photo, !pane.Photo.IsFavorite);
                 pane.Favorite.Content = pane.Photo.IsFavorite ? "★ 已收藏" : "☆ 收藏";
                 ScheduleSave(); UpdateStats(); e.Handled = true; break;
             case VirtualKey.Tab:

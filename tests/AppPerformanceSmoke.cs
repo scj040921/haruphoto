@@ -144,7 +144,7 @@ public sealed partial class MainWindow
             fields.First(b=>b.Header is string h&&h=="地点名称").Text="第二地点";
             fields.First(b=>b.AcceptsReturn).Text="新的本地批注";
             await InvokeDialogActionAsync("放在这里"); await place;
-            Check(view[1].MapLabel=="第二地点"&&view[1].MapNote=="新的本地批注"&&MapMarkers.Children.Count==2,"photo placement dialog writes only confirmed coordinates and annotation");
+            Check(view[1].MapLatitude==32.1&&view[1].MapLongitude==120.2&&view[1].MapLabel=="第二地点"&&view[1].MapNote=="新的本地批注","photo placement dialog writes only confirmed coordinates and annotation");
             Check(MapPlacementPreview.Visibility==Visibility.Collapsed&&MapPlacementImage.Source==null,"confirmed placement releases preview and prevents stale photo updates");
             Undo_Click(this,new RoutedEventArgs()); await Task.Delay(100);
             Check(view[1].MapLatitude==null,"confirmed placement can be undone on map toolbar");

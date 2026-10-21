@@ -39,7 +39,15 @@ $backup = $InstallRoot + '.previous-' + [Guid]::NewGuid().ToString('N')
 $failed = $InstallRoot + '.failed-' + [Guid]::NewGuid().ToString('N')
 $movedOld = $false
 $committed = $false
+$inPlace = $false
+$installedFiles = [Collections.Generic.List[string]]::new()
 $newProcess = $null
+function Test-SharingViolation($exception) {
+    for ($current = $exception; $null -ne $current; $current = $current.InnerException) {
+        if (($current.HResult -band 0xffff) -in @(32,33)) { return $true }
+    }
+    return $false
+}
 function Remove-OwnedFolder([string]$path, [string]$allowedPrefix) {
     $full = [IO.Path]::GetFullPath($path)
     if (-not $full.StartsWith($allowedPrefix, [StringComparison]::OrdinalIgnoreCase) -or $full.Substring($allowedPrefix.Length) -notmatch '^[a-fA-F0-9]{32}$') { throw 'Unsafe cleanup target.' }
@@ -87,9 +95,38 @@ try {
         Wait-Process -Id $ProcessId -Timeout 90 -ErrorAction SilentlyContinue
         if (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) { throw 'Application has not exited.' }
     }
-    Move-Item -LiteralPath $InstallRoot -Destination $backup
-    $movedOld = $true
-    Move-Item -LiteralPath $stage -Destination $InstallRoot
+    try {
+        [IO.Directory]::Move($InstallRoot, $backup)
+        $movedOld = $true
+    } catch {
+        if (-not (Test-SharingViolation $_.Exception)) { throw }
+        # A terminal can hold the installation directory open after the app exits.
+        # Keep that directory in place, backing up files before replacing any of them.
+        $oldEntries = @(Get-ChildItem -LiteralPath $InstallRoot -Force -Recurse)
+        if ($oldEntries | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }) {
+            throw 'Directory links are not valid update contents.'
+        }
+        New-Item -ItemType Directory -Path $backup | Out-Null
+        $inPlace = $true
+        $movedOld = $true
+        foreach ($file in @($oldEntries | Where-Object { -not $_.PSIsContainer } | Sort-Object FullName)) {
+            $relative = $file.FullName.Substring($InstallRoot.Length + 1)
+            $target = Join-Path $backup $relative
+            New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+            [IO.File]::Move($file.FullName, $target)
+        }
+    }
+    if ($inPlace) {
+        foreach ($file in @(Get-ChildItem -LiteralPath $stage -Force -Recurse -File)) {
+            $relative = $file.FullName.Substring($stage.Length + 1)
+            $target = Join-Path $InstallRoot $relative
+            New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+            [IO.File]::Move($file.FullName, $target)
+            $installedFiles.Add($relative)
+        }
+    } else {
+        [IO.Directory]::Move($stage, $InstallRoot)
+    }
     $committed = $true
     if ($FailAfterReplace) { throw 'Simulated launch failure.' }
     if (-not $TestMode) {
@@ -117,13 +154,33 @@ catch {
     $failure = $_.Exception.Message
     if ($newProcess -and -not $newProcess.HasExited) { $newProcess.Kill(); $newProcess.WaitForExit() }
     if ($movedOld) {
-        if ($committed) { Move-Item -LiteralPath $InstallRoot -Destination $failed }
-        Move-Item -LiteralPath $backup -Destination $InstallRoot
-        if (-not $TestMode) { Start-Process -FilePath (Join-Path $InstallRoot 'PhotoAlbum.exe') -WorkingDirectory $InstallRoot | Out-Null }
+        if ($inPlace) {
+            foreach ($relative in $installedFiles) {
+                $target = Join-Path $failed $relative
+                New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+                [IO.File]::Move((Join-Path $InstallRoot $relative), $target)
+            }
+            foreach ($file in @(Get-ChildItem -LiteralPath $backup -Force -Recurse -File)) {
+                $relative = $file.FullName.Substring($backup.Length + 1)
+                $target = Join-Path $InstallRoot $relative
+                New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+                [IO.File]::Move($file.FullName, $target)
+            }
+            Remove-OwnedFolder $backup ($InstallRoot + '.previous-')
+        } else {
+            if ($committed) { [IO.Directory]::Move($InstallRoot, $failed) }
+            [IO.Directory]::Move($backup, $InstallRoot)
+        }
+    }
+    if (-not $TestMode) {
+        try {
+            $existing = @(Get-Process PhotoAlbum -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq (Join-Path $InstallRoot 'PhotoAlbum.exe') })
+            if (-not $existing.Count) { Start-Process -FilePath (Join-Path $InstallRoot 'PhotoAlbum.exe') -WorkingDirectory $InstallRoot | Out-Null }
+        } catch { Write-Warning ('Unable to restart the preserved application: ' + $_.Exception.Message) }
     }
     [IO.File]::WriteAllText($ReadyFile, 'Update failed: ' + $failure)
     $log = Join-Path ([IO.Path]::GetTempPath()) ('haruphoto-update-failure-' + [Guid]::NewGuid().ToString('N') + '.log')
-    if (-not $TestMode) { [IO.File]::WriteAllText($log, $_.Exception.ToString()) }
+    if (-not $TestMode) { [IO.File]::WriteAllText($log, ('InstallRoot: ' + $InstallRoot + [Environment]::NewLine + 'File replacement fallback: ' + $inPlace + [Environment]::NewLine + $_.ToString() + [Environment]::NewLine + $_.Exception.ToString())) }
     if (-not $TestMode -and -not $isolatedQa) {
         Add-Type -AssemblyName PresentationFramework
         [System.Windows.MessageBox]::Show(('Update failed. The previous version was preserved/restored. Log: ' + $log + [Environment]::NewLine + $failure), 'haruphoto update') | Out-Null

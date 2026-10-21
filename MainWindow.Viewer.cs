@@ -129,12 +129,14 @@ public sealed partial class MainWindow
     {
         var removed = photos.Where(_allPhotos.Contains).Distinct().ToArray();
         var paths = removed.Select(p => p.FilePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var photo in removed) _favoriteCounter.Removed(photo);
         _allPhotos.RemoveAll(p => paths.Contains(p.FilePath));
         foreach (var photo in removed) { _selectedPaths.Remove(photo.FilePath); photo.IsSelected = false; }
         RegisterUndo($"移除 {removed.Length} 张照片", () =>
         {
             var existing = _allPhotos.Select(p => p.FilePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            foreach (var photo in removed) if (existing.Add(photo.FilePath)) _allPhotos.Add(photo);
+            foreach (var photo in removed)
+                if (existing.Add(photo.FilePath)) { _allPhotos.Add(photo); _favoriteCounter.Added(photo); }
             RebuildCategories();
         });
         RebuildCategories();

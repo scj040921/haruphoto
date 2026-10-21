@@ -25,6 +25,19 @@ internal static class PerformanceChecks
         changed.Clear(); model.FileSize = 12345; model.DateTaken = new DateTime(2026,10,1);
         check(changed.Contains(nameof(PhotoItem.SizeText)) && changed.Contains(nameof(PhotoItem.DateText)), "metadata edits refresh visible derived labels");
 
+        var favoriteCounter = new FavoriteCounter();
+        var favoritePhotos = new[] { new PhotoItem { IsFavorite = true }, new PhotoItem(), new PhotoItem { IsFavorite = true } };
+        favoriteCounter.Initialize(favoritePhotos);
+        favoriteCounter.Set(favoritePhotos[1], true);
+        favoriteCounter.Set(favoritePhotos[0], true);
+        check(favoriteCounter.Value == 3, "favorite counter initializes once and applies only actual changes");
+        favoriteCounter.Removed(favoritePhotos[0]);
+        favoriteCounter.Set(favoritePhotos[2], false);
+        check(favoriteCounter.Value == 1, "favorite counter stays correct across removal and un-favorite");
+        favoriteCounter.Added(favoritePhotos[0]);
+        favoriteCounter.Clear();
+        check(favoriteCounter.Value == 0, "favorite counter resets when library is cleared");
+
         var lru = new BoundedLru<int>(2);
         var released = new List<int>();
         lru.Touch(1); lru.Touch(2); lru.Touch(1); lru.Touch(3);
@@ -85,7 +98,14 @@ internal static class PerformanceChecks
             var oldMs = watch.Elapsed.TotalMilliseconds; watch.Restart();
             for(var i=0;i<50;i++) checksum += GalleryQuery.Page(view,i%200,100).Count;
             var newMs = watch.Elapsed.TotalMilliseconds;
-            Console.WriteLine("BENCHMARK "+JsonSerializer.Serialize(new {photos=large.Count,pageChanges=50,oldFullRefreshMs=oldMs,newPageSliceMs=newMs,checksum,dataPathOnly=true}));
+            watch.Restart();
+            for(var i=0;i<50;i++) checksum += large.Count(p => p.IsFavorite);
+            var oldFavoriteStatsMs = watch.Elapsed.TotalMilliseconds;
+            var benchmarkCounter = new FavoriteCounter(); benchmarkCounter.Initialize(large);
+            watch.Restart();
+            for(var i=0;i<50;i++) { benchmarkCounter.Set(large[0], !large[0].IsFavorite); checksum += benchmarkCounter.Value; }
+            var incrementalFavoriteStatsMs = watch.Elapsed.TotalMilliseconds;
+            Console.WriteLine("BENCHMARK "+JsonSerializer.Serialize(new {photos=large.Count,pageChanges=50,oldFullRefreshMs=oldMs,newPageSliceMs=newMs,oldFavoriteStatsMs,incrementalFavoriteStatsMs,checksum,dataPathOnly=true}));
         }
     }
 

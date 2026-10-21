@@ -20,6 +20,7 @@
     <Compile Include="../../GalleryQuery.cs" Link="GalleryQuery.cs" />
     <Compile Include="../../RangeObservableCollection.cs" Link="RangeObservableCollection.cs" />
     <Compile Include="../../BoundedLru.cs" Link="BoundedLru.cs" />
+    <Compile Include="../../FavoriteCounter.cs" Link="FavoriteCounter.cs" />
     <Compile Include="../../PhotoFileScanner.cs" Link="PhotoFileScanner.cs" />
     <Compile Include="../../ThumbnailCacheMaintenance.cs" Link="ThumbnailCacheMaintenance.cs" />
     <Reference Include="Microsoft.WinUI"><HintPath>$(AppOutput)/Microsoft.WinUI.dll</HintPath></Reference>
