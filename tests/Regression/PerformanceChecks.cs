@@ -62,6 +62,15 @@ internal static class PerformanceChecks
         check(filters.All(f => GalleryQuery.Apply(photos,f).SequenceEqual(LegacyQuery(photos,f))), "combined gallery query preserves filter and sort results");
         check(GalleryQuery.Page(photos,99,100).Count == 100 && GalleryQuery.Page(photos,99,100)[0] == photos[200], "page index clamps without rebuilding query");
         check(GalleryQuery.Page(new(),0,100).Count == 0, "empty library pagination");
+        var recentlyAddedOldFile = new PhotoItem { Filename = "old.jpg", Category = "Travel", DateAdded = now.AddDays(-1), DateTaken = now.AddDays(-60) };
+        var olderImportRecentFile = new PhotoItem { Filename = "new.jpg", Category = "travel", DateAdded = now.AddDays(-60), DateTaken = now.AddDays(-1) };
+        var differingDates = new[] { recentlyAddedOldFile, olderImportRecentFile };
+        check(GalleryQuery.Apply(differingDates, new(false,"TRAVEL","",0,0,"","",0)).Count == 2,
+            "category filters agree with case-insensitive category grouping");
+        check(GalleryQuery.Apply(differingDates, new(false,"","",0,7,"","",0)).SequenceEqual(new[] { olderImportRecentFile }),
+            "recent time filter follows source modification time");
+        check(GalleryQuery.Apply(differingDates, new(false,"","",0,0,"RecentlyAdded","",0)).SequenceEqual(new[] { recentlyAddedOldFile }),
+            "recently added organization continues to follow import time");
 
         var scans = Path.Combine(root,"scan"); Directory.CreateDirectory(Path.Combine(scans,"nested"));
         var first = Path.Combine(scans,"a.JPG"); var second = Path.Combine(scans,"nested","b.png");

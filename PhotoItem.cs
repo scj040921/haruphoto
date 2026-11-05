@@ -71,6 +71,8 @@ public sealed class PhotoItem : INotifyPropertyChanged
             _isFavorite = value;
             OnChanged();
             OnChanged(nameof(FavoriteIcon));
+            OnChanged(nameof(FavoriteActionOpacity));
+            OnChanged(nameof(FavoriteActionLabel));
         }
     }
 
@@ -130,6 +132,8 @@ public sealed class PhotoItem : INotifyPropertyChanged
 
     public string DisplayName => Filename.Length > 20 ? Filename[..17] + "…" : Filename;
     public string FavoriteIcon => IsFavorite ? "★" : "☆";
+    public double FavoriteActionOpacity => IsFavorite ? 0.9 : 0;
+    public string FavoriteActionLabel => IsFavorite ? "取消收藏" : "收藏照片";
     public string RatingStars => new string('★', Rating) + new string('☆', 5 - Rating);
     public string SizeText => FileSize > 1048576 ? $"{FileSize / 1048576.0:F1} MB" : $"{FileSize / 1024.0:F0} KB";
     public string DateText => TimelineDate.ToString("yyyy-MM-dd HH:mm");

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$AppOutput,
     [string]$Version = '',
     [string]$Tag = '',
@@ -44,7 +44,7 @@ foreach ($name in @('msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll', 'msvcp14
     if ($file) { Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $payload $name) }
     elseif ($name -in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) { throw "Missing app-local VC++ runtime: $name" }
 }
-foreach ($name in @('coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'System.Private.CoreLib.dll', 'Microsoft.UI.Xaml.dll', 'PhotoAlbum.pri', 'PhotoAlbum.exe')) {
+foreach ($name in @('coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'System.Private.CoreLib.dll', 'Microsoft.UI.Xaml.dll', 'PhotoAlbum.pri', 'PhotoAlbum.exe', 'CommunityToolkit.WinUI.Controls.Segmented.dll', 'CommunityToolkit.WinUI.Extensions.dll')) {
     if (-not (Test-Path -LiteralPath (Join-Path $payload $name))) { throw "Missing runtime/application file: $name" }
 }
 $config = Get-Content -LiteralPath (Join-Path $payload 'PhotoAlbum.runtimeconfig.json') -Raw | ConvertFrom-Json

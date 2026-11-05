@@ -8,6 +8,11 @@ using System.Threading.Tasks;
 
 namespace PhotoAlbum;
 
+public sealed class LibraryReadException : IOException
+{
+    public LibraryReadException(string message, Exception innerException) : base(message, innerException) { }
+}
+
 /// <summary>
 /// 照片库持久化：将照片元数据(路径/收藏/评分/添加时间)以 JSON 保存在
 /// %LocalAppData%\haruphoto\library.json，启动时自动恢复。
@@ -32,12 +37,13 @@ public static class LibraryStore
     private sealed class LibraryFile
     {
         [JsonPropertyName("version")] public int Version { get; set; } = 1;
-        [JsonPropertyName("photos")] public List<Entry> Photos { get; set; } = new();
+        [JsonPropertyName("photos")] public List<Entry>? Photos { get; set; }
     }
 
     private static readonly string DataDir = AppPaths.DataDirectory;
     private static readonly System.Threading.SemaphoreSlim SaveGate = new(1);
     private static readonly List<Entry> MissingEntries = new();
+    private static bool _writeBlocked;
 
     public static string LibraryPath => Path.Combine(DataDir, "library.json");
     public static string ThumbnailCacheDir => Path.Combine(DataDir, "thumbnails");
@@ -56,14 +62,15 @@ public static class LibraryStore
     {
         var result = new List<PhotoItem>();
         var missing = 0;
-        MissingEntries.Clear();
+        var offline = new List<Entry>();
+        await SaveGate.WaitAsync().ConfigureAwait(false);
+        _writeBlocked = true;
         try
         {
-            if (!File.Exists(LibraryPath)) return (result, 0);
-
             await using var fs = File.OpenRead(LibraryPath);
             var lib = await JsonSerializer.DeserializeAsync<LibraryFile>(fs).ConfigureAwait(false);
-            if (lib?.Photos == null) return (result, 0);
+            if (lib?.Photos == null || lib.Version < 1 || lib.Version > 1)
+                throw new InvalidDataException("图库文件格式或版本不受支持。");
 
             foreach (var e in lib.Photos)
             {
@@ -71,7 +78,7 @@ public static class LibraryStore
                 try
                 {
                     var fi = new FileInfo(e.Path);
-                    if (!fi.Exists) { MissingEntries.Add(e); missing++; continue; }
+                    if (!fi.Exists) { offline.Add(e); missing++; continue; }
                     result.Add(new PhotoItem
                     {
                         Filename = fi.Name,
@@ -90,11 +97,23 @@ public static class LibraryStore
                         MapNote = e.PlaceNote ?? "",
                     });
                 }
-                catch { MissingEntries.Add(e); missing++; }
+                catch { offline.Add(e); missing++; }
             }
+            lock (MissingEntries) { MissingEntries.Clear(); MissingEntries.AddRange(offline); }
+            _writeBlocked = false;
+            return (result, missing);
         }
-        catch { /* 文件损坏时以空库启动，避免崩溃 */ }
-        return (result, missing);
+        catch (FileNotFoundException)
+        {
+            lock (MissingEntries) MissingEntries.Clear();
+            _writeBlocked = false;
+            return (result, 0);
+        }
+        catch (Exception ex)
+        {
+            throw new LibraryReadException("图库文件损坏或暂时无法访问，原文件已保留。", ex);
+        }
+        finally { SaveGate.Release(); }
     }
 
     public static async Task SaveAsync(IEnumerable<PhotoItem> photos)
@@ -116,22 +135,28 @@ public static class LibraryStore
                 PlaceNote = p.MapNote,
             }).ToList(),
         };
-        var paths = new HashSet<string>(lib.Photos.Select(p => p.Path), StringComparer.OrdinalIgnoreCase);
-        lib.Photos.AddRange(MissingEntries.Where(e => !paths.Contains(e.Path)));
-
         // 先写临时文件再替换，避免写入中断导致 JSON 损坏
         var tmp = LibraryPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         await SaveGate.WaitAsync().ConfigureAwait(false);
         try
         {
+            if (_writeBlocked) throw new InvalidOperationException("图库读取失败，已暂停保存以保护原文件。请先重新加载图库。");
+            var entries = lib.Photos!;
+            var paths = new HashSet<string>(entries.Select(p => p.Path), StringComparer.OrdinalIgnoreCase);
+            lock (MissingEntries) entries.AddRange(MissingEntries.Where(e => !paths.Contains(e.Path)));
             await using (var fs = File.Create(tmp))
             {
                 // ConfigureAwait(false)：允许调用方(如窗口关闭时)同步 Wait 而不死锁
                 await JsonSerializer.SerializeAsync(fs, lib, new JsonSerializerOptions { WriteIndented = false }).ConfigureAwait(false);
             }
-            File.Move(tmp, LibraryPath, overwrite: true);
+            // Windows 的索引器或防护软件可能短暂占用目标文件；有限重试后仍将错误反馈给调用方。
+            for (var attempt = 0; ; attempt++)
+            {
+                try { File.Move(tmp, LibraryPath, overwrite: true); break; }
+                catch (Exception ex) when (attempt < 4 && (ex is IOException || ex is UnauthorizedAccessException))
+                { await Task.Delay(50 << attempt).ConfigureAwait(false); }
+            }
         }
-        catch { /* 保存失败不影响使用，下次再试 */ }
         finally
         {
             try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
@@ -139,5 +164,5 @@ public static class LibraryStore
         }
     }
 
-    public static void ForgetMissingEntries() => MissingEntries.Clear();
+    public static void ForgetMissingEntries() { lock (MissingEntries) MissingEntries.Clear(); }
 }

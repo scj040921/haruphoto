@@ -12,16 +12,19 @@ internal static class GalleryQuery
         var hasMonth = !string.IsNullOrEmpty(filter.Month);
         var validMonth = DateTime.TryParseExact(filter.Month, "yyyy-MM", CultureInfo.InvariantCulture,
             DateTimeStyles.None, out var month);
-        var cutoff = DateTime.Now.AddDays(-Math.Max(0, filter.Days));
+        var now = DateTime.Now;
+        var cutoff = now.AddDays(-Math.Max(0, filter.Days));
+        var recentlyAddedCutoff = now.AddDays(-7);
         var hasSearch = !string.IsNullOrWhiteSpace(filter.Search);
         var query = photos.Where(p =>
             (!filter.Favorites || p.IsFavorite) &&
-            (filter.Category.Length == 0 || (filter.Category == "__UNCATEGORIZED__" ? p.Category.Length == 0 : p.Category == filter.Category)) &&
+            (filter.Category.Length == 0 || (filter.Category == "__UNCATEGORIZED__" ? p.Category.Length == 0 : string.Equals(p.Category, filter.Category, StringComparison.OrdinalIgnoreCase))) &&
             (!hasMonth || (validMonth && p.TimelineDate.Year == month.Year && p.TimelineDate.Month == month.Month)) &&
             p.Rating >= filter.MinRating &&
-            (filter.Days == 0 || (filter.Days < 0 ? !p.DateTaken.HasValue : p.DateAdded >= cutoff)) &&
+            (filter.Days == 0 || (filter.Days < 0 ? !p.DateTaken.HasValue : p.TimelineDate >= cutoff)) &&
             (filter.Organize != "FavUnrated" || (p.IsFavorite && p.Rating == 0)) &&
             (filter.Organize != "Unfavorite" || !p.IsFavorite) &&
+            (filter.Organize != "RecentlyAdded" || p.DateAdded >= recentlyAddedCutoff) &&
             (!hasSearch || p.Filename.Contains(filter.Search, StringComparison.OrdinalIgnoreCase)
                 || p.Category.Contains(filter.Search, StringComparison.OrdinalIgnoreCase)
                 || p.DateText.Contains(filter.Search, StringComparison.OrdinalIgnoreCase)));

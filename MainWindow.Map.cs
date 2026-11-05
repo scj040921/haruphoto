@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -15,6 +15,7 @@ public sealed partial class MainWindow
 {
     private readonly MapTileCache _mapTiles = new();
     private CancellationTokenSource? _mapRenderCts;
+    private CancellationTokenSource _mapTileLifetime = new();
     private double _mapLatitude = 35, _mapLongitude = 104;
     private int _mapZoom = 4;
     private bool _mapInitialized, _mapDialogOpen, _mapAnimating;
@@ -33,18 +34,24 @@ public sealed partial class MainWindow
     {
         public required Image Image { get; init; }
         public bool Ready { get; set; }
+        public CancellationTokenSource? LoadCts { get; set; }
+        public Task? LoadTask { get; set; }
     }
     private readonly Dictionary<(int Zoom, int X, int Y), MapTileView> _mapTileViews = new();
     private readonly Dictionary<string, (Button Button, string Signature)> _mapMarkerViews = new();
+    private IGrouping<string, PhotoItem>[]? _mapGroups;
     private CancellationTokenSource _mapThumbnailLifetime = new();
     private readonly HashSet<PhotoItem> _mapMarkerPhotos = new();
     private readonly Dictionary<DependencyObject, PhotoItem> _mapPhotoContainers = new();
 
     private async void OpenMap()
     {
+        var enteringMap = MapOverlay.Visibility != Visibility.Visible;
         _thumbCts?.Cancel();
         if (_mapThumbnailLifetime.IsCancellationRequested) { _mapThumbnailLifetime.Dispose(); _mapThumbnailLifetime = new(); }
+        if (_mapTileLifetime.IsCancellationRequested) { _mapTileLifetime.Dispose(); _mapTileLifetime = new(); }
         MapOverlay.Visibility = Visibility.Visible;
+        if (enteringMap) AnimateMapArrival();
         if (!_mapInitialized)
         {
             _mapInitialized = true;
@@ -61,14 +68,38 @@ public sealed partial class MainWindow
                 var point = e.GetCurrentPoint(MapViewport); if (point.Properties.IsHorizontalMouseWheel) return;
                 ChangeMapZoom(point.Properties.MouseWheelDelta > 0 ? 1 : -1, point.Position); e.Handled = true;
             };
-            Closed += (_, _) => { _mapRenderCts?.Cancel(); _mapThumbnailLifetime.Cancel(); CancelMapMotion(); };
+            Closed += (_, _) => { _mapRenderCts?.Cancel(); _mapTileLifetime.Cancel(); _mapThumbnailLifetime.Cancel(); CancelMapPlaceTransition(); CancelMapMotion(); };
             _ = Task.Run(MapTileCache.PruneExpired);
         }
         try { await RenderMapAsync(); } catch (Exception ex) { if (!_windowClosing) MapStatus.Text = "地图加载未完成：" + ex.Message; }
     }
 
+    private void MapHeader_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var compact = e.NewSize.Width < 850;
+        MapSearchLayout.Width = Math.Min(510, Math.Max(0, e.NewSize.Width - 38));
+        var panelTop = MapHeader.Margin.Top + e.NewSize.Height + 12;
+        MapSearchResultsPanel.Margin = new Thickness(14, panelTop, 14, 14);
+        MapPlacementPreview.Margin = new Thickness(14, panelTop, 14, 14);
+        MapPlacementPreview.MaxHeight = Math.Max(120, MapViewport.ActualHeight - panelTop - 48);
+        Grid.SetRow(MapActionsScroll, compact ? 1 : 0);
+        Grid.SetColumn(MapActionsScroll, compact ? 0 : 1);
+        Grid.SetColumnSpan(MapActionsScroll, compact ? 2 : 1);
+        MapActionsScroll.HorizontalAlignment = compact ? HorizontalAlignment.Stretch : HorizontalAlignment.Right;
+    }
+
+    private void MapPlaceHeader_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var compact = e.NewSize.Width < 800;
+        Grid.SetRow(MapPlaceActionsScroll, compact ? 1 : 0);
+        Grid.SetColumn(MapPlaceActionsScroll, compact ? 0 : 1);
+        Grid.SetColumnSpan(MapPlaceActionsScroll, compact ? 2 : 1);
+        MapPlaceActionsScroll.HorizontalAlignment = compact ? HorizontalAlignment.Stretch : HorizontalAlignment.Right;
+    }
+
     private void MapViewport_SizeChanged(object sender, SizeChangedEventArgs e)
     {
+        MapPlacementPreview.MaxHeight = Math.Max(120, e.NewSize.Height - MapPlacementPreview.Margin.Top - 48);
         MapViewport.Clip = new RectangleGeometry { Rect = new Rect(0, 0, Math.Max(0, e.NewSize.Width), Math.Max(0, e.NewSize.Height)) };
         if (MapOverlay.Visibility == Visibility.Visible && !_mapAnimating) _ = RenderMapAsync();
     }
@@ -80,6 +111,7 @@ public sealed partial class MainWindow
         _mapRenderCts = CancellationTokenSource.CreateLinkedTokenSource(_windowLifetime.Token);
         var token = _mapRenderCts.Token;
         _mapRenderedLatitude = _mapLatitude; _mapRenderedLongitude = _mapLongitude; _mapRenderedZoom = _mapZoom;
+        UpdateMapScale();
         ResetMapLayerMotion();
         MapNetworkStatus.Text = "在线地图；照片和批注保存在本机；地名仅在确认搜索后发送";
         MapTiles.RenderTransform = MapMarkers.RenderTransform = null;
@@ -117,18 +149,28 @@ public sealed partial class MainWindow
 #if PERFORMANCE_TEST
             if (AppPaths.IsTestProfile) { tile.Ready = true; continue; }
 #endif
-            if (!tile.Ready) loads.Add(LoadMapTileAsync(tile, _mapZoom, (col % count + count) % count, row, token));
+            if (!tile.Ready)
+            {
+                if (tile.LoadTask == null || tile.LoadTask.IsCompleted || tile.LoadCts?.IsCancellationRequested == true)
+                {
+                    tile.LoadCts?.Cancel(); tile.LoadCts?.Dispose();
+                    tile.LoadCts = CancellationTokenSource.CreateLinkedTokenSource(_mapTileLifetime.Token);
+                    tile.LoadTask = LoadMapTileAsync(tile, _mapZoom, (col % count + count) % count, row, tile.LoadCts.Token);
+                }
+                if (tile.LoadTask is { } load) loads.Add(load);
+            }
         }
-        var groups = _allPhotos.Where(p => MapGeometry.Valid(p.MapLatitude, p.MapLongitude))
+        var groups = _mapGroups ??= _allPhotos.Where(p => MapGeometry.Valid(p.MapLatitude, p.MapLongitude))
             .GroupBy(p => string.IsNullOrEmpty(p.MapPlaceId) ? $"{p.MapLatitude}:{p.MapLongitude}" : p.MapPlaceId).ToArray();
         var visibleMarkers = new HashSet<string>();
         foreach (var group in groups)
         {
-            var photos = group.ToList(); var first = photos[0];
+            var first = group.First();
             var projected = MapGeometry.Project(first.MapLatitude!.Value, first.MapLongitude!.Value, _mapZoom);
             var x = MapGeometry.WrappedDelta(projected.X, center.X, _mapZoom) + MapViewport.ActualWidth / 2;
             var y = projected.Y - center.Y + MapViewport.ActualHeight / 2;
             if (x < -70 || y < -100 || x > MapViewport.ActualWidth + 70 || y > MapViewport.ActualHeight + 100) continue;
+            var photos = group.ToList();
             visibleMarkers.Add(group.Key);
             foreach (var photo in photos.Take(3)) if (_mapMarkerPhotos.Count < 96) _mapMarkerPhotos.Add(photo);
             var signature = $"{photos.Count}|{first.MapLabel}|{first.MapNote}|{string.Join('|', photos.Take(3).Select(p => p.FilePath))}";
@@ -151,7 +193,9 @@ public sealed partial class MainWindow
                 if (_mapMarkerPhotos.Contains(photo)) _ = EnsureFilmstripThumbnailAsync(photo, _mapThumbnailLifetime.Token);
             }
             stack.Children.Add(new TextBlock { Text = $"{(string.IsNullOrWhiteSpace(first.MapLabel) ? "地点" : first.MapLabel)} · {photos.Count}", FontSize = 11, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), VerticalAlignment = VerticalAlignment.Bottom, TextTrimming = TextTrimming.CharacterEllipsis });
-            var button = new Button { Content = stack, Padding = new Thickness(4), Background = new SolidColorBrush(Windows.UI.Color.FromArgb(180, 25, 32, 42)), Tag = photos };
+            var button = new Button { Content = stack, Padding = new Thickness(6), CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1), BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(80, 215, 232, 237)), Background = new SolidColorBrush(Windows.UI.Color.FromArgb(205, 18, 34, 43)), Tag = photos };
+            button.PointerEntered += (_, _) => AnimateMapMarkerFocus(button, true);
+            button.PointerExited += (_, _) => AnimateMapMarkerFocus(button, false);
             button.Click += (_, _) => { if (_mapPlacement.Count > 0) _ = AssignToExistingPlaceAsync(photos); else AnimateToMapPlace(photos); };
             ToolTipService.SetToolTip(button, $"{first.MapLabel} · {photos.Count} 张\n{first.MapNote}");
             Canvas.SetLeft(button, x - 46); Canvas.SetTop(button, y - 75); MapMarkers.Children.Add(button);
@@ -160,9 +204,10 @@ public sealed partial class MainWindow
         foreach (var key in _mapMarkerViews.Keys.Where(k => !visibleMarkers.Contains(k)).ToArray()) { MapMarkers.Children.Remove(_mapMarkerViews[key].Button); _mapMarkerViews.Remove(key); }
         if (_mapPlacement.Count == 0) MapStatus.Text = $"{groups.Length} 个地点 · 拖动地图 / 滚轮缩放 · 点击堆叠照片欣赏";
         var stale = _mapTileViews.Keys.Where(k => !desired.Contains(k)).OrderBy(k => _mapTileViews[k].Ready).ToArray();
+        foreach (var key in stale) if (!_mapTileViews[key].Ready) _mapTileViews[key].LoadCts?.Cancel();
         foreach (var key in stale.Take(Math.Max(0, _mapTileViews.Count - Math.Max(80, desired.Count * 2))))
-        { MapTiles.Children.Remove(_mapTileViews[key].Image); _mapTileViews.Remove(key); }
-        try { await Task.WhenAll(loads); }
+            RemoveMapTile(key);
+        try { await Task.WhenAll(loads).WaitAsync(token); }
         catch (OperationCanceledException) { }
         catch { if (!token.IsCancellationRequested && !_windowClosing) MapNetworkStatus.Text = "底图暂不可用；本地地点仍可查看，请检查网络"; }
         if (token.IsCancellationRequested) return;
@@ -170,7 +215,14 @@ public sealed partial class MainWindow
         var ready = desired.All(k => _mapTileViews.TryGetValue(k, out var tile) && tile.Ready);
         var old = _mapTileViews.Keys.Where(k => !desired.Contains(k)).ToArray();
         foreach (var key in old.Take(ready ? old.Length : Math.Max(0, _mapTileViews.Count - Math.Max(80, desired.Count * 2))))
-        { MapTiles.Children.Remove(_mapTileViews[key].Image); _mapTileViews.Remove(key); }
+            RemoveMapTile(key);
+    }
+
+    private void RemoveMapTile((int Zoom, int X, int Y) key)
+    {
+        if (!_mapTileViews.Remove(key, out var tile)) return;
+        tile.LoadCts?.Cancel(); tile.LoadCts?.Dispose();
+        tile.Image.Source = null; MapTiles.Children.Remove(tile.Image);
     }
 
     private async Task LoadMapTileAsync(MapTileView tile, int zoom, int x, int y, CancellationToken token)
@@ -182,7 +234,7 @@ public sealed partial class MainWindow
             if (path == null) { MapNetworkStatus.Text = "底图暂不可用；本地地点仍可查看，请检查网络"; return; }
             var bitmap = new BitmapImage();
             var opened = new TaskCompletionSource<bool>();
-            bitmap.ImageOpened += (_, _) => { if (ReferenceEquals(tile.Image.Source, bitmap)) tile.Ready = true; opened.TrySetResult(true); };
+            bitmap.ImageOpened += (_, _) => { if (!token.IsCancellationRequested && ReferenceEquals(tile.Image.Source, bitmap)) tile.Ready = true; opened.TrySetResult(true); };
             bitmap.ImageFailed += (_, _) => opened.TrySetResult(false);
             tile.Image.Source = bitmap; bitmap.UriSource = new Uri(path);
             if (!await opened.Task.WaitAsync(token) && !token.IsCancellationRequested) MapNetworkStatus.Text = "底图读取失败；保留已有底图";
@@ -249,9 +301,10 @@ public sealed partial class MainWindow
 
     private void MapClose_Click(object sender, RoutedEventArgs e)
     {
+        CancelMapPlaceTransition(); _mapPlaceOpeningSource = null; _mapPlaceReturnCamera = null; _mapTileLifetime.Cancel();
         CancelMapMotion(); EndMapDrag(); _mapRenderCts?.Cancel();
         _mapThumbnailLifetime.Cancel(); _mapMarkerPhotos.Clear(); _mapPhotoContainers.Clear();
-        MapOverlay.Visibility = MapPlaceOverlay.Visibility = Visibility.Collapsed; MapPlacePhotos.ItemsSource = null; _mapPlace.Clear();
+        MapOverlay.Visibility = MapPlaceOverlay.Visibility = Visibility.Collapsed; RestoreMapPlaceHud(); MapPlacePhotos.ItemsSource = null; MapPlaceHeroBackdrop.Source = null; _mapPlace.Clear();
         MapCancelPlacement_Click(sender, e);
         NavView.SelectedItem = NavView.MenuItems.OfType<NavigationViewItem>().First(n => n.Tag?.ToString() == "All");
         LoadThumbnailsForCurrentPage();
@@ -320,6 +373,8 @@ public sealed partial class MainWindow
 
     private void BeginMapPlacement(List<PhotoItem> photos)
     {
+        CancelMapPlaceTransition(); _mapPlaceReturnCamera = null;
+        MapPlacePhotos.ItemsSource = null; MapPlaceHeroBackdrop.Source = null; _mapPhotoContainers.Clear(); _mapPlace.Clear();
         _mapPlacement = photos; MapPlaceOverlay.Visibility = Visibility.Collapsed;
         MapCancelPlacementBtn.Visibility = Visibility.Visible; ShowMapPlacementPreview(0);
         MapStatus.Text = $"准备放置 {photos.Count} 张：对照左侧照片，点击地图位置或已有地点";
@@ -349,7 +404,8 @@ public sealed partial class MainWindow
         var targets = photos.Where(_allPhotos.Contains).ToArray();
         var before = targets.Select(p => (Photo: p, p.MapLatitude, p.MapLongitude, p.MapPlaceId, p.MapLabel, p.MapNote)).ToArray();
         foreach (var photo in targets) { photo.MapLatitude = latitude; photo.MapLongitude = longitude; photo.MapPlaceId = id; photo.MapLabel = label.Trim(); photo.MapNote = note; }
-        RegisterUndo("地图位置 / 批注", () => { foreach (var item in before) { item.Photo.MapLatitude = item.MapLatitude; item.Photo.MapLongitude = item.MapLongitude; item.Photo.MapPlaceId = item.MapPlaceId; item.Photo.MapLabel = item.MapLabel; item.Photo.MapNote = item.MapNote; } if (MapOverlay.Visibility == Visibility.Visible) _ = RenderMapAsync(); });
+        _mapGroups = null;
+        RegisterUndo("地图位置 / 批注", () => { foreach (var item in before) { item.Photo.MapLatitude = item.MapLatitude; item.Photo.MapLongitude = item.MapLongitude; item.Photo.MapPlaceId = item.MapPlaceId; item.Photo.MapLabel = item.MapLabel; item.Photo.MapNote = item.MapNote; } _mapGroups = null; if (MapOverlay.Visibility == Visibility.Visible) _ = RenderMapAsync(); });
         ScheduleSave();
     }
 
@@ -371,26 +427,30 @@ public sealed partial class MainWindow
 
     private void AnimateToMapPlace(List<PhotoItem> photos)
     {
-        if (_mapAnimating || photos.Count == 0) return;
-        var first = photos[0]; _mapZoom = Math.Min(17, _mapZoom + 1);
+        if (photos.Count == 0 || !MapGeometry.Valid(photos[0].MapLatitude, photos[0].MapLongitude)) return;
+        _mapPlaceOpeningSource = MapMarkerSource(photos);
+        _mapPlaceReturnCamera ??= (_mapLatitude, _mapLongitude, _mapZoom);
+        var first = photos[0]; _mapZoom = 17;
         _mapLatitude = first.MapLatitude!.Value; _mapLongitude = first.MapLongitude!.Value;
         _ = FlyToMapPlaceAsync(photos);
     }
 
     private async Task FlyToMapPlaceAsync(List<PhotoItem> photos)
     {
-        if (await AnimateMapMotionAsync(Math.Clamp(_settings.AnimationDurationMs, 50, 600))) ShowMapPlace(photos);
+        // Start the connected photo transition with the camera, not after a stop.
+        ShowMapPlace(photos);
+        await AnimateMapMotionAsync(MapTransitionDuration, true);
     }
 
-    private async Task<bool> AnimateMapMotionAsync(double milliseconds)
+    private async Task<bool> AnimateMapMotionAsync(double milliseconds, bool motionBlur = false)
     {
-        _mapMotionCts?.Cancel(); _mapMotionCts?.Dispose();
+        _mapMotionCts?.Cancel(); _mapMotionCts?.Dispose(); ResetMapMotionBlur();
         _mapMotionCts = CancellationTokenSource.CreateLinkedTokenSource(_windowLifetime.Token);
         var token = _mapMotionCts.Token; var request = ++_mapMotionRequest;
         _mapRenderCts?.Cancel(); _mapAnimating = true;
         try
         {
-            if (_settings.AnimationsEnabled)
+            if (MotionEnabled)
             {
                 var center = MapGeometry.Project(_mapRenderedLatitude, _mapRenderedLongitude, _mapRenderedZoom);
                 var target = MapGeometry.Project(_mapLatitude, _mapLongitude, _mapRenderedZoom);
@@ -412,6 +472,7 @@ public sealed partial class MainWindow
                     pan.InsertExpressionKeyFrame(0, "this.StartingValue"); pan.InsertKeyFrame(1, new Vector3((float)(-dx * scale), (float)(-dy * scale), 0), easing);
                     visual.StartAnimation("Scale", zoom); visual.Properties.StartAnimation("Translation", pan);
                 }
+                if (motionBlur) StartMapMotionBlur(milliseconds, scale, (float)(-dx * scale), (float)(-dy * scale));
                 batch.End(); await completed.Task.WaitAsync(token);
             }
             token.ThrowIfCancellationRequested();
@@ -420,7 +481,7 @@ public sealed partial class MainWindow
         }
         catch (OperationCanceledException) { return false; }
         catch (Exception ex) { if (!_windowClosing) MapStatus.Text = "地图转场未完成：" + ex.Message; return false; }
-        finally { if (request == _mapMotionRequest) _mapAnimating = false; }
+        finally { if (request == _mapMotionRequest) { _mapAnimating = false; ResetMapMotionBlur(); } }
     }
 
     private void ResetMapLayerMotion()
@@ -434,21 +495,50 @@ public sealed partial class MainWindow
             visual.Properties.StopAnimation("Translation");
         }
     }
-    private void CancelMapMotion() { ++_mapMotionRequest; _mapMotionCts?.Cancel(); _mapAnimating = false; ResetMapLayerMotion(); }
+    private void CancelMapMotion() { ++_mapMotionRequest; _mapMotionCts?.Cancel(); _mapAnimating = false; ResetMapMotionBlur(); ResetMapLayerMotion(); }
 
     private void ShowMapPlace(List<PhotoItem> photos)
     {
-        _mapPlace = photos.Where(_allPhotos.Contains).ToList(); if (_mapPlace.Count == 0) return;
+        var current = photos.Where(_allPhotos.Contains).ToList(); if (current.Count == 0) return;
+        var entering = MapPlaceOverlay.Visibility != Visibility.Visible || _mapPlaceClosing;
+        var (request, token) = BeginMapPlaceTransition();
+        var changed = !_mapPlace.SequenceEqual(current);
+        _mapPlace = current;
         var first = _mapPlace[0]; MapPlaceTitle.Text = $"{first.MapLabel} · {_mapPlace.Count} 张"; MapPlaceNote.Text = first.MapNote;
-        MapPlacePhotos.ItemsSource = _mapPlace; MapPlaceOverlay.Visibility = Visibility.Visible;
-        var animation = new DoubleAnimation { From = 0, To = 1, Duration = TimeSpan.FromMilliseconds(!_settings.AnimationsEnabled ? 1 : 280) };
-        var storyboard = new Storyboard(); Storyboard.SetTarget(animation, MapPlaceOverlay); Storyboard.SetTargetProperty(animation, "Opacity"); storyboard.Children.Add(animation); storyboard.Begin();
+        MapPlaceHeroBackdrop.Source = first.ThumbnailSource;
+        _ = LoadMapPlaceBackdropAsync(first, request);
+        _mapPlaceAnchor = (first.MapLatitude ?? _mapLatitude, first.MapLongitude ?? _mapLongitude);
+        MapScaleHud.VerticalAlignment = VerticalAlignment.Top; MapScaleHud.Margin = new Thickness(0, 128, 22, 0);
+        MapNetworkStatus.Visibility = Visibility.Collapsed;
+        _mapPlaceEntranceActive = entering && MotionEnabled;
+        if (changed || MapPlacePhotos.ItemsSource == null) MapPlacePhotos.ItemsSource = _mapPlace;
+        MapPlaceOverlay.Visibility = Visibility.Visible;
+        if (_mapPlaceEntranceActive) MapVisual(MapPlaceOverlay).Opacity = 0;
+        if (entering) _ = OpenMapPlaceTransitionAsync(request, token);
         foreach (var photo in _mapPlace.Take(100)) _ = EnsureFilmstripThumbnailAsync(photo, _mapThumbnailLifetime.Token);
     }
-    private void MapPlaceClose_Click(object sender, RoutedEventArgs e) { MapPlaceOverlay.Visibility = Visibility.Collapsed; MapPlacePhotos.ItemsSource = null; _mapPhotoContainers.Clear(); _mapPlace.Clear(); TrimThumbnailMemory(); _ = RenderMapAsync(); }
+
+    private async Task LoadMapPlaceBackdropAsync(PhotoItem photo, int request)
+    {
+        try
+        {
+            var image = photo.ThumbnailSource ?? await _thumbService.GetThumbnailAsync(photo.FilePath, _mapThumbnailLifetime.Token);
+            if (request == _mapPlaceTransitionRequest && MapPlaceOverlay.Visibility == Visibility.Visible && !_windowClosing)
+                MapPlaceHeroBackdrop.Source = image;
+        }
+        catch (OperationCanceledException) { }
+        catch { /* 背景照片不可用时使用渐变底色。 */ }
+    }
+    private void MapPlaceClose_Click(object sender, RoutedEventArgs e) => _ = CloseMapPlaceTransitionAsync();
+    private void RestoreMapPlaceHud()
+    {
+        MapScaleHud.VerticalAlignment = VerticalAlignment.Bottom; MapScaleHud.Margin = new Thickness(0, 0, 22, 46);
+        MapNetworkStatus.Visibility = Visibility.Visible;
+    }
     private void MapPhoto_ItemClick(object sender, ItemClickEventArgs e)
     {
         if (e.ClickedItem is not PhotoItem photo) return;
+        _mapPhotoPreviewSource = CaptureMapPhotoPreviewSource(photo);
         _mapPreviewRestore = _currentView; _currentView = _mapPlace.ToList(); OpenPreview(photo);
     }
     private void RestoreMapPreviewView() { if (_mapPreviewRestore == null) return; _currentView = _mapPreviewRestore; _mapPreviewRestore = null; }
@@ -467,24 +557,12 @@ public sealed partial class MainWindow
 
     private void MapPhoto_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
+        ResetMapVisual(args.ItemContainer);
         if (args.InRecycleQueue) { _mapPhotoContainers.Remove(args.ItemContainer); return; }
         if (args.Item is not PhotoItem photo || _mapThumbnailLifetime.IsCancellationRequested) return;
         _mapPhotoContainers[args.ItemContainer] = photo;
         _ = EnsureFilmstripThumbnailAsync(photo, _mapThumbnailLifetime.Token);
-        // 卡片展开也由合成线程驱动，避免数十张照片各自触发 UI 逐帧动画。
-        ElementCompositionPreview.SetIsTranslationEnabled(args.ItemContainer, true);
-        var visual = ElementCompositionPreview.GetElementVisual(args.ItemContainer);
-        visual.StopAnimation("Scale"); visual.Properties.InsertVector3("Translation", Vector3.Zero); visual.Properties.StopAnimation("Translation");
-        visual.Scale = Vector3.One;
-        if (!_settings.AnimationsEnabled) return;
-        var compositor = visual.Compositor;
-        visual.CenterPoint = new Vector3((float)Math.Max(180, args.ItemContainer.ActualWidth) / 2, 70, 0);
-        var easing = compositor.CreateCubicBezierEasingFunction(new Vector2(.2f, .7f), new Vector2(.2f, 1));
-        var scale = compositor.CreateVector3KeyFrameAnimation(); scale.Duration = TimeSpan.FromMilliseconds(280); scale.DelayTime = TimeSpan.FromMilliseconds(args.ItemIndex % 6 * 20);
-        scale.InsertKeyFrame(0, new Vector3(.9f, .9f, 1)); scale.InsertKeyFrame(1, Vector3.One, easing);
-        var offset = compositor.CreateVector3KeyFrameAnimation(); offset.Duration = scale.Duration; offset.DelayTime = scale.DelayTime;
-        offset.InsertKeyFrame(0, new Vector3(0, 20, 0)); offset.InsertKeyFrame(1, Vector3.Zero, easing);
-        visual.StartAnimation("Scale", scale); visual.Properties.StartAnimation("Translation", offset);
+        AnimateMapPhotoArrival(args.ItemContainer, args.ItemIndex);
     }
 
     private async void MapEditPlace_Click(object sender, RoutedEventArgs e)

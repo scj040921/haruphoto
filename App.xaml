@@ -96,6 +96,12 @@
             <ResourceDictionary.ThemeDictionaries>
                 <!-- 浅色 -->
                 <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="LibraryHeaderBrush" Color="#FAFAFAFC"/>
+                    <SolidColorBrush x:Key="LibraryControlBrush" Color="#FFF0F0F3"/>
+                    <SolidColorBrush x:Key="LibraryHairlineBrush" Color="#14000000"/>
+                    <SolidColorBrush x:Key="LibraryCardBrush" Color="#F8FFFFFF"/>
+                    <SolidColorBrush x:Key="LibraryPrimaryTextBrush" Color="#FF202124"/>
+                    <SolidColorBrush x:Key="LibrarySecondaryTextBrush" Color="#FF63656B"/>
                     <SolidColorBrush x:Key="CardHoverStrokeBrush" Color="#4D5B6EAE"/>
                     <SolidColorBrush x:Key="PreviewPanelBrush" Color="#F2FFFFFF"/>
                     <!-- 顶栏渐变：顶部高光（玻璃边缘）→ 底部透明（卡片透出）-->
@@ -115,6 +121,12 @@
                 </ResourceDictionary>
                 <!-- 深色 -->
                 <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="LibraryHeaderBrush" Color="#FA232429"/>
+                    <SolidColorBrush x:Key="LibraryControlBrush" Color="#FF34353B"/>
+                    <SolidColorBrush x:Key="LibraryHairlineBrush" Color="#20FFFFFF"/>
+                    <SolidColorBrush x:Key="LibraryCardBrush" Color="#FF27282E"/>
+                    <SolidColorBrush x:Key="LibraryPrimaryTextBrush" Color="#FFF4F4F6"/>
+                    <SolidColorBrush x:Key="LibrarySecondaryTextBrush" Color="#FFB7B8C0"/>
                     <SolidColorBrush x:Key="CardHoverStrokeBrush" Color="#665B6EAE"/>
                     <SolidColorBrush x:Key="PreviewPanelBrush" Color="#F21A1A20"/>
                     <LinearGradientBrush x:Key="TopBarGradientBrush" StartPoint="0,0" EndPoint="0,1">

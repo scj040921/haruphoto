@@ -1,4 +1,4 @@
-using Microsoft.UI.Input;
+﻿using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -14,6 +14,7 @@ using System.IO.Compression;   // ZipFile / CreateEntryFromFile
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Storage.Pickers;
+using Windows.Foundation;
 using Windows.System;
 using Windows.UI.Core;
 using Microsoft.UI.Xaml.Hosting; // ElementCompositionPreview
@@ -30,17 +31,25 @@ public sealed partial class MainWindow : Window
     private const int PageSize = 100;
 
     private readonly RangeObservableCollection<PhotoItem> _photos = new();
-    private readonly BoundedLru<PhotoItem> _thumbnailResidency = new(256);
+    // 保留当前页与最近浏览的图片；磁盘缩略图不受此内存上限影响。
+    private readonly BoundedLru<PhotoItem> _thumbnailResidency = new(160);
     private readonly FavoriteCounter _favoriteCounter = new();
     private readonly Dictionary<DependencyObject, PhotoItem> _filmstripContainers = new();
-    private bool _galleryMeasureQueued;
+    private readonly DispatcherTimer _galleryMeasureTimer = new() { Interval = TimeSpan.FromMilliseconds(80) };
+#if PERFORMANCE_TEST
+    private int _testGalleryMeasureCount;
+#endif
     private readonly List<PhotoItem> _allPhotos = new();
     private List<PhotoItem> _currentView = new();
     private readonly ThumbnailService _thumbService = new();
     private CancellationTokenSource? _thumbCts;
     private Task _thumbnailBatchTask = Task.CompletedTask;
+#if PERFORMANCE_TEST
+    private string? _testThumbnailPath;
+    private int _testThumbnailLoads;
+#endif
     private CancellationTokenSource? _filmstripCts;
-    private readonly Dictionary<PhotoItem, CancellationToken> _filmstripPending = new();
+    private readonly Dictionary<PhotoItem, (CancellationToken Token, Task Load)> _filmstripPending = new();
     private readonly FolderWatcherService _folderWatcher = new();
     private AppSettings _settings = AppSettings.Load();
 
@@ -75,10 +84,14 @@ public sealed partial class MainWindow : Window
     private Storyboard? _previewVisibilityAnimation;
     private Storyboard? _previewImageAnimation;
     private Storyboard? _galleryAnimation;
+    private bool _galleryScrolling;
+    private bool _galleryMeasurePending;
     private sealed class CardAnimationState
     {
-        public Storyboard? Fade;
-        public DispatcherTimer? Hover;
+        public Storyboard? Hover;
+        public Storyboard? FavoriteReveal;
+        public bool PointerOver;
+        public bool FavoriteFocused;
         public bool Hooked;
     }
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<UIElement, CardAnimationState> _cardAnimations = new();
@@ -86,6 +99,7 @@ public sealed partial class MainWindow : Window
     private bool _updateInProgress;
     private bool _updateCheckInProgress;
     private bool _libraryLoaded;
+    private bool _libraryLoadFailed, _loadingLibrary;
     private readonly DispatcherTimer _updateCheckTimer;
     private float _previewFitZoom = 1.0f;
 
@@ -98,7 +112,14 @@ public sealed partial class MainWindow : Window
         Title = "haruphoto";
         PreviewImageScroll.ViewChanged += (_, _) => UpdatePreviewZoomText();
         PreviewImageScroll.SizeChanged += (_, _) => SizePreviewCanvas();
+        PreviewImageCanvas.SizeChanged += (_, _) => ResizePreviewFocusBlur();
         InitializeViewerGestures();
+        InitializeInteractionMotion();
+        MainScroll.ViewChanging += (_, _) => _galleryScrolling = true;
+        MainScroll.ViewChanged += (_, e) => { if (!e.IsIntermediate && !_galleryWheelRunning) CompleteGalleryScroll(); };
+        GalleryContentGrid.PointerWheelChanged += GalleryWheelChanged;
+        MainScroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => StopGalleryWheel()), true);
+        MainScroll.KeyDown += (_, _) => StopGalleryWheel();
         PreviewOverlay.PointerMoved += (_, e) =>
         {
             if (_settings.FilmstripMode != 1 || _filmstripHidden || _previewFullscreen) return;
@@ -141,11 +162,22 @@ public sealed partial class MainWindow : Window
         }
         catch { }
 
+        _galleryMeasureTimer.Tick += (_, _) =>
+        {
+            _galleryMeasureTimer.Stop();
+            if (_windowClosing) return;
+            if (_galleryScrolling) { _galleryMeasurePending = true; return; }
+            if (PhotoGrid.Layout is MasonryLayout masonry) masonry.MarkGeometryDirty();
+#if PERFORMANCE_TEST
+            _testGalleryMeasureCount++;
+#endif
+            PhotoGrid.InvalidateMeasure();
+        };
         _searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
         _searchTimer.Tick += (s, e) => { _searchTimer.Stop(); _currentPage = 0; RefreshPhotos(); };
 
         _saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
-        _saveTimer.Tick += async (s, e) => { _saveTimer.Stop(); await LibraryStore.SaveAsync(_allPhotos); };
+        _saveTimer.Tick += async (s, e) => { _saveTimer.Stop(); await SaveLibraryWithNoticeAsync(); };
 
         _slideshowTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(Math.Clamp(_settings.SlideshowIntervalSeconds, 2, 15)) };
         _slideshowTimer.Tick += (_, _) =>
@@ -155,7 +187,7 @@ public sealed partial class MainWindow : Window
                 StopSlideshow();
                 return;
             }
-            if (PreviewLoading.Visibility != Visibility.Visible)
+            if (!_previewIsLoading)
                 ShowPreviewAt((_previewIndex + 1) % _currentView.Count);
         };
 
@@ -171,7 +203,9 @@ public sealed partial class MainWindow : Window
         Closed += (s, e) =>
         {
             _windowClosing = true;
+            StopGalleryWheel();
             _windowLifetime.Cancel();
+            _galleryMeasureTimer.Stop();
             _saveTimer.Stop();
             _slideshowTimer.Stop();
             _filmstripCts?.Cancel();
@@ -187,6 +221,8 @@ public sealed partial class MainWindow : Window
 
     private async Task InitAsync()
     {
+        if (_loadingLibrary || _libraryLoaded || _windowClosing) return;
+        _loadingLibrary = true;
         BusyRing.Visibility = Visibility.Visible;
         StatusText.Text = "正在加载照片库…";
         try
@@ -194,6 +230,9 @@ public sealed partial class MainWindow : Window
             var (photos, missing) = await Task.Run(LibraryStore.LoadAsync, _windowLifetime.Token);
             if (_windowClosing) return;
             _libraryLoaded = true;
+            _libraryLoadFailed = false;
+            LibraryLoadNotice.IsOpen = false;
+            ImportFolderButton.IsEnabled = ImportFilesButton.IsEnabled = true;
             _allPhotos.AddRange(photos);
             _favoriteCounter.Initialize(_allPhotos);
             _sortBy = Math.Clamp(_settings.SortMode, 0, SortCombo.Items.Count - 1);
@@ -214,11 +253,25 @@ public sealed partial class MainWindow : Window
             _ = CheckForUpdateOnStartupAsync();
         }
         catch (OperationCanceledException) { }
+        catch (LibraryReadException ex)
+        {
+            if (!_windowClosing)
+            {
+                _libraryLoadFailed = true;
+                LibraryLoadNotice.IsOpen = true;
+                StatusText.Text = "图库读取失败，原索引已保留";
+                ToolTipService.SetToolTip(LibraryLoadNotice, ex.InnerException?.Message ?? ex.Message);
+                UpdateEmptyState();
+            }
+        }
         finally
         {
+            _loadingLibrary = false;
             if (!_windowClosing) BusyRing.Visibility = Visibility.Collapsed;
         }
 #if PERFORMANCE_TEST
+        if (AppPaths.IsTestProfile && _libraryLoadFailed && Environment.GetEnvironmentVariable("HARUPHOTO_LIBRARY_FAILURE_SMOKE") == "1")
+            await RunLibraryFailureSmokeAsync();
         if (AppPaths.IsTestProfile && Environment.GetEnvironmentVariable("HARUPHOTO_PERFORMANCE_SMOKE") == "1")
             await RunPerformanceSmokeAsync();
 #endif
@@ -345,18 +398,17 @@ public sealed partial class MainWindow : Window
             var dark = IsDark();
             var acrylic = new Microsoft.UI.Xaml.Media.AcrylicBrush
             {
-                // tint 下限 0.55：即使滑块拉到 0 也不会纯透明（磨砂面板底线）
+                // 让文字的对比度稳定，材质只提供轻微层次，不承载大片桌面颜色。
                 TintOpacity = _settings.TopBarStyle == 1
-                    ? Math.Max(_settings.AcrylicOpacity, 0.35)
-                    : Math.Max(_settings.AcrylicOpacity, 0.55),
-                // 液态玻璃：更低 TintLuminosityOpacity = 更亮的玻璃通透感（苹果质感）
-                TintLuminosityOpacity = _settings.TopBarStyle == 1 ? 0.45 : 0.7,
+                    ? Math.Clamp(0.60 + _settings.AcrylicOpacity * 0.24, 0.67, 0.84)
+                    : 0.86,
+                TintLuminosityOpacity = 0.82,
                 FallbackColor = dark
-                    ? Windows.UI.Color.FromArgb(255, 24, 24, 26)
-                    : Windows.UI.Color.FromArgb(255, 247, 247, 248),
+                    ? Windows.UI.Color.FromArgb(255, 35, 36, 41)
+                    : Windows.UI.Color.FromArgb(255, 250, 250, 252),
                 TintColor = dark
-                    ? Windows.UI.Color.FromArgb(255, 24, 24, 26)
-                    : Windows.UI.Color.FromArgb(255, 247, 247, 248),
+                    ? Windows.UI.Color.FromArgb(255, 35, 36, 41)
+                    : Windows.UI.Color.FromArgb(255, 250, 250, 252),
             };
             TopBarTint.Background = acrylic;
 
@@ -365,10 +417,8 @@ public sealed partial class MainWindow : Window
             {
                 StatusBarGlass.Background = new Microsoft.UI.Xaml.Media.AcrylicBrush
                 {
-                    TintOpacity = _settings.TopBarStyle == 1
-                        ? Math.Max(_settings.AcrylicOpacity, 0.35)
-                        : Math.Max(_settings.AcrylicOpacity, 0.55),
-                    TintLuminosityOpacity = 0.7,
+                    TintOpacity = 0.88,
+                    TintLuminosityOpacity = 0.92,
                     FallbackColor = dark
                         ? Windows.UI.Color.FromArgb(255, 24, 24, 26)
                         : Windows.UI.Color.FromArgb(255, 247, 247, 248),
@@ -383,17 +433,14 @@ public sealed partial class MainWindow : Window
                         : Windows.UI.Color.FromArgb(dark ? (byte)0x40 : (byte)0x99, 255, 255, 255));
             }
 
-            // 高光描边：液态玻璃模式 = 四周 1px + 顶部 2px 边缘光（苹果 Liquid
-            // Glass 顶部高光）；磨砂模式 = 仅底部 1px 折射边缘光
+            // 使用低对比细边缘，避免高亮描边与内部控件重复争抢注意力。
             if (TopBarGradient != null)
             {
                 var edge = dark
-                    ? Windows.UI.Color.FromArgb(0x59, 255, 255, 255)   // 深色：35% 白
-                    : Windows.UI.Color.FromArgb(0xB3, 255, 255, 255);  // 浅色：70% 白
+                    ? Windows.UI.Color.FromArgb(0x20, 255, 255, 255)
+                    : Windows.UI.Color.FromArgb(0x14, 0, 0, 0);
                 TopBarGradient.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(edge);
-                TopBarGradient.BorderThickness = _settings.TopBarStyle == 1
-                    ? new Microsoft.UI.Xaml.Thickness(1, 2, 1, 1)   // 液态：顶部 2px 边缘光
-                    : new Microsoft.UI.Xaml.Thickness(0, 0, 0, 1);
+                TopBarGradient.BorderThickness = new Microsoft.UI.Xaml.Thickness(1);
             }
         }
         catch { }
@@ -454,6 +501,8 @@ public sealed partial class MainWindow : Window
             ApplyTopBarLiquidGlass();
         else
             ApplyTopBarFrostedGlass();
+        if (StatsScroll?.Visibility == Visibility.Visible) UpdateStatsView();
+        if (OrganizeScroll?.Visibility == Visibility.Visible) UpdateOrganizeView();
     }
 
     /// <summary>应用外观设置：主题色 + 亚克力（SPW 风格可选模式，默认关闭保留原界面）</summary>
@@ -591,9 +640,21 @@ public sealed partial class MainWindow : Window
     private void AnimatePreviewIn()
     {
         ++_previewVisibilityRequest;
+        StartPreviewReveal(_previewVisibilityRequest);
         _previewVisibilityAnimation?.Stop();
+        if (_mapPhotoPreviewSource is Rect source && MotionEnabled)
+        {
+            MapVisual(PreviewContentRoot).Opacity = 0;
+            MapVisual(PreviewOverlay).Opacity = 0;
+            MapVisual(PreviewImageStage).StopAnimation("Scale");
+            MapVisual(PreviewImageStage).Properties.StopAnimation("Translation");
+            _ = OpenMapPhotoPreviewTransitionAsync(source);
+            return;
+        }
         PreviewContentRoot.Opacity = 1;
-        if (!_settings.AnimationsEnabled) return;
+        if (!MotionEnabled) _mapPhotoPreviewSource = null;
+        ResetMapVisual(PreviewImageStage); PreviewOverlay.Opacity = 1;
+        if (!MotionEnabled) return;
         PreviewContentRoot.Opacity = 0.5;
         var sb = new Storyboard();
         var fade = new DoubleAnimation
@@ -614,8 +675,17 @@ public sealed partial class MainWindow : Window
     private void AnimatePreviewOut()
     {
         var request = ++_previewVisibilityRequest;
+        ClearPreviewReveal();
         _previewVisibilityAnimation?.Stop();
-        if (!_settings.AnimationsEnabled)
+        if (_mapPhotoPreviewClosing)
+        {
+            PreviewOverlay.Visibility = Visibility.Collapsed;
+            PreviewImage.Source = null; PreviewImageOutgoing.Source = null;
+            _previewIndex = -1; PreviewContentRoot.Opacity = 1; PreviewOverlay.Opacity = 1;
+            ResetMapVisual(PreviewImageStage);
+            return;
+        }
+        if (!MotionEnabled)
         {
             PreviewOverlay.Visibility = Visibility.Collapsed;
             PreviewImage.Source = null;
@@ -704,7 +774,7 @@ public sealed partial class MainWindow : Window
                 Content = cat,
                 Tag = "Cat:" + cat,
             };
-            item.IsSelected = _categoryFilter == cat;
+            item.IsSelected = string.Equals(_categoryFilter, cat, StringComparison.OrdinalIgnoreCase);
             catParent.MenuItems.Add(item);
         }
     }
@@ -828,7 +898,7 @@ public sealed partial class MainWindow : Window
 
         foreach (var cat in _categories.ToList())
         {
-            var count = _allPhotos.Count(p => p.Category == cat);
+            var count = _allPhotos.Count(p => string.Equals(p.Category, cat, StringComparison.OrdinalIgnoreCase));
             var row = new Grid();
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new Microsoft.UI.Xaml.GridLength(1, Microsoft.UI.Xaml.GridUnitType.Star) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = Microsoft.UI.Xaml.GridLength.Auto });
@@ -875,7 +945,7 @@ public sealed partial class MainWindow : Window
                     var newName = inputBox.Text?.Trim();
                     if (string.IsNullOrEmpty(newName) || newName == oldName) return;
                     // 更新所有照片的分类
-                    foreach (var p in _allPhotos.Where(p => p.Category == oldName))
+                    foreach (var p in _allPhotos.Where(p => string.Equals(p.Category, oldName, StringComparison.OrdinalIgnoreCase)))
                         p.Category = newName;
                     var idx = _categories.IndexOf(oldName);
                     if (idx >= 0) _categories[idx] = newName;
@@ -889,7 +959,7 @@ public sealed partial class MainWindow : Window
             delBtn.Click += (_, _) =>
             {
                 var name = delBtn.Tag as string ?? "";
-                foreach (var p in _allPhotos.Where(p => p.Category == name))
+                foreach (var p in _allPhotos.Where(p => string.Equals(p.Category, name, StringComparison.OrdinalIgnoreCase)))
                     p.Category = "";
                 _categories.Remove(name);
                 RebuildCategoryNavItems();
@@ -911,6 +981,7 @@ public sealed partial class MainWindow : Window
     private void RefreshPhotos(bool forceRender = false)
     {
         if (!_uiReady || _windowClosing) return;
+        _mapGroups = null;
         _currentView = GalleryQuery.Apply(_allPhotos, new GalleryFilter(_favoritesOnly, _categoryFilter,
             _timelineFilter, _minRatingFilter, _dateFilterDays, _organizeFilter, _searchKeyword, _sortBy));
         UpdateEmptyState();
@@ -921,6 +992,7 @@ public sealed partial class MainWindow : Window
     // 翻页只切片已有结果，不重复筛选/排序整个图库。
     private void RenderCurrentPage(bool forceReset = false)
     {
+        StopGalleryWheel();
         var maxPage = Math.Max(0, (_currentView.Count - 1) / PageSize);
         _currentPage = Math.Clamp(_currentPage, 0, maxPage);
         var page = GalleryQuery.Page(_currentView, _currentPage, PageSize);
@@ -930,8 +1002,12 @@ public sealed partial class MainWindow : Window
             if (photo.ThumbnailSource != null) _thumbnailResidency.Touch(photo);
         }
         var changed = _photos.ReplaceAll(page, forceReset);
+        if (changed && PhotoGrid.Layout is MasonryLayout masonry) masonry.MarkGeometryDirty();
         TrimThumbnailMemory();
-        PageInfo.Text = $"第 {_currentPage + 1}/{maxPage + 1} 页 · 共 {_currentView.Count} 张";
+        PageInfo.Text = $"{_currentPage + 1} / {maxPage + 1}";
+        PageJumpBox.Maximum = maxPage + 1;
+        PageJumpBox.Value = _currentPage + 1;
+        UpdateLibraryHeading();
         PrevPageBtn.IsEnabled = _currentPage > 0;
         NextPageBtn.IsEnabled = _currentPage < maxPage;
         LoadThumbnailsForCurrentPage();
@@ -941,6 +1017,7 @@ public sealed partial class MainWindow : Window
 
     private void TrimThumbnailMemory() => _thumbnailResidency.Trim(
         p => (_photos.Contains(p) && MapOverlay.Visibility != Visibility.Visible) || _filmstripContainers.Values.Contains(p) || _comparePanes.Any(pane => pane.Photo == p)
+            || (PreviewOverlay.Visibility == Visibility.Visible && _previewIndex >= 0 && _previewIndex < _currentView.Count && ReferenceEquals(_currentView[_previewIndex], p))
             || (MapOverlay.Visibility == Visibility.Visible && PreviewOverlay.Visibility != Visibility.Visible
                 && (_mapMarkerPhotos.Contains(p) || _mapPhotoContainers.Values.Contains(p) || _mapPickerPhotos.Contains(p))),
         p => p.ThumbnailSource = null);
@@ -955,6 +1032,15 @@ public sealed partial class MainWindow : Window
 
     private void UpdateEmptyState()
     {
+        if (_libraryLoadFailed)
+        {
+            EmptyState.Visibility = MainScroll.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
+            EmptyStateTitle.Text = "无法读取照片库";
+            EmptyStateDescription.Text = "原索引文件已保留。请检查文件或存储位置后重新加载。";
+            EmptyStateAction.Content = "重新加载";
+            return;
+        }
+        if (!_libraryLoaded) { EmptyState.Visibility = Visibility.Collapsed; return; }
         var libraryIsEmpty = _allPhotos.Count == 0;
         EmptyState.Visibility = _currentView.Count == 0 && MainScroll.Visibility == Visibility.Visible
             ? Visibility.Visible : Visibility.Collapsed;
@@ -967,7 +1053,8 @@ public sealed partial class MainWindow : Window
 
     private void EmptyStateAction_Click(object sender, RoutedEventArgs e)
     {
-        if (_allPhotos.Count == 0) ImportButton_Click(sender, e);
+        if (_libraryLoadFailed) _ = InitAsync();
+        else if (_allPhotos.Count == 0) ImportButton_Click(sender, e);
         else ClearFilters_Click(sender, e);
     }
 
@@ -975,7 +1062,7 @@ public sealed partial class MainWindow : Window
     {
         _galleryAnimation?.Stop();
         MainScroll.Opacity = 1;
-        if (!_settings.AnimationsEnabled || MainScroll == null) return;
+        if (!MotionEnabled || MainScroll == null) return;
         MainScroll.Opacity = 0.84;
         var fade = new DoubleAnimation
         {
@@ -1009,20 +1096,18 @@ public sealed partial class MainWindow : Window
         PhotoGrid.InvalidateMeasure();
     }
 
-    private void Thumbnail_ImageOpened(object sender, RoutedEventArgs e)
-    {
-        if (_settings.DisplayMode == 1)
-            RequestGalleryMeasure();
-    }
-
     private void RequestGalleryMeasure()
     {
-        if (_galleryMeasureQueued || _windowClosing) return;
-        _galleryMeasureQueued = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
-        {
-            _galleryMeasureQueued = false;
-            if (!_windowClosing) PhotoGrid.InvalidateMeasure();
-        });
+        if (_windowClosing) return;
+        if (_galleryScrolling) { _galleryMeasurePending = true; return; }
+        // Bound layout work to one update per frame group as thumbnails finish.
+        if (!_galleryMeasureTimer.IsEnabled) _galleryMeasureTimer.Start();
+    }
+
+    private void CompleteGalleryScroll()
+    {
+        _galleryScrolling = false;
+        if (_galleryMeasurePending) { _galleryMeasurePending = false; RequestGalleryMeasure(); }
     }
 
     private void UpdateStats()
@@ -1046,16 +1131,22 @@ public sealed partial class MainWindow : Window
 
     private async Task LoadThumbnailAsync(PhotoItem photo, CancellationToken ct)
     {
+#if PERFORMANCE_TEST
+        if (AppPaths.IsTestProfile && string.Equals(photo.FilePath, _testThumbnailPath, StringComparison.OrdinalIgnoreCase)) _testThumbnailLoads++;
+#endif
         try
         {
             var img = await _thumbService.GetThumbnailAsync(photo.FilePath, ct);
             if (img != null && !ct.IsCancellationRequested)
             {
+                var previousRatio = photo.ThumbnailAspectRatio;
                 photo.ThumbnailSource = img;
                 if (img.PixelWidth > 0 && img.PixelHeight > 0) photo.ThumbnailAspectRatio = (double)img.PixelWidth / img.PixelHeight;
                 _thumbnailResidency.Touch(photo);
                 TrimThumbnailMemory();
-                if (_settings.DisplayMode == 1) RequestGalleryMeasure();
+                // Cached dimensions do not change the masonry geometry on later visits.
+                if (_settings.DisplayMode == 1 && Math.Abs(previousRatio - photo.ThumbnailAspectRatio) > 0.001)
+                    RequestGalleryMeasure();
             }
             else if (!ct.IsCancellationRequested) photo.ThumbnailStatus = "无法读取";
         }
@@ -1064,9 +1155,32 @@ public sealed partial class MainWindow : Window
 
     private void ScheduleSave()
     {
+        if (!_libraryLoaded || _windowClosing) return;
         _saveTimer.Stop();
         _saveTimer.Start();
     }
+
+    private async Task SaveLibraryWithNoticeAsync()
+    {
+        if (!_libraryLoaded || _windowClosing) return;
+        try
+        {
+            await LibraryStore.SaveAsync(_allPhotos);
+            if (_windowClosing) return;
+            if (LibrarySaveNotice.IsOpen) StatusText.Text = "图库已保存";
+            LibrarySaveNotice.IsOpen = false;
+        }
+        catch (Exception ex)
+        {
+            if (_windowClosing) return;
+            LibrarySaveNotice.IsOpen = true;
+            StatusText.Text = "图库保存失败，请重试";
+            ToolTipService.SetToolTip(LibrarySaveNotice, ex.Message);
+        }
+    }
+
+    private async void RetryLibrarySave_Click(object sender, RoutedEventArgs e) => await SaveLibraryWithNoticeAsync();
+    private async void RetryLibraryLoad_Click(object sender, RoutedEventArgs e) => await InitAsync();
 
     private void RegisterUndo(string label, Action restore)
     {
@@ -1100,7 +1214,7 @@ public sealed partial class MainWindow : Window
 
     private void NavView_SelectionChanged(NavigationView s, NavigationViewSelectionChangedEventArgs e)
     {
-        if (!_uiReady) return;
+        if (!_uiReady || _synchronizingLibraryNavigation) return;
 
         if (e.SelectedItem is NavigationViewItem item)
         {
@@ -1151,27 +1265,19 @@ public sealed partial class MainWindow : Window
             }
             else if (tag == "Stats")
             {
-                MainScroll.Visibility = Visibility.Collapsed;
-                EmptyState.Visibility = Visibility.Collapsed;
-                StatsScroll.Visibility = Visibility.Visible;
-                OrganizeScroll.Visibility = Visibility.Collapsed;
+                ShowLibrarySection(LibrarySection.Statistics);
                 UpdateStatsView();
                 return;
             }
             else if (tag == "Organize")
             {
-                MainScroll.Visibility = Visibility.Collapsed;
-                EmptyState.Visibility = Visibility.Collapsed;
-                StatsScroll.Visibility = Visibility.Collapsed;
-                OrganizeScroll.Visibility = Visibility.Visible;
+                ShowLibrarySection(LibrarySection.Organize);
                 UpdateOrganizeView();
                 return;
             }
             else return;
 
-            MainScroll.Visibility = Visibility.Visible;
-            StatsScroll.Visibility = Visibility.Collapsed;
-            OrganizeScroll.Visibility = Visibility.Collapsed;
+            ShowLibrarySection(LibrarySection.Gallery);
             _currentPage = 0;
             RefreshPhotos();
             UpdateCategoryButtons();
@@ -1192,20 +1298,24 @@ public sealed partial class MainWindow : Window
 
     private void AddOrganizeItem(string title, int count, string tag)
     {
-        var row = new Grid { Padding = new Thickness(16), Margin = new Thickness(0, 0, 0, 6) };
+        var row = new Grid { Padding = new Thickness(20), ColumnSpacing = 16 };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        row.Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
 
         var text = new StackPanel { Spacing = 3 };
-        text.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        text.Children.Add(new TextBlock { Text = $"{count} 张照片", FontSize = 12, Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] });
+        text.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = LibraryThemeBrush("LibraryPrimaryTextBrush") });
+        text.Children.Add(new TextBlock { Text = $"{count} 张照片", FontSize = 12, Foreground = LibraryThemeBrush("LibrarySecondaryTextBrush") });
         var button = new Button { Content = "查看", Tag = tag, Padding = new Thickness(12) };
         button.Click += OrganizeFilter_Click;
         Grid.SetColumn(button, 1);
         row.Children.Add(text);
         row.Children.Add(button);
-        OrganizeItems.Items.Add(row);
+        OrganizeItems.Items.Add(new Border
+        {
+            Child = row, Margin = new Thickness(0, 0, 0, 10), CornerRadius = new CornerRadius(16),
+            Background = LibraryThemeBrush("LibraryCardBrush"),
+            BorderBrush = LibraryThemeBrush("LibraryHairlineBrush"), BorderThickness = new Thickness(1)
+        });
     }
 
     private void OrganizeFilter_Click(object sender, RoutedEventArgs e)
@@ -1228,13 +1338,11 @@ public sealed partial class MainWindow : Window
             case "CatUncategorized": _categoryFilter = "__UNCATEGORIZED__"; break;
             case "DateMissing": _dateFilterDays = -1; break;
             case "FavUnrated": _organizeFilter = "FavUnrated"; break;
-            case "Recent": _dateFilterDays = 7; break;
+            case "Recent": _organizeFilter = "RecentlyAdded"; break;
             case "Unfavorite": _organizeFilter = "Unfavorite"; break;
         }
 
-        MainScroll.Visibility = Visibility.Visible;
-        StatsScroll.Visibility = Visibility.Collapsed;
-        OrganizeScroll.Visibility = Visibility.Collapsed;
+        ShowLibrarySection(LibrarySection.Gallery);
         _currentPage = 0;
         RefreshPhotos();
         StatusText.Text = $"已打开整理项：{button.Content}";
@@ -1257,15 +1365,17 @@ public sealed partial class MainWindow : Window
         StatsGrid.Children.Clear();
         void AddRow(string label, string value)
         {
-            var row = new Grid();
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var l = new TextBlock { Text = label, FontSize = 14, Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] };
-            var v = new TextBlock { Text = value, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
-            Grid.SetColumn(v, 1);
-            row.Children.Add(l);
-            row.Children.Add(v);
-            StatsGrid.Children.Add(row);
+            var content = new StackPanel { Spacing = 10 };
+            content.Children.Add(new TextBlock { Text = label, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = LibraryThemeBrush("LibrarySecondaryTextBrush") });
+            content.Children.Add(new TextBlock { Text = value, FontSize = 26, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = LibraryThemeBrush("LibraryPrimaryTextBrush") });
+            StatsGrid.Children.Add(new Border
+            {
+                Child = content, Padding = new Thickness(20, 18, 20, 18), CornerRadius = new CornerRadius(0),
+                Background = LibraryThemeBrush("LibraryCardBrush"),
+                BorderBrush = LibraryThemeBrush("LibraryHairlineBrush"), BorderThickness = new Thickness(0, 0, 0, 1)
+            });
         }
 
         AddRow("照片总数", $"{total} 张");
@@ -1274,6 +1384,7 @@ public sealed partial class MainWindow : Window
         AddRow("高评分（≥4★）", $"{rated} 张");
         AddRow("缺少文件修改日期", $"{noDate} 张");
         AddRow("分类数", $"{catCount} 个");
+        ArrangeStatsCards(StatsPanel.ActualWidth);
 
         // 年度分布
         StatsYears.Children.Clear();
@@ -1289,15 +1400,14 @@ public sealed partial class MainWindow : Window
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var yearLabel = new TextBlock { Text = $"{g.Key} 年", FontSize = 13, MinWidth = 70 };
-            var bar = new Border
+            var bar = new ProgressBar
             {
-                Height = 14,
-                CornerRadius = new CornerRadius(4),
+                Height = 6, Minimum = 0, Maximum = maxYear, Value = g.Count(), VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
-                Background = (Brush)Application.Current.Resources["AppAccentBrush"],
-                Opacity = 0.35 + 0.65 * (g.Count() / (double)maxYear)
+                Foreground = LibraryChartBrush(),
+                Background = LibraryThemeBrush("LibraryControlBrush")
             };
-            var countLabel = new TextBlock { Text = $"{g.Count()} 张", FontSize = 13, Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] };
+            var countLabel = new TextBlock { Text = $"{g.Count()} 张", FontSize = 13, Foreground = LibraryThemeBrush("LibrarySecondaryTextBrush") };
             Grid.SetColumn(bar, 1);
             Grid.SetColumn(countLabel, 2);
             row.Children.Add(yearLabel);
@@ -1318,19 +1428,19 @@ public sealed partial class MainWindow : Window
         foreach (var g in cats)
         {
             var row = new Grid { ColumnSpacing = 10 };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var catLabel = new TextBlock { Text = g.Key, FontSize = 13, MinWidth = 100, TextTrimming = TextTrimming.CharacterEllipsis };
-            var bar = new Border
+            var catLabel = new TextBlock { Text = g.Key, FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis };
+            ToolTipService.SetToolTip(catLabel, g.Key);
+            var bar = new ProgressBar
             {
-                Height = 12,
-                CornerRadius = new CornerRadius(4),
+                Height = 6, Minimum = 0, Maximum = maxCat, Value = g.Count(), VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
-                Background = (Brush)Application.Current.Resources["AppAccentBrush"],
-                Opacity = 0.3 + 0.7 * (g.Count() / (double)maxCat)
+                Foreground = LibraryChartBrush(),
+                Background = LibraryThemeBrush("LibraryControlBrush")
             };
-            var countLabel = new TextBlock { Text = $"{g.Count()} 张", FontSize = 13, Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] };
+            var countLabel = new TextBlock { Text = $"{g.Count()} 张", FontSize = 13, Foreground = LibraryThemeBrush("LibrarySecondaryTextBrush") };
             Grid.SetColumn(bar, 1);
             Grid.SetColumn(countLabel, 2);
             row.Children.Add(catLabel);
@@ -1394,17 +1504,15 @@ public sealed partial class MainWindow : Window
         if (!string.IsNullOrEmpty(_timelineFilter)) parts.Add($"时间：{_timelineFilter}");
         if (_organizeFilter == "FavUnrated") parts.Add("收藏但未评分");
         if (_organizeFilter == "Unfavorite") parts.Add("未收藏");
+        if (_organizeFilter == "RecentlyAdded") parts.Add("最近 7 天新增");
         var active = parts.Count > 0;
         FilterSummaryBar.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
-        FilterSummaryText.Text = active ? $"筛选中：{string.Join(" · ", parts)}   ·   {_currentView.Count} 张结果" : "";
-    }
-
-    private void TopBarOverlay_SizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        if (GalleryContentGrid == null) return;
-        var contentTop = Math.Ceiling(TopBarOverlay.Margin.Top + e.NewSize.Height + 8);
-        if (Math.Abs(GalleryContentGrid.Margin.Top - contentTop) > 0.5)
-            GalleryContentGrid.Margin = new Thickness(0, contentTop, 0, 0);
+        FilterSummaryText.Text = active ? string.Join(" · ", parts) : "";
+        var filterCount = (_favoritesOnly ? 1 : 0) + (_minRatingFilter > 0 ? 1 : 0) + (_dateFilterDays != 0 ? 1 : 0);
+        FilterCountBadge.Visibility = filterCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        FilterCountText.Text = filterCount.ToString();
+        ClearFiltersBtn.IsEnabled = active;
+        ToolTipService.SetToolTip(FilterMenuButton, active ? string.Join(" · ", parts) : "按评分、时间或收藏筛选");
     }
 
     private void ClearFilters_Click(object s, RoutedEventArgs e)
@@ -1450,6 +1558,7 @@ public sealed partial class MainWindow : Window
         PageJumpBox.Value = page;
         MainScroll.ChangeView(null, 0, null, true);
         RenderCurrentPage();
+        PageInfoButton.Flyout.Hide();
         StatusText.Text = page == requested ? $"已跳转到第 {page} 页" : $"页码范围为 1–{maxPage}，已跳转到第 {page} 页";
     }
 
@@ -1578,7 +1687,7 @@ public sealed partial class MainWindow : Window
         ApplyTheme();
         ApplyGalleryLayout();
         RefreshPhotos(forceRender: true);
-        if (_settings.AutoScan) _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
+        if (_settings.AutoScan && _libraryLoaded) _folderWatcher.Start(_settings.AutoScanIntervalMinutes, _settings.WatchedFolders);
         else _folderWatcher.Stop();
         StatusText.Text = "设置已保存并应用";
     }
@@ -1623,13 +1732,21 @@ public sealed partial class MainWindow : Window
             StatusBarHint.Visibility = Visibility.Collapsed;
         }
 
+        if (!MotionEnabled)
+        {
+            StatusBarGlass.Width = to;
+            StatusBarActions.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+            StatusBarActions.Opacity = expanded ? 1 : 0;
+            StatusBarHint.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
+            return;
+        }
         var storyboard = new Storyboard();
         var width = new DoubleAnimation
         {
             From = from,
             To = to,
-            Duration = TimeSpan.FromMilliseconds(expanded ? 320 : 260),
-            EasingFunction = new CubicEase { EasingMode = expanded ? EasingMode.EaseOut : EasingMode.EaseIn },
+            Duration = TimeSpan.FromMilliseconds(expanded ? 220 : 180),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
             EnableDependentAnimation = true,
         };
         Storyboard.SetTarget(width, StatusBarGlass);
@@ -1663,7 +1780,10 @@ public sealed partial class MainWindow : Window
     private void PhotoCard_Tapped(object sender, TappedRoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is PhotoItem photo)
+        {
+            _previewRevealOrigin = e.GetPosition(PreviewOverlay);
             OpenPreview(photo);
+        }
     }
 
     private void PhotoCard_RightTapped(object sender, RightTappedRoutedEventArgs e)
@@ -1742,45 +1862,19 @@ public sealed partial class MainWindow : Window
         if (args.Element is UIElement element)
         {
             var motion = _cardAnimations.GetValue(element, _ => new CardAnimationState());
-            motion.Fade?.Stop();
             motion.Hover?.Stop();
+            motion.FavoriteReveal?.Stop();
+            motion.PointerOver = motion.FavoriteFocused = false;
             if (element is FrameworkElement recycled) recycled.Margin = new Thickness(0);
             element.Opacity = 1;
-            if (_settings.AnimationsEnabled)
-            {
-                element.Opacity = 0;
-                var sb = new Storyboard();
-                var fade = new DoubleAnimation { From = 0, To = 1, Duration = TimeSpan.FromMilliseconds(_settings.AnimationDurationMs), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }, EnableDependentAnimation = true };
-                Storyboard.SetTarget(fade, element); Storyboard.SetTargetProperty(fade, "Opacity");
-                sb.Children.Add(fade);
-                motion.Fade = sb;
-                sb.Begin();
-            }
-            else
-            {
-                element.Opacity = 1;
-            }
-
-            // 卡片：ThemeShadow 阴影 + 抬起交互（Margin 动画，非打包安全；
-            // 禁止 RenderTransform —— 含 Image 的容器缩放/位移会崩溃）
+            // Cards can be realized repeatedly while scrolling. Show them immediately;
+            // the page transition already provides visual continuity.
             if (element is Grid cardHost && cardHost.Children.Count >= 1
                 && cardHost.Children[0] is Border card)
             {
-                try
-                {
-                    if (isMasonry)
-                    {
-                        card.Shadow = null;
-                    }
-                    else
-                    {
-                        var shadow = new Microsoft.UI.Xaml.Media.ThemeShadow();
-                        if (PhotoShadowReceiver != null)
-                            shadow.Receivers.Add(PhotoShadowReceiver);
-                        card.Shadow = shadow;
-                    }
-                }
-                catch { /* 阴影不可用时不影响卡片 */ }
+                if (card.Child is Grid cardContent && cardContent.Children.LastOrDefault() is Border outline)
+                    outline.Opacity = 0;
+                card.Shadow = null;
 
                 // 自定义圆角（SPW 风格外观设置）
                 var r = isMasonry ? 0 : _settings.CardCornerRadius;
@@ -1792,47 +1886,47 @@ public sealed partial class MainWindow : Window
                     if (!isMasonry) imgBorder.Height = 180;
                     if (imgBorder.Child is Image thumbnail)
                         thumbnail.Stretch = isMasonry ? Stretch.Uniform : Stretch.UniformToFill;
-                    if (g.Children.Count > 4 && g.Children[4] is StackPanel infoPanel)
+                    if (g.Children.Count > 4 && g.Children[4] is FrameworkElement infoPanel)
                         infoPanel.Visibility = isMasonry ? Visibility.Collapsed : Visibility.Visible;
                 }
 
-                // 抬起交互：hover 时卡片上移 6px（Margin 动画自动让相邻卡片
-                // 微微避让 —— UniformGridLayout 单元格随元素 Margin 变化），
-                // 移走回弹。BackEase 弹性插值 → q 弹灵动。
-                // 说明：WinUI3 无 ThicknessAnimation，且禁止 RenderTransform，
-                // 故用 DispatcherTimer 手动插值 Margin（布局属性，非打包安全）
+                // 悬停仅改变轮廓透明度，不改变布局；回收容器时重置状态。
                 if (!motion.Hooked)
                 {
                     motion.Hooked = true;
-                    var liftTo = new Thickness(0, -6, 0, 6);
-                    void AnimateMargin(Thickness to)
+                    cardHost.PointerEntered += (_, _) => { motion.PointerOver = true; SetCardHighlight(card, motion, true); SetCardFavoriteReveal(card, motion, true); };
+                    cardHost.PointerExited += (_, _) => { motion.PointerOver = false; SetCardHighlight(card, motion, false); SetCardFavoriteReveal(card, motion, motion.FavoriteFocused); };
+                    if (card.Child is Grid cardGrid && cardGrid.Children.Count > 2 && cardGrid.Children[2] is Button favorite)
                     {
-                        motion.Hover?.Stop();
-                        if (!_settings.AnimationsEnabled || _settings.DisplayMode == 1) { cardHost.Margin = new Thickness(0); return; }
-                        var from = cardHost.Margin;
-                        var ease = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.45 };
-                        var sw = new System.Diagnostics.Stopwatch();
-                        sw.Start();
-                        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
-                        motion.Hover = timer;
-                        timer.Tick += (_, _) =>
-                        {
-                            var t = sw.Elapsed.TotalMilliseconds / 300.0;
-                            if (t >= 1.0) { timer.Stop(); cardHost.Margin = to; return; }
-                            var k = ease.Ease((float)t);
-                            cardHost.Margin = new Thickness(
-                                from.Left + (to.Left - from.Left) * k,
-                                from.Top + (to.Top - from.Top) * k,
-                                from.Right + (to.Right - from.Right) * k,
-                                from.Bottom + (to.Bottom - from.Bottom) * k);
-                        };
-                        timer.Start();
+                        favorite.GotFocus += (_, _) => { motion.FavoriteFocused = true; SetCardFavoriteReveal(card, motion, true); };
+                        favorite.LostFocus += (_, _) => { motion.FavoriteFocused = false; SetCardFavoriteReveal(card, motion, motion.PointerOver); };
                     }
-                    cardHost.PointerEntered += (_, _) => AnimateMargin(liftTo);
-                    cardHost.PointerExited += (_, _) => AnimateMargin(new Thickness(0));
                 }
             }
         }
+    }
+
+    private void SetCardHighlight(Border card, CardAnimationState motion, bool active)
+    {
+        if (card.Child is not Grid content || content.Children.LastOrDefault() is not Border hover) return;
+        var current = hover.Opacity;
+        motion.Hover?.Stop();
+        var target = active ? 1d : 0d;
+        hover.Opacity = target;
+        if (!MotionEnabled) return;
+        var animation = new DoubleAnimation { From = current, To = target, Duration = TimeSpan.FromMilliseconds(active ? 140 : 180),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+        Storyboard.SetTarget(animation, hover); Storyboard.SetTargetProperty(animation, "Opacity");
+        var storyboard = new Storyboard(); storyboard.Children.Add(animation); motion.Hover = storyboard; storyboard.Begin();
+    }
+
+    private void SetCardFavoriteReveal(Border card, CardAnimationState motion, bool active)
+    {
+        motion.FavoriteReveal?.Stop(); motion.FavoriteReveal = null;
+        if (!active || card.Child is not Grid content || content.Children.Count <= 2 || content.Children[2] is not Button favorite) return;
+        var fade = new DoubleAnimation { To = 1, Duration = TimeSpan.FromMilliseconds(MotionEnabled ? 120 : 0) };
+        Storyboard.SetTarget(fade, favorite); Storyboard.SetTargetProperty(fade, "Opacity");
+        motion.FavoriteReveal = new Storyboard(); motion.FavoriteReveal.Children.Add(fade); motion.FavoriteReveal.Begin();
     }
 
     private void PhotoCard_DragStarting(object sender, DragStartingEventArgs e)
@@ -1860,6 +1954,7 @@ public sealed partial class MainWindow : Window
     {
         if ((sender as FrameworkElement)?.DataContext is not PhotoItem photo) return;
         _favoriteCounter.Set(photo, !photo.IsFavorite);
+        if (sender is UIElement action) AnimateActionFeedback(action);
         UpdateStats();
         StatusText.Text = $"{photo.Filename}：{(photo.IsFavorite ? "★ 已收藏" : "已取消收藏")}";
         ScheduleSave();
@@ -1893,6 +1988,8 @@ public sealed partial class MainWindow : Window
         }
 
         UpdateStats();
+        AnimateActionFeedback(btn);
+        AnimateActionFeedback(SelectedCountText);
     }
 
     private void SelectAllPage_Click(object s, RoutedEventArgs e)
@@ -2207,28 +2304,37 @@ public sealed partial class MainWindow : Window
         ApplyPreviewInfoVisibility();
         _filmstripHidden = _settings.FilmstripMode == 2;
         ApplyFilmstripVisibility();
+        PreviewOverlay.Background = _mapPreviewRestore != null
+            ? new SolidColorBrush(Windows.UI.Color.FromArgb(178, 4, 9, 14))
+            : new SolidColorBrush(Windows.UI.Color.FromArgb(238, 0, 0, 0));
+        MapVisual(PreviewOverlay).Opacity = _mapPhotoPreviewSource.HasValue && MotionEnabled ? 0 : 1;
+        MapVisual(PreviewContentRoot).Opacity = _mapPhotoPreviewSource.HasValue && MotionEnabled ? 0 : 1;
         PreviewOverlay.Visibility = Visibility.Visible;
         ShowPreviewAt(idx);
+        if (_mapPreviewRestore != null)
+            PreviewOverlay.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(178, 4, 9, 14));
         AnimatePreviewIn();
     }
 
     private void ShowPreviewAt(int idx)
     {
         EndPreviewDrag();
+        var previous = PreviewImage.Opacity >= .5 && _previewLastReady != null ? _previewLastReady :
+            PreviewSoftLayer.Opacity > 0 && PreviewSoftImage.Source != null ? PreviewSoftImage.Source : _previewLastReady;
         _previewImageAnimation?.Stop();
         if (_currentView.Count == 0) { ClosePreview(); return; }
         _previewIndex = Math.Clamp(idx, 0, _currentView.Count - 1);
         var p = _currentView[_previewIndex];
         _previewRotation = 0;
         PreviewImage.RenderTransform = null;
-        // 先恢复中性背景，避免上一张照片的颜色在取色期间残留。
+        // 保留当前背景，直到新照片的取色结果可用，避免切图时突然变黑。
+        CommitPreviewPaletteTransition();
         ++_previewPaletteRequest;
-        PreviewOverlay.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 20, 20, 25));
-        PreviewImageStage.Background = null;
-        if (_settings.PreviewPaletteEnabled)
+        if (_settings.PreviewPaletteEnabled && _mapPreviewRestore == null)
             _ = ApplyPreviewPaletteAsync(p.FilePath);
 
         PreviewName.Text = p.Filename;
+        PreviewTitleBar.Text = p.Filename;
         PreviewCounter.Text = $"{_previewIndex + 1} / {_currentView.Count}";
         PreviewReadError.Visibility = Visibility.Collapsed;
         PreviewInfo.Text = $"{p.SizeText} · 修改于 {p.DateText}";
@@ -2248,7 +2354,7 @@ public sealed partial class MainWindow : Window
         foreach (var cat in _categories)
             PreviewCategoryCombo.Items.Add(cat);
         // 选中当前分类
-        var catIdx = string.IsNullOrEmpty(p.Category) ? 0 : _categories.IndexOf(p.Category) + 1;
+        var catIdx = string.IsNullOrEmpty(p.Category) ? 0 : _categories.FindIndex(cat => string.Equals(cat, p.Category, StringComparison.OrdinalIgnoreCase)) + 1;
         if (catIdx < 0) catIdx = 0;
         PreviewCategoryCombo.SelectedIndex = catIdx;
         _suppressCategoryEvent = false;
@@ -2267,18 +2373,23 @@ public sealed partial class MainWindow : Window
         }
 
         var transition = ++_previewTransitionRequest;
-        PreviewLoading.Visibility = Visibility.Visible;
-        PreviewImageOutgoing.Source = PreviewImage.Source;
-        PreviewImageOutgoing.Opacity = PreviewImage.Source == null ? 0 : 1;
+        _previewIsLoading = true;
+        PreviewImageOutgoing.Source = previous;
+        PreviewImageOutgoing.Opacity = previous == null ? 0 : 1;
+        ResetPreviewFocusBlur();
+        PreviewSoftImage.Source = null; PreviewSoftLayer.Opacity = 0;
         PreviewImage.Opacity = 0;
-        PreviewTransitionVeil.Opacity = 0.54;
+        PreviewTransitionVeil.Opacity = 0;
         ApplyFitPreviewZoom();
+        _ = ShowPreviewThumbnailAsync(p, transition);
         var bmp = new BitmapImage { DecodePixelWidth = 1600 };
-        bmp.ImageOpened += (_, _) => FinishPreviewImageTransition(transition);
+        bmp.ImageOpened += (_, _) => _ = PreviewImageOpenedAsync(transition, bmp);
         bmp.ImageFailed += (_, _) =>
         {
             if (transition != _previewTransitionRequest) return;
-            FinishPreviewImageTransition(transition);
+            _previewIsLoading = false;
+            ResetPreviewFocusBlur(); PreviewSoftLayer.Opacity = 0; PreviewSoftImage.Source = null;
+            PreviewImage.Opacity = 0; PreviewImageOutgoing.Opacity = 0; _previewLastReady = null;
             ++_exifRequestSeq;
             PreviewExif.Text = "无法读取照片文件，请检查文件是否损坏或格式是否受支持。";
             PreviewReadError.Visibility = Visibility.Visible;
@@ -2291,32 +2402,38 @@ public sealed partial class MainWindow : Window
     private void FinishPreviewImageTransition(int transition)
     {
         if (transition != _previewTransitionRequest) return;
-        PreviewLoading.Visibility = Visibility.Collapsed;
+        _previewIsLoading = false;
+
+        _previewLastReady = PreviewImage.Source;
         SizePreviewCanvas();
-        if (!_settings.AnimationsEnabled)
+        if (!MotionEnabled)
         {
             PreviewImage.Opacity = 1;
             PreviewImageOutgoing.Opacity = 0;
             PreviewImageOutgoing.Source = null;
+            PreviewSoftLayer.Opacity = 0; PreviewSoftImage.Source = null; ResetPreviewFocusBlur();
             PreviewTransitionVeil.Opacity = 0;
             return;
         }
 
         var storyboard = new Storyboard();
+        AnimatePreviewFocusClear();
         var imageFade = new DoubleAnimation
         {
+            From = 0,
             To = 1,
-            Duration = TimeSpan.FromMilliseconds(260),
+            Duration = TimeSpan.FromMilliseconds(180),
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
             EnableDependentAnimation = true,
         };
         Storyboard.SetTarget(imageFade, PreviewImage);
         Storyboard.SetTargetProperty(imageFade, "Opacity");
+        PreviewImage.Opacity = 1;
         storyboard.Children.Add(imageFade);
         var outgoingFade = new DoubleAnimation
         {
             To = 0,
-            Duration = TimeSpan.FromMilliseconds(240),
+            Duration = TimeSpan.FromMilliseconds(180),
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
             EnableDependentAnimation = true,
         };
@@ -2335,7 +2452,7 @@ public sealed partial class MainWindow : Window
         storyboard.Children.Add(veilFade);
         storyboard.Completed += (_, _) =>
         {
-            if (transition == _previewTransitionRequest) PreviewImageOutgoing.Source = null;
+            if (transition == _previewTransitionRequest) { PreviewImageOutgoing.Source = null; PreviewSoftLayer.Opacity = 0; PreviewSoftImage.Source = null; ResetPreviewFocusBlur(); }
         };
         _previewImageAnimation = storyboard;
         storyboard.Begin();
@@ -2346,6 +2463,8 @@ public sealed partial class MainWindow : Window
         var request = ++_previewPaletteRequest;
         try
         {
+            await Task.Delay(120);
+            if (request != _previewPaletteRequest || _windowClosing) return;
             var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(filePath);
             using var stream = await file.OpenReadAsync();
             // 取色只需要小样本，避免打开高像素照片时为整张图分配像素数组。
@@ -2383,13 +2502,13 @@ public sealed partial class MainWindow : Window
             if (request != _previewPaletteRequest) return;
 
             PreviewImageStage.Background = null;
-            PreviewOverlay.Background = new AcrylicBrush
+            SetPreviewPalette(new AcrylicBrush
             {
                 TintColor = tint,
                 TintOpacity = 0.62,
                 TintLuminosityOpacity = 0.18,
                 FallbackColor = Windows.UI.Color.FromArgb(238, tint.R, tint.G, tint.B),
-            };
+            }, request);
         }
         catch { }
     }
@@ -2398,6 +2517,8 @@ public sealed partial class MainWindow : Window
     private async Task LoadExifAsync(string filePath)
     {
         var seq = ++_exifRequestSeq;
+        await Task.Delay(120);
+        if (seq != _exifRequestSeq || _windowClosing) return;
         var text = await ExifReader.LoadExifTextAsync(filePath);
         if (seq != _exifRequestSeq) return; // 已切换到其他照片，丢弃过期结果
         PreviewExif.Text = text ?? "（无 EXIF 信息）";
@@ -2405,17 +2526,29 @@ public sealed partial class MainWindow : Window
 
     private void ClosePreview()
     {
+        if (!MotionEnabled) _mapPhotoPreviewSource = null;
+        if (!_mapPhotoPreviewClosing && _mapPhotoPreviewSource is Rect source && _mapPreviewRestore != null && MotionEnabled)
+        {
+            _ = CloseMapPhotoPreviewTransitionAsync(source);
+            return;
+        }
         EndPreviewDrag();
         if (_previewFullscreen) SetPreviewFullscreen(false);
         ++_previewTransitionRequest;
+        _previewIsLoading = false;
+        ResetPreviewFocusBlur(); PreviewSoftImage.Source = null; PreviewSoftLayer.Opacity = 0; _previewLastReady = null;
         ++_exifRequestSeq;
         _previewImageAnimation?.Stop();
         StopSlideshow();
         StopFilmstripLoading();
         LoadThumbnailsForCurrentPage();
         ++_previewPaletteRequest;
+        ClearPreviewPaletteTransition();
         AnimatePreviewOut();
+        PreviewOverlay.Opacity = 1;
+        RestoreMapPhotoPreviewSource();
         RestoreMapPreviewView();
+        _mapPhotoPreviewPhoto = null; _mapPhotoPreviewImageSource = null; _mapPhotoPreviewSource = null;
     }
 
     private void PreviewSlideshow_Click(object sender, RoutedEventArgs e) => ToggleSlideshow();
@@ -2447,7 +2580,13 @@ public sealed partial class MainWindow : Window
                    .HasFlag(CoreVirtualKeyStates.Down);
         if (ctrl && e.Key == VirtualKey.F && PreviewOverlay.Visibility != Visibility.Visible)
         {
-            SearchBox.Focus(FocusState.Programmatic);
+            if (MapOverlay.Visibility == Visibility.Visible) MapSearchBox.Focus(FocusState.Programmatic);
+            else
+            {
+                if (GallerySurface.Visibility != Visibility.Visible)
+                    NavView.SelectedItem = NavView.MenuItems.OfType<NavigationViewItem>().First(i => i.Tag as string == "All");
+                SearchBox.Focus(FocusState.Programmatic);
+            }
             e.Handled = true;
             return;
         }
@@ -2493,6 +2632,7 @@ public sealed partial class MainWindow : Window
         }
 
         // ── 主界面快捷键 ──
+        if (GallerySurface.Visibility != Visibility.Visible) return;
         switch (e.Key)
         {
             case VirtualKey.Left:
@@ -2581,10 +2721,15 @@ public sealed partial class MainWindow : Window
     {
         if (token.IsCancellationRequested) return;
         if (photo.ThumbnailSource != null) { _thumbnailResidency.Touch(photo); return; }
-        if (_filmstripPending.TryGetValue(photo, out var pending) && pending == token) return;
-        _filmstripPending[photo] = token;
-        try { await LoadThumbnailAsync(photo, token); }
-        finally { if (_filmstripPending.TryGetValue(photo, out pending) && pending == token) _filmstripPending.Remove(photo); }
+        if (_filmstripPending.TryGetValue(photo, out var pending) && pending.Token == token)
+        {
+            await pending.Load;
+            return;
+        }
+        var load = LoadThumbnailAsync(photo, token);
+        _filmstripPending[photo] = (token, load);
+        try { await load; }
+        finally { if (_filmstripPending.TryGetValue(photo, out pending) && ReferenceEquals(pending.Load, load)) _filmstripPending.Remove(photo); }
     }
 
     private void StopFilmstripLoading()
@@ -2644,6 +2789,7 @@ public sealed partial class MainWindow : Window
         var oldIndex = _previewIndex;
         var p = _currentView[_previewIndex];
         _favoriteCounter.Set(p, !p.IsFavorite);
+        AnimateActionFeedback(PreviewFavButton);
         PreviewFavButton.Content = p.IsFavorite ? "★ 取消收藏" : "☆ 收藏";
         UpdateStats();
         ScheduleSave();
@@ -3082,11 +3228,11 @@ public sealed partial class MainWindow : Window
     {
         if (string.IsNullOrEmpty(_categoryFilter)) return;
         var catName = _categoryFilter;
-        var count = _allPhotos.Count(p => p.Category == catName);
+        var count = _allPhotos.Count(p => string.Equals(p.Category, catName, StringComparison.OrdinalIgnoreCase));
         if (count == 0) return;
 
-        foreach (var p in _allPhotos.Where(p => p.Category == catName)) p.Category = "";
-        _categories.Remove(catName);
+        foreach (var p in _allPhotos.Where(p => string.Equals(p.Category, catName, StringComparison.OrdinalIgnoreCase))) p.Category = "";
+        _categories.RemoveAll(cat => string.Equals(cat, catName, StringComparison.OrdinalIgnoreCase));
         _categoryFilter = "";
         ExitBatchMode();
         RebuildCategories();
@@ -3099,6 +3245,7 @@ public sealed partial class MainWindow : Window
 
     private void Root_DragOver(object sender, DragEventArgs e)
     {
+        if (!_libraryLoaded) return;
         if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
         {
             e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
@@ -3111,7 +3258,7 @@ public sealed partial class MainWindow : Window
 
     private async void Root_Drop(object sender, DragEventArgs e)
     {
-        if (_importing || !e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems)) return;
+        if (!_libraryLoaded || _importing || !e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems)) return;
         var items = await e.DataView.GetStorageItemsAsync();
         var paths = items.OfType<Windows.Storage.IStorageItem>().Select(i => i.Path).ToList();
         await ImportPathsAsync(paths, "正在导入拖入内容…");
@@ -3120,7 +3267,7 @@ public sealed partial class MainWindow : Window
     private async Task<bool> ImportPathsAsync(IEnumerable<string> sourcePaths, string status)
     {
         var paths = sourcePaths.Where(p => !string.IsNullOrWhiteSpace(p)).ToArray();
-        if (paths.Length == 0 || _importing || _windowClosing) return false;
+        if (paths.Length == 0 || !_libraryLoaded || _importing || _windowClosing) return false;
         _importing = true;
         BusyRing.Visibility = Visibility.Visible;
         StatusText.Text = status;
@@ -3159,7 +3306,7 @@ public sealed partial class MainWindow : Window
 
     private async void ImportButton_Click(object s, RoutedEventArgs e)
     {
-        if (_importing) return;
+        if (!_libraryLoaded || _importing) return;
         var picker = new FolderPicker { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
         picker.FileTypeFilter.Add("*");
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
@@ -3176,7 +3323,7 @@ public sealed partial class MainWindow : Window
 
     private async void ImportFiles_Click(object s, RoutedEventArgs e)
     {
-        if (_importing) return;
+        if (!_libraryLoaded || _importing) return;
         var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
         foreach (var extension in PhotoFileScanner.Extensions) picker.FileTypeFilter.Add(extension);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
@@ -3188,7 +3335,7 @@ public sealed partial class MainWindow : Window
 
     private void OnNewFilesFound(List<PhotoFile> files)
     {
-        if (_windowClosing) return;
+        if (_windowClosing || !_libraryLoaded) return;
         var added = AppendImportedPhotos(files);
         if (added == 0) return;
         RebuildCategories();

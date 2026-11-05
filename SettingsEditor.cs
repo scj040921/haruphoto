@@ -1,3 +1,4 @@
+﻿using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
@@ -142,13 +143,13 @@ public sealed class SettingsEditor : UserControl
         body.Children.Add(control);
         var card = new Border
         {
-            Padding = new Thickness(12), CornerRadius = new CornerRadius(10),
-            BorderThickness = new Thickness(1), Child = body,
+            Padding = new Thickness(0, 14, 0, 14), CornerRadius = new CornerRadius(0),
+            BorderThickness = new Thickness(0, 0, 0, 1), Child = body,
         };
         void RefreshCard()
         {
             bool dark = card.ActualTheme == ElementTheme.Dark;
-            card.Background = new SolidColorBrush(dark ? Windows.UI.Color.FromArgb(255, 48, 48, 53) : Colors.White);
+            card.Background = new SolidColorBrush(Colors.Transparent);
             card.BorderBrush = new SolidColorBrush(dark ? Windows.UI.Color.FromArgb(255, 72, 72, 80) : Windows.UI.Color.FromArgb(255, 218, 218, 224));
         }
         card.Loaded += (_, _) => RefreshCard();
@@ -165,6 +166,18 @@ public sealed class SettingsEditor : UserControl
         _refreshers.Add(() => box.SelectedIndex = Math.Clamp(get(), 0, choices.Length - 1));
         box.SelectionChanged += (_, _) => { if (!_refreshing && box.SelectedIndex >= 0) { set(box.SelectedIndex); Changed(section); } };
         AddSetting(section, title, description, box);
+    }
+
+    private void SegmentedChoice(Section section, string title, string description, string[] choices, Func<int> get, Action<int> set)
+    {
+        var selector = new Segmented { SelectionMode = ListViewSelectionMode.Single, HorizontalAlignment = HorizontalAlignment.Left };
+        foreach (var choice in choices) selector.Items.Add(new SegmentedItem { Content = choice, MinHeight = 36 });
+        _refreshers.Add(() => selector.SelectedIndex = Math.Clamp(get(), 0, choices.Length - 1));
+        selector.SelectionChanged += (_, _) =>
+        {
+            if (!_refreshing && selector.SelectedIndex >= 0) { set(selector.SelectedIndex); Changed(section); }
+        };
+        AddSetting(section, title, description, selector);
     }
 
     private void Toggle(Section section, string title, string description, Func<bool> get, Action<bool> set)
@@ -293,7 +306,7 @@ public sealed class SettingsEditor : UserControl
     {
         var s = AddSection("图库布局");
         s.Reset = () => { Draft.DisplayMode = 0; Draft.CardMinWidth = 220; Draft.CardCornerRadius = 14; Draft.AnimationsEnabled = true; Draft.AnimationDurationMs = 350; Draft.ActiveAppearanceProfileId = ""; };
-        Combo(s, "显示模式", "瀑布流按原图比例紧密拼接。", new[] { "规整网格", "瀑布流" }, () => Draft.DisplayMode, v => Draft.DisplayMode = v);
+        SegmentedChoice(s, "显示模式", "瀑布流按原图比例紧密拼接。", new[] { "规整网格", "瀑布流" }, () => Draft.DisplayMode, v => Draft.DisplayMode = v);
         Range(s, "照片大小", "最小宽度越大，每行照片越少。", 160, 360, 20, () => Draft.CardMinWidth, v => Draft.CardMinWidth = v, "像素");
         Combo(s, "卡片圆角", "仅影响规整网格。", new[] { "小圆角（8）", "圆角（14）", "大圆角（20）" }, () => Draft.CardCornerRadius <= 8 ? 0 : Draft.CardCornerRadius >= 20 ? 2 : 1, v => Draft.CardCornerRadius = new[] { 8d, 14d, 20d }[v]);
         Toggle(s, "切换动画", "控制图库切换和照片预览过渡。", () => Draft.AnimationsEnabled, v => Draft.AnimationsEnabled = v);
@@ -306,7 +319,7 @@ public sealed class SettingsEditor : UserControl
         s.Reset = () => { Draft.PreviewPaletteEnabled = true; Draft.PreviewInfoDefaultVisible = true; Draft.FilmstripMode = 0; Draft.SlideshowIntervalSeconds = 4; Draft.ActiveAppearanceProfileId = ""; };
         Toggle(s, "照片取色背景", "背景色随当前照片变化。", () => Draft.PreviewPaletteEnabled, v => Draft.PreviewPaletteEnabled = v);
         Toggle(s, "默认显示详情栏", "打开照片时显示文件信息、分类和评分。", () => Draft.PreviewInfoDefaultVisible, v => Draft.PreviewInfoDefaultVisible = v);
-        Combo(s, "底部胶片条", "自动模式下将指针移到预览底部即可显示。", new[] { "始终显示", "靠近底部显示", "隐藏" }, () => Draft.FilmstripMode, v => Draft.FilmstripMode = v);
+        SegmentedChoice(s, "底部胶片条", "自动模式下将指针移到预览底部即可显示。", new[] { "始终显示", "靠近底部显示", "隐藏" }, () => Draft.FilmstripMode, v => Draft.FilmstripMode = v);
         Range(s, "幻灯片换图间隔", "在预览工具栏点击播放，或按空格键。", 2, 15, 1, () => Draft.SlideshowIntervalSeconds, v => Draft.SlideshowIntervalSeconds = (int)v, "秒");
         AddSetting(s, "对比选片", "多选 2–4 张照片后选择对比；也可在预览中对比相邻照片。数字 0–5 评分，F 收藏，Tab 切换当前照片。", Label("支持同步缩放与拖动，可随时关闭同步。"));
     }

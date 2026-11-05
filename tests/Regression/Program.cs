@@ -101,13 +101,43 @@ try
     await File.WriteAllTextAsync(LibraryStore.LibraryPath, JsonSerializer.Serialize(new {version=1,photos=new[] {new {path=photo.FilePath,favorite=true,rating=3,added=photo.DateAdded,taken=photo.DateTaken,category="test"}, new {path=missing,favorite=true,rating=5,added=photo.DateAdded,taken=photo.DateTaken,category="offline"}}}));
     var loaded=await LibraryStore.LoadAsync();Check(loaded.Photos.Count==1 && loaded.MissingCount==1,"skip offline files without crashing");
     Check(loaded.Photos[0].TimelineDate==modified,"source modification time not EXIF or import time");
+    using (var probe = new FileStream(LibraryStore.LibraryPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        Check(probe.CanWrite, "loading releases the library file before the next save");
     await Task.WhenAll(Enumerable.Range(0,15).Select(_=>LibraryStore.SaveAsync(loaded.Photos)));
     using var saved=JsonDocument.Parse(await File.ReadAllTextAsync(LibraryStore.LibraryPath));
     Check(saved.RootElement.GetProperty("photos").GetArrayLength()==2,"concurrent atomic saves preserve offline metadata");
     Check(!Directory.EnumerateFiles(root,"*.tmp").Any(),"no abandoned save temporaries");
+    using (var locked = new FileStream(LibraryStore.LibraryPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+    {
+        var delayedSave = LibraryStore.SaveAsync(loaded.Photos);
+        await Task.Delay(150);
+        locked.Dispose();
+        await delayedSave;
+        Check(JsonDocument.Parse(await File.ReadAllTextAsync(LibraryStore.LibraryPath)).RootElement.GetProperty("photos").GetArrayLength() == 2,
+              "a temporary index file lock is retried without losing offline records");
+    }
     LibraryStore.ForgetMissingEntries(); await LibraryStore.SaveAsync(Array.Empty<PhotoItem>());
     using var cleared=JsonDocument.Parse(await File.ReadAllTextAsync(LibraryStore.LibraryPath));Check(cleared.RootElement.GetProperty("photos").GetArrayLength()==0,"explicit clear forgets offline entries");
+    var validLibrary = await File.ReadAllTextAsync(LibraryStore.LibraryPath);
+    foreach (var broken in new[] { "{broken", "{}", "{\"version\":2,\"photos\":[]}" })
+    {
+        await File.WriteAllTextAsync(LibraryStore.LibraryPath, broken);
+        try { await LibraryStore.LoadAsync(); throw new Exception("Invalid library was accepted"); }
+        catch (LibraryReadException) { Check(true, "invalid or future library format is surfaced"); }
+        try { await LibraryStore.SaveAsync(Array.Empty<PhotoItem>()); throw new Exception("Unsafe save was accepted"); }
+        catch (InvalidOperationException) { Check(true, "saving remains blocked after a failed library read"); }
+        Check(await File.ReadAllTextAsync(LibraryStore.LibraryPath) == broken, "failed load never overwrites the original index");
+    }
+    await File.WriteAllTextAsync(LibraryStore.LibraryPath, validLibrary);
+    await LibraryStore.LoadAsync(); await LibraryStore.SaveAsync(Array.Empty<PhotoItem>());
+    Check(JsonDocument.Parse(await File.ReadAllTextAsync(LibraryStore.LibraryPath)).RootElement.GetProperty("photos").GetArrayLength() == 0,
+          "successful retry restores normal library saving");
+    File.Delete(LibraryStore.LibraryPath); Directory.CreateDirectory(LibraryStore.LibraryPath);
+    try { await LibraryStore.SaveAsync(Array.Empty<PhotoItem>()); throw new Exception("Save error was hidden"); }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Check(true, "write errors are returned to the application"); }
+    finally { Directory.Delete(LibraryStore.LibraryPath); await File.WriteAllTextAsync(LibraryStore.LibraryPath, validLibrary); }
     await PerformanceChecks.RunAsync(Check, root, args.Contains("--performance"));
+    await MapCacheChecks.RunAsync(Check, root);
     await FeatureChecks.RunAsync(Check, root);
     Console.WriteLine($"TOTAL {passed} PASSED");
     if (args.Contains("--live-check"))
