@@ -2318,6 +2318,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowPreviewAt(int idx)
     {
+        if (_mapPhotoPreviewReturnRunning) return;
         EndPreviewDrag();
         var previous = PreviewImage.Opacity >= .5 && _previewLastReady != null ? _previewLastReady :
             PreviewSoftLayer.Opacity > 0 && PreviewSoftImage.Source != null ? PreviewSoftImage.Source : _previewLastReady;
@@ -2325,6 +2326,11 @@ public sealed partial class MainWindow : Window
         if (_currentView.Count == 0) { ClosePreview(); return; }
         _previewIndex = Math.Clamp(idx, 0, _currentView.Count - 1);
         var p = _currentView[_previewIndex];
+        if (_mapPreviewRestore != null && _mapPhotoPreviewPhoto != p)
+        {
+            CancelMapPhotoTransition();
+            _mapPhotoPreviewSource = CaptureMapPhotoPreviewSource(p);
+        }
         _previewRotation = 0;
         PreviewImage.RenderTransform = null;
         // 保留当前背景，直到新照片的取色结果可用，避免切图时突然变黑。
@@ -2532,6 +2538,7 @@ public sealed partial class MainWindow : Window
             _ = CloseMapPhotoPreviewTransitionAsync(source);
             return;
         }
+        CancelMapPhotoTransition();
         EndPreviewDrag();
         if (_previewFullscreen) SetPreviewFullscreen(false);
         ++_previewTransitionRequest;

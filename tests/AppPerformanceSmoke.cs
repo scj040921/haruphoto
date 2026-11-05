@@ -509,6 +509,21 @@ public sealed partial class MainWindow
             await WaitFor(()=>MapPhotoHeroLayer.Visibility==Visibility.Collapsed&&MapVisual(PreviewImageStage).Opacity>.99);
             ClosePreview(); await WaitFor(() => ReferenceEquals(_currentView, originalView));
             Check(ReferenceEquals(_currentView,originalView),"closing map detail restores gallery query results");
+            _mapPhotoPreviewSource = CaptureMapPhotoPreviewSource(_mapPlace[0]);
+            _mapPreviewRestore = _currentView; _currentView = _mapPlace.ToList(); OpenPreview(_mapPlace[0]);
+            await Task.Delay(30); ShowPreviewAt(1);
+            Check(_mapPhotoPreviewPhoto == _mapPlace[1], "rapid map photo navigation retargets return to the current card");
+            ClosePreview(); ClosePreview();
+            await WaitFor(() => ReferenceEquals(_currentView, originalView));
+            await Task.Delay(350);
+            Check(MapPhotoHeroLayer.Visibility == Visibility.Collapsed && PreviewOverlay.Visibility == Visibility.Collapsed,
+                "interrupted entrance and repeated close cannot resurrect photo layers");
+            _mapPhotoPreviewSource = CaptureMapPhotoPreviewSource(_mapPlace[0]);
+            _mapPreviewRestore = _currentView; _currentView = _mapPlace.ToList(); OpenPreview(_mapPlace[0]);
+            await Task.Delay(30); ClosePreview();
+            await WaitFor(() => ReferenceEquals(_currentView, originalView));
+            Check(!_mapPhotoPreviewReturnRunning && _mapPhotoPreviewSourceElement == null,
+                "close during entrance restores source card and releases transition state");
             SaveMapPlacement(_mapPlace,null,null,"","","");
             Check(_mapPlace.All(p=>p.MapLatitude==null)&&_allPhotos.Count==total,"removing a map location preserves library records");
             Undo_Click(this,new RoutedEventArgs()); await Task.Delay(100);

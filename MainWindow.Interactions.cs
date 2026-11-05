@@ -92,7 +92,7 @@ public sealed partial class MainWindow
         var visual = ElementCompositionPreview.GetElementVisual(element);
         visual.CenterPoint = new Vector3((float)box.ActualWidth / 2, (float)box.ActualHeight / 2, 0);
         var animation = visual.Compositor.CreateVector3KeyFrameAnimation(); animation.Duration = TimeSpan.FromMilliseconds(220);
-        animation.InsertKeyFrame(0, Vector3.One); animation.InsertKeyFrame(.35f, new Vector3(1.1f, 1.1f, 1)); animation.InsertKeyFrame(1, Vector3.One);
+        animation.InsertExpressionKeyFrame(0, "this.StartingValue"); animation.InsertKeyFrame(.35f, new Vector3(1.04f, 1.04f, 1)); animation.InsertKeyFrame(1, Vector3.One);
         visual.StartAnimation("Scale", animation);
     }
 

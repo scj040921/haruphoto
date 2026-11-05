@@ -24,6 +24,27 @@ public sealed partial class MainWindow
     private bool _mapPhotoPreviewClosing;
     private bool _mapPhotoPreviewReturnRunning;
     private Button? _mapHeroSourceMarker;
+    private int _mapPhotoTransitionRequest;
+
+    private int BeginMapPhotoTransition()
+    {
+        ++_mapPhotoTransitionRequest;
+        ResetMapVisual(MapPhotoHeroFrame);
+        return _mapPhotoTransitionRequest;
+    }
+
+    private void CancelMapPhotoTransition()
+    {
+        BeginMapPhotoTransition();
+        _mapPhotoPreviewReturnRunning = false;
+        MapPhotoHeroLayer.Visibility = Visibility.Collapsed;
+        MapPhotoHeroImage.Source = null;
+        ResetMapVisual(PreviewImageStage);
+        ResetMapVisual(PreviewContentRoot);
+        ResetMapVisual(PreviewOverlay);
+        RestoreMapPhotoPreviewSource();
+    }
+
 
     private Rect? CaptureMapPhotoPreviewSource(PhotoItem photo)
     {
@@ -127,6 +148,7 @@ public sealed partial class MainWindow
 
     private async Task OpenMapPhotoPreviewTransitionAsync(Rect source)
     {
+        var request = BeginMapPhotoTransition();
         try
         {
             PreviewOverlay.UpdateLayout();
@@ -138,12 +160,15 @@ public sealed partial class MainWindow
             MapFade(MapVisual(PreviewContentRoot), 0, 1, MapTransitionDuration * .9);
             MapFade(MapVisual(PreviewOverlay), 0, 1, MapTransitionDuration * .85);
             await AnimateMapPhotoHeroAsync(source, MapPreviewImageBounds(root));
+            if (request != _mapPhotoTransitionRequest) return;
             var thumbnailDeadline = Environment.TickCount64 + 1400;
-            while (_previewIsLoading && PreviewSoftImage.Source == null && Environment.TickCount64 < thumbnailDeadline)
+            while (request == _mapPhotoTransitionRequest && _previewIsLoading && PreviewSoftImage.Source == null && Environment.TickCount64 < thumbnailDeadline)
                 await Task.Delay(16);
+            if (request != _mapPhotoTransitionRequest) return;
             MapFade(MapVisual(MapPhotoHeroFrame), 1, 0, 100);
             MapFade(MapVisual(PreviewImageStage), 0, 1, 100);
             await Task.Delay(110);
+            if (request != _mapPhotoTransitionRequest) return;
             MapPhotoHeroLayer.Visibility = Visibility.Collapsed; MapPhotoHeroImage.Source = null;
             ResetMapVisual(MapPhotoHeroFrame); ResetMapVisual(PreviewImageStage);
             ResetMapVisual(PreviewContentRoot); ResetMapVisual(PreviewOverlay);
@@ -152,11 +177,14 @@ public sealed partial class MainWindow
         catch (Exception ex) { if (!_windowClosing) MapStatus.Text = "照片转场未完成：" + ex.Message; }
         finally
         {
-            MapPhotoHeroLayer.Visibility = Visibility.Collapsed; MapPhotoHeroImage.Source = null;
-            ResetMapVisual(PreviewImageStage);
-            PreviewOverlay.Opacity = 1; ResetMapVisual(PreviewContentRoot); ResetMapVisual(PreviewOverlay);
-            PreviewContentRoot.Opacity = 1;
-            RestoreMapPhotoPreviewSource();
+            if (request == _mapPhotoTransitionRequest)
+            {
+                MapPhotoHeroLayer.Visibility = Visibility.Collapsed; MapPhotoHeroImage.Source = null;
+                ResetMapVisual(PreviewImageStage);
+                PreviewOverlay.Opacity = 1; ResetMapVisual(PreviewContentRoot); ResetMapVisual(PreviewOverlay);
+                PreviewContentRoot.Opacity = 1;
+                RestoreMapPhotoPreviewSource();
+            }
         }
     }
 
@@ -164,6 +192,7 @@ public sealed partial class MainWindow
     {
         if (_mapPhotoPreviewReturnRunning) return;
         _mapPhotoPreviewReturnRunning = true;
+        var request = BeginMapPhotoTransition();
         try
         {
             var root = Content as UIElement;
@@ -183,18 +212,23 @@ public sealed partial class MainWindow
             MapPhotoHeroLayer.Visibility = Visibility.Visible;
             MapFade(MapVisual(PreviewOverlay), 1, 0, MapTransitionDuration * .85);
             await AnimateMapPhotoHeroAsync(currentBounds, frameRect, currentAspect);
+            if (request != _mapPhotoTransitionRequest) return;
             MapFade(MapVisual(MapPhotoHeroFrame), 1, 0, 100); await Task.Delay(110);
+            if (request != _mapPhotoTransitionRequest) return;
             MapPhotoHeroLayer.Visibility = Visibility.Collapsed; MapPhotoHeroImage.Source = null;
         }
         catch (Exception ex) { if (!_windowClosing) MapStatus.Text = "照片返回转场未完成：" + ex.Message; }
         finally
         {
-            _mapPhotoPreviewClosing = true;
-            _mapPhotoPreviewSource = null;
-            ClosePreview();
-            _mapPhotoPreviewClosing = false;
-            _mapPhotoPreviewReturnRunning = false;
-            RestoreMapPhotoPreviewSource();
+            if (request == _mapPhotoTransitionRequest)
+            {
+                _mapPhotoPreviewClosing = true;
+                _mapPhotoPreviewSource = null;
+                ClosePreview();
+                _mapPhotoPreviewClosing = false;
+                _mapPhotoPreviewReturnRunning = false;
+                RestoreMapPhotoPreviewSource();
+            }
         }
     }
 

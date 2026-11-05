@@ -301,6 +301,14 @@ public sealed partial class MainWindow
 
     private void MapClose_Click(object sender, RoutedEventArgs e)
     {
+        CancelMapPhotoTransition();
+        if (_mapPreviewRestore != null)
+        {
+            _mapPhotoPreviewSource = null;
+            _mapPhotoPreviewClosing = true;
+            ClosePreview();
+            _mapPhotoPreviewClosing = false;
+        }
         CancelMapPlaceTransition(); _mapPlaceOpeningSource = null; _mapPlaceReturnCamera = null; _mapTileLifetime.Cancel();
         CancelMapMotion(); EndMapDrag(); _mapRenderCts?.Cancel();
         _mapThumbnailLifetime.Cancel(); _mapMarkerPhotos.Clear(); _mapPhotoContainers.Clear();
