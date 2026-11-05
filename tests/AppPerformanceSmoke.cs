@@ -507,6 +507,26 @@ public sealed partial class MainWindow
             Check(MapPhotoHeroLayer.Visibility==Visibility.Visible&&_mapPhotoPreviewSourceElement!=null&&MapVisual(_mapPhotoPreviewSourceElement).Opacity<.01,
                   "map photo entrance uses a single moving thumbnail while concealing the duplicate source card");
             await WaitFor(()=>MapPhotoHeroLayer.Visibility==Visibility.Collapsed&&MapVisual(PreviewImageStage).Opacity>.99);
+            var metadataPhoto = _currentView[_previewIndex];
+            var metadataImage = PreviewImage.Source;
+            PreviewImageScroll.ChangeView(null, null, 2f, true);
+            await WaitFor(() => PreviewImageScroll.ZoomFactor > 1.9);
+            var metadataSort = _sortBy; _sortBy = 2;
+            PreviewRating.Value = (metadataPhoto.Rating + 1) % 6;
+            PreviewRating_ValueChanged(PreviewRating, new object());
+            Check(_currentView.Count == 3 && _currentView.All(_mapPlace.Contains) && _currentView[_previewIndex] == metadataPhoto,
+                "rating changes preserve map location scope and current photo identity");
+            Check(ReferenceEquals(PreviewImage.Source, metadataImage) && PreviewImageScroll.ZoomFactor > 1.9,
+                "metadata refresh preserves decoded image and user zoom");
+            PreviewRating.Value = -1;
+            PreviewRating_ValueChanged(PreviewRating, new object());
+            Check(metadataPhoto.Rating == 0 && _currentView[_previewIndex] == metadataPhoto,
+                "clearing a native star rating stores zero without changing the viewed photo");
+            Check(!await CopyToClipboardAsync(Path.Combine(AppPaths.DataDirectory, "missing-clipboard-photo.jpg")),
+                "copying an unavailable photo reports failure");
+            _sortBy = metadataSort; RefreshPreviewAfterMetadataChange(metadataPhoto, _previewIndex);
+            originalView = _mapPreviewRestore!;
+            ApplyFitPreviewZoom();
             ClosePreview(); await WaitFor(() => ReferenceEquals(_currentView, originalView));
             Check(ReferenceEquals(_currentView,originalView),"closing map detail restores gallery query results");
             _mapPhotoPreviewSource = CaptureMapPhotoPreviewSource(_mapPlace[0]);

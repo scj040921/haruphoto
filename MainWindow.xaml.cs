@@ -2707,7 +2707,7 @@ public sealed partial class MainWindow : Window
 
     private void PreviewFilmstrip_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (PreviewFilmstrip.SelectedItem is PhotoItem photo)
+        if (!_syncingPreviewFilmstrip && PreviewFilmstrip.SelectedItem is PhotoItem photo)
         {
             var index = _currentView.IndexOf(photo);
             if (index >= 0 && index != _previewIndex) ShowPreviewAt(index);
@@ -2800,23 +2800,18 @@ public sealed partial class MainWindow : Window
         PreviewFavButton.Content = p.IsFavorite ? "★ 取消收藏" : "☆ 收藏";
         UpdateStats();
         ScheduleSave();
-        if (_favoritesOnly && !p.IsFavorite)
-        {
-            RefreshPhotos();
-            if (_currentView.Count == 0) ClosePreview();
-            else ShowPreviewAt(Math.Min(oldIndex, _currentView.Count - 1));
-        }
+        RefreshPreviewAfterMetadataChange(p, oldIndex);
     }
 
     private void PreviewRating_ValueChanged(RatingControl sender, object args)
     {
         if (_suppressRatingEvent || _previewIndex < 0 || _previewIndex >= _currentView.Count) return;
         var p = _currentView[_previewIndex];
-        var newVal = (int)Math.Round(sender.Value);
+        var newVal = Math.Clamp((int)Math.Round(sender.Value), 0, 5);
         if (newVal == p.Rating) return;
         p.Rating = newVal;
         ScheduleSave();
-        if (_sortBy == 2) { RefreshPhotos(); ShowPreviewAt(_previewIndex); }
+        RefreshPreviewAfterMetadataChange(p, _previewIndex);
     }
 
     /// <summary>分类选择变更</summary>
@@ -2831,7 +2826,7 @@ public sealed partial class MainWindow : Window
         p.Category = newCat;
         RebuildCategories();
         ScheduleSave();
-        RefreshPhotos();
+        RefreshPreviewAfterMetadataChange(p, _previewIndex);
         StatusText.Text = string.IsNullOrEmpty(newCat) ? $"已清除「{p.Filename}」的分类" : $"已将「{p.Filename}」归入「{newCat}」";
     }
 
@@ -2844,18 +2839,18 @@ public sealed partial class MainWindow : Window
     private async void ShareImage_Click(object sender, RoutedEventArgs e)
     {
         if (_previewIndex < 0 || _previewIndex >= _currentView.Count) return;
-        await CopyToClipboardAsync(_currentView[_previewIndex].FilePath);
-        StatusText.Text = $"📋 已复制：{Path.GetFileName(_currentView[_previewIndex].FilePath)}";
+        var path = _currentView[_previewIndex].FilePath;
+        StatusText.Text = await CopyToClipboardAsync(path) ? $"已复制：{Path.GetFileName(path)}" : "复制失败，请确认照片仍可访问后重试。";
     }
 
     private async void CopyImage_Click(object sender, RoutedEventArgs e)
     {
         if (_previewIndex < 0 || _previewIndex >= _currentView.Count) return;
-        await CopyToClipboardAsync(_currentView[_previewIndex].FilePath);
-        StatusText.Text = "📋 已复制到剪贴板";
+        var path = _currentView[_previewIndex].FilePath;
+        StatusText.Text = await CopyToClipboardAsync(path) ? "已复制到剪贴板" : "复制失败，请确认照片仍可访问后重试。";
     }
 
-    private static async Task CopyToClipboardAsync(string filePath)
+    private static async Task<bool> CopyToClipboardAsync(string filePath)
     {
         try
         {
@@ -2865,9 +2860,11 @@ public sealed partial class MainWindow : Window
                 var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
                 dp.SetBitmap(Windows.Storage.Streams.RandomAccessStreamReference.CreateFromFile(file));
                 Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+                return true;
             }
         }
-        catch { }
+        catch { return false; }
+        return false;
     }
 
     private async void RemoveFromLibrary_Click(object sender, RoutedEventArgs e)
