@@ -90,7 +90,7 @@ public sealed partial class MainWindow
 
     private void MapPlaceHeader_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        var compact = e.NewSize.Width < 800;
+        var compact = e.NewSize.Width < 650;
         Grid.SetRow(MapPlaceActionsScroll, compact ? 1 : 0);
         Grid.SetColumn(MapPlaceActionsScroll, compact ? 0 : 1);
         Grid.SetColumnSpan(MapPlaceActionsScroll, compact ? 2 : 1);
@@ -516,13 +516,16 @@ public sealed partial class MainWindow
         _mapPlace = current;
         var first = _mapPlace[0]; MapPlaceTitle.Text = $"{first.MapLabel} · {_mapPlace.Count} 张"; MapPlaceNote.Text = first.MapNote;
         MapPlaceHeroBackdrop.Source = first.ThumbnailSource;
-        _ = LoadMapPlaceBackdropAsync(first, request);
+        // Keep the map itself as the spatial background; avoid a second full-window photo decode.
         _mapPlaceAnchor = (first.MapLatitude ?? _mapLatitude, first.MapLongitude ?? _mapLongitude);
-        MapScaleHud.VerticalAlignment = VerticalAlignment.Top; MapScaleHud.Margin = new Thickness(0, 128, 22, 0);
+        MapScaleHud.VerticalAlignment = VerticalAlignment.Top; MapScaleHud.Margin = new Thickness(0, 112, 22, 0);
         MapNetworkStatus.Visibility = Visibility.Collapsed;
         _mapPlaceEntranceActive = entering && MotionEnabled;
         if (changed || MapPlacePhotos.ItemsSource == null) MapPlacePhotos.ItemsSource = _mapPlace;
         MapPlaceOverlay.Visibility = Visibility.Visible;
+        MapHeader.Visibility = Visibility.Collapsed;
+        MapSearchResultsPanel.Visibility = Visibility.Collapsed;
+        MapPlacesFlyout.Hide();
         UpdateMapPlaceNavigation();
         ResetMapVisual(MapPlacePhotos);
         if (changed && !entering && MotionEnabled) MapFade(MapVisual(MapPlacePhotos), .35f, 1, 140);
@@ -531,20 +534,11 @@ public sealed partial class MainWindow
         foreach (var photo in _mapPlace.Take(100)) _ = EnsureFilmstripThumbnailAsync(photo, _mapThumbnailLifetime.Token);
     }
 
-    private async Task LoadMapPlaceBackdropAsync(PhotoItem photo, int request)
-    {
-        try
-        {
-            var image = photo.ThumbnailSource ?? await _thumbService.GetThumbnailAsync(photo.FilePath, _mapThumbnailLifetime.Token);
-            if (request == _mapPlaceTransitionRequest && MapPlaceOverlay.Visibility == Visibility.Visible && !_windowClosing)
-                MapPlaceHeroBackdrop.Source = image;
-        }
-        catch (OperationCanceledException) { }
-        catch { /* 背景照片不可用时使用渐变底色。 */ }
-    }
     private void MapPlaceClose_Click(object sender, RoutedEventArgs e) => _ = CloseMapPlaceTransitionAsync();
     private void RestoreMapPlaceHud()
     {
+        MapHeader.Visibility = Visibility.Visible;
+        ResetMapVisual(MapHeader);
         MapScaleHud.VerticalAlignment = VerticalAlignment.Bottom; MapScaleHud.Margin = new Thickness(0, 0, 22, 46);
         MapNetworkStatus.Visibility = Visibility.Visible;
     }

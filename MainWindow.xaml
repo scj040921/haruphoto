@@ -583,22 +583,22 @@
                     </ScrollViewer>
                 </Border>
             </Grid>
-            <Grid x:Name="MapPlaceOverlay" Canvas.ZIndex="3" Grid.Row="0" Grid.RowSpan="2" Visibility="Collapsed" Padding="22" RequestedTheme="Dark" Background="Transparent">
+            <Grid x:Name="MapPlaceOverlay" Canvas.ZIndex="3" Grid.Row="0" Grid.RowSpan="2" Visibility="Collapsed" Padding="16" RequestedTheme="Dark">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <Border Grid.RowSpan="3" IsHitTestVisible="False">
                     <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
                         <GradientStop Color="#A80B151D" Offset="0"/><GradientStop Color="#100B151D" Offset="0.38"/><GradientStop Color="#30101A22" Offset="0.64"/><GradientStop Color="#D90B141C" Offset="1"/>
                     </LinearGradientBrush></Border.Background>
                 </Border>
-                <Image x:Name="MapPlaceHeroBackdrop" Grid.RowSpan="3" Margin="-22" Stretch="UniformToFill" Opacity="0.08" IsHitTestVisible="False"/>
-                <Border Grid.Row="0" MaxWidth="480" HorizontalAlignment="Left" Padding="16,14" CornerRadius="16"
+                <Image x:Name="MapPlaceHeroBackdrop" Grid.RowSpan="3" Margin="-16" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False"/>
+                <Border x:Name="MapPlaceContext" Grid.Row="0" HorizontalAlignment="Stretch" Padding="16,12" CornerRadius="14"
                         Background="#D91A2933" BorderBrush="#506D7A84" BorderThickness="1">
                 <Grid x:Name="MapPlaceHeader" SizeChanged="MapPlaceHeader_SizeChanged" RowSpacing="10" ColumnSpacing="12">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <StackPanel x:Name="MapPlaceHeading" Spacing="6" VerticalAlignment="Center"><TextBlock Text="地点记忆" FontSize="11" Foreground="#A6C5CE"/>
-                        <TextBlock x:Name="MapPlaceTitle" FontSize="24" FontWeight="SemiBold" Foreground="White" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock x:Name="MapPlaceNote" Foreground="#B9C7D2" TextWrapping="Wrap" MaxHeight="100"/></StackPanel>
+                    <StackPanel x:Name="MapPlaceHeading" Spacing="6" VerticalAlignment="Center">
+                        <TextBlock x:Name="MapPlaceTitle" FontSize="20" FontWeight="SemiBold" Foreground="White" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock x:Name="MapPlaceNote" Foreground="#B9C7D2" FontSize="12" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/></StackPanel>
                     <ScrollViewer x:Name="MapPlaceActionsScroll" Grid.Column="1" HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <TextBlock x:Name="MapPlacePositionText" VerticalAlignment="Center" Foreground="#B9C7D2" FontSize="12"/>
@@ -617,13 +617,13 @@
                     </ScrollViewer>
                 </Grid>
                 </Border>
-                <Grid Grid.Row="2" Height="258" Margin="0,0,0,2">
+                <Grid x:Name="MapPlaceReel" Grid.Row="2" Height="184" Margin="0,12,0,2">
                     <Border CornerRadius="18" Background="#D916222B" BorderBrush="#386D7A84" BorderThickness="1"/>
-                <GridView x:Name="MapPlacePhotos" Margin="12,8,12,4" Height="242" VerticalAlignment="Bottom" SelectionMode="None" IsItemClickEnabled="True" ItemClick="MapPhoto_ItemClick" ContainerContentChanging="MapPhoto_ContainerContentChanging">
+                <GridView x:Name="MapPlacePhotos" Margin="8,4,8,4" Height="176" VerticalAlignment="Bottom" SelectionMode="None" IsItemClickEnabled="True" ItemClick="MapPhoto_ItemClick" ContainerContentChanging="MapPhoto_ContainerContentChanging">
                     <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Vertical"/></ItemsPanelTemplate></GridView.ItemsPanel>
                     <GridView.ItemTemplate><DataTemplate>
-                        <StackPanel Width="174" Spacing="7" Margin="2,4,8,4">
-                            <Border Height="142" Background="#283945" CornerRadius="10" BorderBrush="#7AFFFFFF" BorderThickness="1">
+                        <StackPanel Width="144" Spacing="6" Margin="2,4,6,4">
+                            <Border Height="108" Background="#283945" CornerRadius="8" BorderBrush="#30FFFFFF" BorderThickness="1">
                                 <Grid><TextBlock Text="{Binding ThumbnailStatus}" Foreground="#B9C7D2" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     <Image Source="{Binding ThumbnailSource}" Stretch="Uniform"/></Grid>
                             </Border>

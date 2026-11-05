@@ -427,7 +427,7 @@ public sealed partial class MainWindow
             var duration = MapTransitionDuration;
             await MapAnimationBatchAsync(() =>
             {
-                MapFade(MapVisual(MapHeader), 1, 0, duration * .3);
+
                 MapFade(MapVisual(MapPlaceOverlay), 0, 1, duration, 35);
                 MapVector(MapVisual(MapPlaceHeader), "Translation", new Vector3(0, 16, 0), Vector3.Zero, duration);
                 if (hasHero) AnimateMapHero(destination, source, true, duration);

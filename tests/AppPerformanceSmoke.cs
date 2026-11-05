@@ -482,13 +482,25 @@ public sealed partial class MainWindow
             Check(!_mapAnimating&&MapPlacePhotos.Items.Count==3&&MapPlaceNote.Text.Contains("<script>"),"map point zoom transition unfolds local photo cards and safe notes");
             await WaitFor(() => MapPlaceHeroBackdrop.Source != null);
             Check(MapPlaceHeroBackdrop.Opacity <= .15 && Grid.GetRowSpan(MapPlaceOverlay) == 2 &&
-                  MapPlaceOverlay.Background is SolidColorBrush placeGlass && placeGlass.Color.A < 16,
+                  MapPlaceOverlay.Background == null,
                 "place details preserve the map as a visible full-window spatial background");
+            Check(MapHeader.Visibility == Visibility.Collapsed && MapPlaceOverlay.Background == null,
+                "place scene removes map toolbar and leaves empty map area available for input");
+            ShowMapPlace(_mapPlace.ToList());
+            await WaitFor(() => !_mapPlaceEntranceActive);
+            Check(MapHeader.Visibility == Visibility.Collapsed,
+                "refreshing place metadata never restores the underlying map toolbar");
+            Check(MapPlaceReel.Height <= 184, "place reel reserves the majority of the window for the map");
+            var mapInputPoint = MapViewport.TransformToVisual((UIElement)Content).TransformPoint(
+                new Windows.Foundation.Point(MapViewport.ActualWidth * .8, MapViewport.ActualHeight * .45));
+            var mapInputHits = VisualTreeHelper.FindElementsInHostCoordinates(mapInputPoint, (UIElement)Content).ToList();
+            Check(mapInputHits.Contains(MapViewport) && !mapInputHits.Contains(MapPlaceOverlay),
+                "empty place scene space routes pointer input to the actual map viewport");
             MapPlaceOverlay.Width = 480; MapPlaceOverlay.UpdateLayout(); await Task.Delay(120);
             var placeHeading = Bounds(MapPlaceHeading, MapPlaceHeader); var placeActions = Bounds(MapPlaceActionsScroll, MapPlaceHeader);
             Check(placeHeading.Bottom <= placeActions.Top + 1 && placeActions.Right <= MapPlaceHeader.ActualWidth + 1,
                 "narrow place detail keeps its heading and actions on separate aligned rows");
-            var firstPlaceCard = FindVisual<StackPanel>(MapPlacePhotos).First(p => p.Width == 174);
+            var firstPlaceCard = FindVisual<StackPanel>(MapPlacePhotos).First(p => p.Width == 144);
             Check(Bounds(MapPlacePhotos, MapPlaceOverlay).Top > Bounds(MapPlaceHeader, MapPlaceOverlay).Bottom &&
                   Bounds(firstPlaceCard, MapPlacePhotos).Left >= 0,
                 "place photos form a separate horizontal bottom reel under the location context");
