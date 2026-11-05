@@ -383,6 +383,25 @@ public sealed partial class MainWindow
             Check(restored.Photos.Count(p=>p.MapPlaceId=="qa-place")==3&&restored.Photos.First(p=>p.MapPlaceId=="qa-place").MapNote.Contains("<script>"),"map placement and annotation persist as plain local metadata");
             _mapLatitude=31.2; _mapLongitude=121.5; OpenMap(); await Task.Delay(250);
             await RenderMapAsync();
+            MapPlacesFlyout.ShowAt(MapPlacesButton);
+            await Task.Delay(120);
+            RefreshMapPlacesList();
+            MapPlacesList.UpdateLayout();
+            await WaitFor(() => FindVisual<TextBlock>(MapPlacesList).Any(t => t.Text == "测试地点"));
+            Check(FindVisual<TextBlock>(MapPlacesList).Any(t => t.Text == "测试地点"),
+                "place explorer materializes readable location names in the live flyout");
+            await CaptureFeatureSnapshotAsync("map-saved-places.png", (UIElement)MapPlacesFilter.Parent);
+            Check(MapPlacesList.Items.Count == SavedMapPlaces().Count && MapPlacesList.Items.Count > 0,
+                "local place explorer lists saved locations without network results");
+            MapPlacesFilter.Text = "地图批注";
+            await Task.Delay(80);
+            Check(MapPlacesList.Items.Count == 1, "place explorer searches saved annotations");
+            MapPlacesFilter.Text = "qa-no-matching-place";
+            await WaitFor(() => MapPlacesList.Items.Count == 0);
+            Check(MapPlacesList.Items.Count == 0 && MapPlacesEmpty.Visibility == Visibility.Visible,
+                "place explorer explains an empty local search");
+            MapPlacesFilter.Text = "";
+            MapPlacesFlyout.Hide();
             foreach (var width in new[] { 1100d, 700d, 480d })
             {
                 MapOverlay.Width = width; MapOverlay.UpdateLayout(); await Task.Delay(120);
@@ -544,6 +563,20 @@ public sealed partial class MainWindow
             await WaitFor(() => ReferenceEquals(_currentView, originalView));
             Check(!_mapPhotoPreviewReturnRunning && _mapPhotoPreviewSourceElement == null,
                 "close during entrance restores source card and releases transition state");
+            SaveMapPlacement(new[]{view[3]}, 30.1, 120.1, "qa-next-place", "另一站", "地点导航测试");
+            var placeOrder = SavedMapPlaces();
+            var currentPlaceIndex = placeOrder.FindIndex(p => p.Photos.Contains(view[0]));
+            var placeDirection = currentPlaceIndex > 0 ? -1 : 1;
+            MoveMapPlace(placeDirection);
+            await WaitFor(() => _mapPlace.Contains(view[3]) && !_mapAnimating);
+            Check(MapPlacePositionText.Text.Contains("2 个地点") && _mapPlace.Count == 1,
+                "adjacent place navigation moves camera and switches scoped photos");
+            MoveMapPlace(-placeDirection);
+            await WaitFor(() => _mapPlace.Contains(view[0]) && !_mapAnimating);
+            SaveMapPlacement(new[]{view[3]}, null, null, "", "", "");
+            UpdateMapPlaceNavigation();
+            Check(!MapPreviousPlaceButton.IsEnabled && !MapNextPlaceButton.IsEnabled,
+                "single remaining place disables adjacent navigation");
             SaveMapPlacement(_mapPlace,null,null,"","","");
             Check(_mapPlace.All(p=>p.MapLatitude==null)&&_allPhotos.Count==total,"removing a map location preserves library records");
             Undo_Click(this,new RoutedEventArgs()); await Task.Delay(100);

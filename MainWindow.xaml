@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" ?>
+﻿<?xml version="1.0" encoding="utf-8" ?>
 <Window
     x:Class="PhotoAlbum.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -490,6 +490,29 @@
                         </StackPanel>
                         <ScrollViewer x:Name="MapActionsScroll" Grid.Column="1" HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="MapPlacesButton" Content="我的地点" AutomationProperties.Name="浏览本地照片地点">
+                                <Button.Flyout>
+                                    <Flyout x:Name="MapPlacesFlyout" Opening="MapPlacesFlyout_Opening">
+                                        <StackPanel Width="300" Spacing="10" RequestedTheme="Dark">
+                                            <TextBlock Text="我的地点" FontSize="18" FontWeight="SemiBold"/>
+                                            <TextBox x:Name="MapPlacesFilter" PlaceholderText="搜索已保存的地点或批注" TextChanged="MapPlacesFilter_TextChanged" AutomationProperties.Name="筛选本地地点"/>
+                                            <TextBlock x:Name="MapPlacesEmpty" Text="还没有地点。选择照片，在地图上留下第一段记忆。" TextWrapping="Wrap" Visibility="Collapsed"/>
+                                            <ListView x:Name="MapPlacesList" MaxHeight="340" SelectionMode="None" IsItemClickEnabled="True" ItemClick="MapPlacesList_ItemClick">
+                                                <ListView.ItemTemplate><DataTemplate>
+                                                    <Grid Padding="0,6" ColumnSpacing="10">
+                                                        <Grid.ColumnDefinitions><ColumnDefinition Width="56"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                        <Border Height="48" CornerRadius="6" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"><Image Source="{Binding Photo.ThumbnailSource}" Stretch="UniformToFill"/></Border>
+                                                        <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold"/>
+                                                            <TextBlock Text="{Binding Subtitle}" TextTrimming="CharacterEllipsis" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </DataTemplate></ListView.ItemTemplate>
+                                            </ListView>
+                                        </StackPanel>
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
                             <Button Content="＋ 放置照片" Click="MapChoosePhotos_Click"/>
                             <Button x:Name="MapUndoBtn" Content="撤销" Click="Undo_Click" Visibility="Collapsed"/>
                             <Button x:Name="MapCancelPlacementBtn" Content="取消放置" Click="MapCancelPlacement_Click" Visibility="Collapsed"/>
@@ -578,9 +601,17 @@
                         <TextBlock x:Name="MapPlaceNote" Foreground="#B9C7D2" TextWrapping="Wrap" MaxHeight="100"/></StackPanel>
                     <ScrollViewer x:Name="MapPlaceActionsScroll" Grid.Column="1" HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="编辑地点 / 批注" Click="MapEditPlace_Click"/>
-                        <Button Content="加入照片" Click="MapAddToPlace_Click"/>
-                        <Button Content="移除地点" Click="MapRemovePlace_Click" ToolTipService.ToolTip="仅清除地图位置，不从图库删除"/>
+                        <TextBlock x:Name="MapPlacePositionText" VerticalAlignment="Center" Foreground="#B9C7D2" FontSize="12"/>
+                        <Button x:Name="MapPreviousPlaceButton" Content="←" AutomationProperties.Name="上一个地点" Click="MapPreviousPlace_Click" ToolTipService.ToolTip="上一个地点（Page Up）"/>
+                        <Button x:Name="MapNextPlaceButton" Content="→" AutomationProperties.Name="下一个地点" Click="MapNextPlace_Click" ToolTipService.ToolTip="下一个地点（Page Down）"/>
+                        <Button Content="更多" AutomationProperties.Name="地点操作">
+                            <Button.Flyout><MenuFlyout>
+                                <MenuFlyoutItem Text="编辑地点 / 批注" Click="MapEditPlace_Click"/>
+                                <MenuFlyoutItem Text="加入照片" Click="MapAddToPlace_Click"/>
+                                <MenuFlyoutSeparator/>
+                                <MenuFlyoutItem Text="移除地点" Click="MapRemovePlace_Click"/>
+                            </MenuFlyout></Button.Flyout>
+                        </Button>
                         <Button Content="返回地图" Click="MapPlaceClose_Click"/>
                     </StackPanel>
                     </ScrollViewer>

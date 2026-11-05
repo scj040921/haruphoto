@@ -196,6 +196,8 @@ public sealed partial class MainWindow
             var button = new Button { Content = stack, Padding = new Thickness(6), CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1), BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(80, 215, 232, 237)), Background = new SolidColorBrush(Windows.UI.Color.FromArgb(205, 18, 34, 43)), Tag = photos };
             button.PointerEntered += (_, _) => AnimateMapMarkerFocus(button, true);
             button.PointerExited += (_, _) => AnimateMapMarkerFocus(button, false);
+            button.GotFocus += (_, _) => AnimateMapMarkerFocus(button, true);
+            button.LostFocus += (_, _) => AnimateMapMarkerFocus(button, false);
             button.Click += (_, _) => { if (_mapPlacement.Count > 0) _ = AssignToExistingPlaceAsync(photos); else AnimateToMapPlace(photos); };
             ToolTipService.SetToolTip(button, $"{first.MapLabel} · {photos.Count} 张\n{first.MapNote}");
             Canvas.SetLeft(button, x - 46); Canvas.SetTop(button, y - 75); MapMarkers.Children.Add(button);
@@ -521,6 +523,9 @@ public sealed partial class MainWindow
         _mapPlaceEntranceActive = entering && MotionEnabled;
         if (changed || MapPlacePhotos.ItemsSource == null) MapPlacePhotos.ItemsSource = _mapPlace;
         MapPlaceOverlay.Visibility = Visibility.Visible;
+        UpdateMapPlaceNavigation();
+        ResetMapVisual(MapPlacePhotos);
+        if (changed && !entering && MotionEnabled) MapFade(MapVisual(MapPlacePhotos), .35f, 1, 140);
         if (_mapPlaceEntranceActive) MapVisual(MapPlaceOverlay).Opacity = 0;
         if (entering) _ = OpenMapPlaceTransitionAsync(request, token);
         foreach (var photo in _mapPlace.Take(100)) _ = EnsureFilmstripThumbnailAsync(photo, _mapThumbnailLifetime.Token);
