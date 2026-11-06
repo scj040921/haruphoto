@@ -49,9 +49,7 @@ public sealed partial class MainWindow
         // Metadata changes must not reload the image or discard its zoom/pan.
         _previewIndex = index;
         PreviewCounter.Text = $"{index + 1} / {_currentView.Count}";
-        PreviewPrevBtn.IsEnabled = index > 0;
-        PreviewNextBtn.IsEnabled = index < _currentView.Count - 1;
-        PreviewSlideshowBtn.IsEnabled = _currentView.Count > 1;
+        UpdatePreviewNavigationState();
         _syncingPreviewFilmstrip = true;
         try
         {

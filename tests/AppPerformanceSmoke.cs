@@ -53,6 +53,16 @@ public sealed partial class MainWindow
             await WaitFor(() => Content.XamlRoot != null);
             Check(_currentView.Count >= 400, "large isolated photo fixture loaded");
             await Task.Delay(250);
+            SearchBox.Text = "test-0"; SearchBox_TextChanged(SearchBox, null!);
+            Check(_searchTimer.IsEnabled, "search debounce is pending before immediate page navigation");
+            NextPage_Click(this, new RoutedEventArgs());
+            Check(!_searchTimer.IsEnabled && _currentView.Count <= 100 && _currentPage == 0,
+                "immediate pagination applies the pending query before selecting a result page");
+            NavView.SelectedItem = NavView.MenuItems.OfType<NavigationViewItem>().First(i => i.Tag as string == "Favorites");
+            ClearFilters_Click(this,new RoutedEventArgs());
+            await Task.Delay(30);
+            Check(_currentView.Count >= 400 && !_searchTimer.IsEnabled && (NavView.SelectedItem as NavigationViewItem)?.Tag as string == "All", "clearing search restores results and sidebar without a delayed second query");
+
             Windows.Foundation.Rect Bounds(FrameworkElement element, UIElement relative)
             {
                 var point = element.TransformToVisual(relative).TransformPoint(new Windows.Foundation.Point(0, 0));
@@ -315,6 +325,15 @@ public sealed partial class MainWindow
             ShowPreviewAt(corruptIndex); await WaitFor(() => !_previewIsLoading);
             Check(PreviewReadError.Visibility == Visibility.Visible && _previewLastReady == null,
                 "failed image decode shows an error rather than a stale photo or endless focus state");
+            Check(!PreviewNextBtn.IsEnabled && PreviewNextBtn.Opacity < .5 &&
+                PreviewErrorSkipButton.IsEnabled && PreviewErrorSkipButton.Content as string == "上一张",
+                "failed final photo offers a previous-photo escape and visibly disabled forward navigation");
+            await CaptureFeatureSnapshotAsync("preview-read-error.png");
+            File.Copy(view[0].FilePath, view[corruptIndex].FilePath, true);
+            PreviewRetry_Click(this,new RoutedEventArgs());
+            await WaitFor(() => !_previewIsLoading);
+            Check(PreviewReadError.Visibility == Visibility.Collapsed && PreviewImage.Source is BitmapImage repaired && repaired.PixelWidth > 0,
+                "retry bypasses failed image cache after the original file is repaired");
             for(var index=0;index<400;index+=40)
             {
                 ShowPreviewAt(index); await WaitFor(()=>!_previewIsLoading);
@@ -668,6 +687,17 @@ public sealed partial class MainWindow
             await WaitFor(()=>_comparePanes.Count==2&&_comparePanes.All(p=>p.Image.Source is BitmapImage b&&b.PixelWidth>0));
             Check(_comparePanes.Count==2,"comparison still decodes both photos");
             CompareClose_Click(this,new RoutedEventArgs());
+            var cancelImportPath = Path.Combine(AppPaths.DataDirectory,"cancel-import-test.png");
+            File.Copy(view[0].FilePath,cancelImportPath,true);
+            var beforeImportCount = _allPhotos.Count;
+            var pendingImport = ImportPathsAsync(new[]{cancelImportPath},"测试取消导入");
+            CancelImport_Click(this,new RoutedEventArgs());
+            Check(!await pendingImport && _allPhotos.Count == beforeImportCount && !_importing &&
+                  CancelImportButton.Visibility == Visibility.Collapsed && ImportFilesButton.IsEnabled,
+                "cancelled import commits no records and restores usable import controls");
+            Check(await ImportPathsAsync(new[]{cancelImportPath},"测试重试导入") && _allPhotos.Count == beforeImportCount + 1,
+                "import remains usable after cancellation");
+            RemoveLibraryRecords(_allPhotos.Where(p=>p.FilePath==cancelImportPath).ToArray()); RefreshPhotos();
             foreach(var theme in new[] {ElementTheme.Light,ElementTheme.Dark})
             {
                 var settings=_settings.Clone(); settings.ThemeMode=theme==ElementTheme.Dark?1:0;

@@ -69,6 +69,7 @@ public sealed partial class MainWindow : Window
     private string _organizeFilter = "";
     private bool _uiReady;
     private bool _importing;
+    private CancellationTokenSource? _importCts;
     private Action? _lastUndoAction;
     private string _lastUndoLabel = "";
 
@@ -174,7 +175,7 @@ public sealed partial class MainWindow : Window
             PhotoGrid.InvalidateMeasure();
         };
         _searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
-        _searchTimer.Tick += (s, e) => { _searchTimer.Stop(); _currentPage = 0; RefreshPhotos(); };
+        _searchTimer.Tick += (s, e) => ResetGalleryForQuery();
 
         _saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
         _saveTimer.Tick += async (s, e) => { _saveTimer.Stop(); await SaveLibraryWithNoticeAsync(); };
@@ -1321,6 +1322,7 @@ public sealed partial class MainWindow : Window
     private void OrganizeFilter_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button button || button.Tag is not string tag) return;
+        _searchTimer.Stop();
         _searchKeyword = "";
         _favoritesOnly = false;
         _categoryFilter = "";
@@ -1453,40 +1455,45 @@ public sealed partial class MainWindow : Window
 
     private void SearchBox_TextChanged(AutoSuggestBox s, AutoSuggestBoxTextChangedEventArgs e)
     {
-        if (!_uiReady) return;
-        _searchKeyword = s.Text?.Trim() ?? "";
+        if (!_uiReady || _resettingFilters) return;
+        var keyword = s.Text?.Trim() ?? "";
+        if (keyword == _searchKeyword) return;
+        _searchKeyword = keyword;
         _searchTimer.Stop();
         _searchTimer.Start();
     }
 
     private void SortCombo_SelectionChanged(object s, SelectionChangedEventArgs e)
     {
-        if (!_uiReady) return;
+        if (!_uiReady || _resettingFilters) return;
+        if (SortCombo.SelectedIndex < 0 || _sortBy == SortCombo.SelectedIndex) return;
         _sortBy = SortCombo.SelectedIndex;
         _settings.SortMode = _sortBy;
         _settings.Save();
-        RefreshPhotos();
+        ResetGalleryForQuery();
     }
 
     private void FilterCombo_Changed(object s, SelectionChangedEventArgs e)
     {
-        if (!_uiReady) return;
+        if (!_uiReady || _resettingFilters) return;
         _minRatingFilter = FilterRatingCombo.SelectedIndex;         // 0=不限, 1..5
         _dateFilterDays = FilterDateCombo.SelectedIndex switch { 1 => 7, 2 => 30, 3 => 90, _ => 0 };
         _currentPage = 0;
-        RefreshPhotos();
+        ResetGalleryForQuery();
     }
 
     private void FavOnly_Changed(object s, RoutedEventArgs e)
     {
-        if (!_uiReady) return;
+        if (!_uiReady || _resettingFilters) return;
+        if (_favoritesOnly == (FavOnlyCheckBox.IsChecked ?? false)) return;
         _favoritesOnly = FavOnlyCheckBox.IsChecked ?? false;
         _currentPage = 0;
-        RefreshPhotos();
+        ResetGalleryForQuery();
     }
 
     private void PrevPage_Click(object s, RoutedEventArgs e)
     {
+        FlushPendingSearch();
         if (_currentPage > 0) { _currentPage--; MainScroll.ChangeView(null, 0, null, true); RenderCurrentPage(); }
     }
 
@@ -1524,17 +1531,25 @@ public sealed partial class MainWindow : Window
         _minRatingFilter = 0;
         _dateFilterDays = 0;
         _organizeFilter = "";
-        SearchBox.Text = "";
-        FilterRatingCombo.SelectedIndex = 0;
-        FilterDateCombo.SelectedIndex = 0;
-        FavOnlyCheckBox.IsChecked = false;
+        _resettingFilters = true;
+        try
+        {
+            _synchronizingLibraryNavigation = true;
+            NavView.SelectedItem = NavView.MenuItems.OfType<NavigationViewItem>().First(i => i.Tag as string == "All");
+            SearchBox.Text = "";
+            FilterRatingCombo.SelectedIndex = 0;
+            FilterDateCombo.SelectedIndex = 0;
+            FavOnlyCheckBox.IsChecked = false;
+        }
+        finally { _resettingFilters = false; _synchronizingLibraryNavigation = false; }
         _currentPage = 0;
-        RefreshPhotos();
+        ResetGalleryForQuery();
         StatusText.Text = "已清除所有筛选";
     }
 
     private void NextPage_Click(object s, RoutedEventArgs e)
     {
+        FlushPendingSearch();
         if (_currentPage < Math.Max(0, (_currentView.Count - 1) / PageSize)) { _currentPage++; MainScroll.ChangeView(null, 0, null, true); RenderCurrentPage(); }
     }
 
@@ -1551,8 +1566,9 @@ public sealed partial class MainWindow : Window
 
     private void JumpToPage()
     {
-        var maxPage = Math.Max(1, (_currentView.Count + PageSize - 1) / PageSize);
         var requested = double.IsNaN(PageJumpBox.Value) ? _currentPage + 1 : (int)PageJumpBox.Value;
+        FlushPendingSearch();
+        var maxPage = Math.Max(1, (_currentView.Count + PageSize - 1) / PageSize);
         var page = Math.Clamp(requested, 1, maxPage);
         _currentPage = page - 1;
         PageJumpBox.Value = page;
@@ -2316,7 +2332,7 @@ public sealed partial class MainWindow : Window
         AnimatePreviewIn();
     }
 
-    private void ShowPreviewAt(int idx)
+    private void ShowPreviewAt(int idx, bool forceReload = false)
     {
         if (_mapPhotoPreviewReturnRunning) return;
         EndPreviewDrag();
@@ -2365,9 +2381,7 @@ public sealed partial class MainWindow : Window
         PreviewCategoryCombo.SelectedIndex = catIdx;
         _suppressCategoryEvent = false;
 
-        PreviewPrevBtn.IsEnabled = _previewIndex > 0;
-        PreviewNextBtn.IsEnabled = _previewIndex < _currentView.Count - 1;
-        PreviewSlideshowBtn.IsEnabled = _currentView.Count > 1;
+        UpdatePreviewNavigationState();
         PreviewFilmstrip.ItemsSource = _currentView;
         PreviewFilmstrip.SelectedItem = p;
         PreviewFilmstrip.ScrollIntoView(p);
@@ -2390,19 +2404,11 @@ public sealed partial class MainWindow : Window
         _ = ShowPreviewThumbnailAsync(p, transition);
         var bmp = new BitmapImage { DecodePixelWidth = 1600 };
         bmp.ImageOpened += (_, _) => _ = PreviewImageOpenedAsync(transition, bmp);
-        bmp.ImageFailed += (_, _) =>
-        {
-            if (transition != _previewTransitionRequest) return;
-            _previewIsLoading = false;
-            ResetPreviewFocusBlur(); PreviewSoftLayer.Opacity = 0; PreviewSoftImage.Source = null;
-            PreviewImage.Opacity = 0; PreviewImageOutgoing.Opacity = 0; _previewLastReady = null;
-            ++_exifRequestSeq;
-            PreviewExif.Text = "无法读取照片文件，请检查文件是否损坏或格式是否受支持。";
-            PreviewReadError.Visibility = Visibility.Visible;
-            PreviewImageOutgoing.Source = null;
-        };
+        bmp.ImageFailed += (_, _) => FailPreviewRead(p, transition);
+        if (forceReload) bmp.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
         PreviewImage.Source = bmp;
-        bmp.UriSource = new Uri(p.FilePath);
+        try { bmp.UriSource = new Uri(p.FilePath); }
+        catch (Exception) { FailPreviewRead(p, transition); }
     }
 
     private void FinishPreviewImageTransition(int transition)
@@ -3252,7 +3258,7 @@ public sealed partial class MainWindow : Window
 
     private void Root_DragOver(object sender, DragEventArgs e)
     {
-        if (!_libraryLoaded) return;
+        if (!_libraryLoaded || _importing) return;
         if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
         {
             e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
@@ -3276,12 +3282,18 @@ public sealed partial class MainWindow : Window
         var paths = sourcePaths.Where(p => !string.IsNullOrWhiteSpace(p)).ToArray();
         if (paths.Length == 0 || !_libraryLoaded || _importing || _windowClosing) return false;
         _importing = true;
+        using var importLifetime = CancellationTokenSource.CreateLinkedTokenSource(_windowLifetime.Token);
+        _importCts = importLifetime;
+        var importToken = importLifetime.Token;
+        ImportFolderButton.IsEnabled = ImportFilesButton.IsEnabled = false;
+        CancelImportButton.Visibility = Visibility.Visible;
         BusyRing.Visibility = Visibility.Visible;
         StatusText.Text = status;
         try
         {
             var known = _allPhotos.Select(p => p.FilePath).ToArray();
-            var found = await Task.Run(() => PhotoFileScanner.Scan(paths, known, _windowLifetime.Token), _windowLifetime.Token);
+            var found = await Task.Run(() => PhotoFileScanner.Scan(paths, known, importToken), importToken);
+            importToken.ThrowIfCancellationRequested();
             if (_windowClosing) return false;
             var added = AppendImportedPhotos(found);
             RebuildCategories();
@@ -3290,9 +3302,17 @@ public sealed partial class MainWindow : Window
             StatusText.Text = added > 0 ? $"已导入 {added} 张照片" : "没有发现新的图片文件";
             return true;
         }
-        catch (OperationCanceledException) { return false; }
+        catch (OperationCanceledException) { if (!_windowClosing) StatusText.Text = "已取消导入，本次扫描尚未加入图库。"; return false; }
         catch (Exception ex) { if (!_windowClosing) StatusText.Text = "导入失败：" + ex.Message; return false; }
-        finally { if (!_windowClosing) BusyRing.Visibility = Visibility.Collapsed; _importing = false; }
+        finally
+        {
+            _importCts = null; _importing = false;
+            if (!_windowClosing)
+            {
+                BusyRing.Visibility = CancelImportButton.Visibility = Visibility.Collapsed;
+                ImportFolderButton.IsEnabled = ImportFilesButton.IsEnabled = _libraryLoaded;
+            }
+        }
     }
 
     private int AppendImportedPhotos(IEnumerable<PhotoFile> files)

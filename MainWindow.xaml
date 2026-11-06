@@ -97,6 +97,7 @@
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="Clip"/>
                     <Button x:Name="ImportFolderButton" Content="＋ 导入文件夹" Click="ImportButton_Click" IsEnabled="False"
                             HorizontalAlignment="Stretch" Height="36" FontSize="13"/>
+                    <Button x:Name="CancelImportButton" Content="取消导入" Visibility="Collapsed" Click="CancelImport_Click" HorizontalAlignment="Stretch"/>
                     <Button x:Name="ImportFilesButton" Content="＋ 导入文件" Click="ImportFiles_Click" IsEnabled="False"
                             HorizontalAlignment="Stretch" Height="36" FontSize="13"
                             Background="Transparent"
@@ -774,10 +775,14 @@
                                 <Image x:Name="PreviewImage" Stretch="Uniform"/>
                             </Grid>
                         </ScrollViewer>
-                        <TextBlock x:Name="PreviewReadError" Text="无法读取这张照片，请检查文件是否损坏或格式是否受支持。"
-                                   Visibility="Collapsed" Foreground="#DEFFFFFF" FontSize="16"
-                                   TextWrapping="Wrap" TextAlignment="Center" MaxWidth="400"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                        <StackPanel x:Name="PreviewReadError" Visibility="Collapsed" Spacing="14" MaxWidth="420" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="20">
+                            <TextBlock Text="暂时无法显示照片" Foreground="White" FontSize="20" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="PreviewReadErrorMessage" Foreground="#DEFFFFFF" TextWrapping="Wrap" FontSize="14"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Content="重试" Click="PreviewRetry_Click"/>
+                                <Button x:Name="PreviewErrorSkipButton" Content="下一张" Click="PreviewErrorSkip_Click"/>
+                            </StackPanel>
+                        </StackPanel>
                         <Border x:Name="PreviewTransitionVeil" IsHitTestVisible="False" Opacity="0"
                                 Background="#40212A36" CornerRadius="18"/>
                     </Grid>
