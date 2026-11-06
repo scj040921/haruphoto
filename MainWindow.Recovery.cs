@@ -31,6 +31,7 @@ public sealed partial class MainWindow
         PreviewReadErrorMessage.Text = message; PreviewExif.Text = "拍摄信息暂不可用。";
         UpdatePreviewNavigationState();
         PreviewReadError.Visibility = Visibility.Visible;
+        ResumeSlideshowTimer();
     }
     private void UpdatePreviewNavigationState()
     {
@@ -40,6 +41,7 @@ public sealed partial class MainWindow
         PreviewPrevBtn.Opacity = PreviewPrevBtn.IsEnabled ? 1 : .35;
         PreviewNextBtn.Opacity = PreviewNextBtn.IsEnabled ? 1 : .35;
         PreviewSlideshowBtn.IsEnabled = _currentView.Count > 1;
+        if (_currentView.Count < 2 && _slideshowActive) StopSlideshow();
         PreviewErrorSkipButton.Content = PreviewNextBtn.IsEnabled ? "下一张" : "上一张";
         PreviewErrorSkipButton.IsEnabled = PreviewNextBtn.IsEnabled || PreviewPrevBtn.IsEnabled;
     }

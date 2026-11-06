@@ -357,17 +357,34 @@ public sealed partial class MainWindow
             ZoomPreviewAt(new Windows.Foundation.Point(100,100),.01f);
             await WaitFor(() => Math.Abs(PreviewImageScroll.ZoomFactor - 1) < .01 && PreviewImageScroll.HorizontalOffset == 0);
             Check(Math.Abs(PreviewImageScroll.ZoomFactor-1)<.01&&PreviewImageScroll.HorizontalOffset==0,"wheel zoom out returns to fit without stale offset");
-            _filmstripHidden=false; ApplyFilmstripVisibility();
+            var previousFilmstripMode = _settings.FilmstripMode;
+            _settings.FilmstripMode=1; _filmstripHidden=false; _filmstripPinnedVisible=false; ApplyFilmstripVisibility();
+            Check(PreviewFilmstripBar.Opacity<.05 && PreviewFilmstripToggleBtn.Content as string=="显示胶片条",
+                "auto-hidden filmstrip reports the available reveal action");
+            PreviewFilmstripToggle_Click(this,new RoutedEventArgs());
+            Check(PreviewFilmstripBar.Visibility==Visibility.Visible && PreviewFilmstripBar.Opacity>.95 && PreviewFilmstripToggleBtn.Content as string=="隐藏胶片条",
+                "explicit reveal pins the auto-hidden filmstrip open");
             PreviewFilmstripToggle_Click(this,new RoutedEventArgs());
             Check(PreviewFilmstripBar.Visibility==Visibility.Collapsed&&PreviewImageStage.Margin.Bottom==20,"hiding filmstrip frees photo space");
-            PreviewFilmstripToggle_Click(this,new RoutedEventArgs()); await Task.Delay(100);
-            Check(PreviewFilmstripBar.Visibility==Visibility.Visible,"filmstrip restores after explicit toggle");
+            _settings.FilmstripMode=previousFilmstripMode; _filmstripHidden=false; _filmstripPinnedVisible=false; ApplyFilmstripVisibility();
             var presenter=AppWindow.Presenter;
             SetPreviewFullscreen(true); await Task.Delay(150);
             Check(AppWindow.Presenter.Kind==Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen&&DetailPanel.Visibility==Visibility.Collapsed&&PreviewFullscreenExit.Visibility==Visibility.Visible,"fullscreen hides information and filmstrip with visible exit");
             await CaptureFeatureSnapshotAsync("fullscreen.png");
             SetPreviewFullscreen(false); await Task.Delay(150);
             Check(AppWindow.Presenter.Kind==presenter.Kind&&PreviewToolbar.Visibility==Visibility.Visible&&DetailPanel.Visibility==Visibility.Visible,"exiting fullscreen restores previous presenter and information panel");
+            ToggleSlideshow();
+            Check(_slideshowActive && _slideshowTimer.IsEnabled,"slideshow starts with an active timer");
+            ShowPreviewAt(121);
+            Check(_slideshowActive && !_slideshowTimer.IsEnabled,"slideshow waits while the next image decodes");
+            await WaitFor(() => !_previewIsLoading && _slideshowTimer.IsEnabled);
+            Check(_slideshowActive && _slideshowTimer.IsEnabled,"slideshow interval restarts after the image transition finishes");
+            StopSlideshow();
+            var selectedPreviewPhoto=_currentView[_previewIndex];
+            var addedPath=Path.Combine(Path.GetTempPath(),"haruphoto-auto-scan-smoke-"+Guid.NewGuid().ToString("N")+".jpg");
+            OnNewFilesFound(new List<PhotoFile>{new(addedPath,123,DateTime.Now)});
+            Check(_currentView[_previewIndex]==selectedPreviewPhoto && ReferenceEquals(PreviewFilmstrip.SelectedItem,selectedPreviewPhoto) &&
+                PreviewTitleBar.Text==selectedPreviewPhoto.Filename,"background scan preserves the open photo and filmstrip selection");
             ClosePreview(); await Task.Delay(450);
 
             EnterBatchMode();

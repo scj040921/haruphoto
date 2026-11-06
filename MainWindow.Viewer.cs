@@ -8,7 +8,7 @@ namespace PhotoAlbum;
 
 public sealed partial class MainWindow
 {
-    private bool _previewFullscreen, _filmstripHidden;
+    private bool _previewFullscreen, _filmstripHidden, _filmstripPinnedVisible;
     private AppWindowPresenter? _previewPreviousPresenter;
     private uint? _previewDragId;
     private Point _previewDragStart;
@@ -93,7 +93,9 @@ public sealed partial class MainWindow
 
     private void PreviewFilmstripToggle_Click(object sender, RoutedEventArgs e)
     {
-        _filmstripHidden = !_filmstripHidden;
+        var currentlyShown = PreviewFilmstripBar.Visibility == Visibility.Visible && PreviewFilmstripBar.Opacity > .5;
+        _filmstripHidden = currentlyShown;
+        _filmstripPinnedVisible = !currentlyShown;
         ApplyFilmstripVisibility();
         if (!_filmstripHidden)
             foreach (var photo in _filmstripContainers.Values.Distinct().ToArray())
@@ -104,10 +106,11 @@ public sealed partial class MainWindow
     {
         var visible = !_filmstripHidden && !_previewFullscreen;
         PreviewFilmstripBar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        PreviewFilmstripBar.Opacity = visible && _settings.FilmstripMode != 1 ? 1 : 0;
-        PreviewFilmstripBar.IsHitTestVisible = visible && _settings.FilmstripMode != 1;
+        var shown = visible && (_settings.FilmstripMode != 1 || _filmstripPinnedVisible);
+        PreviewFilmstripBar.Opacity = shown ? 1 : 0;
+        PreviewFilmstripBar.IsHitTestVisible = shown;
         PreviewImageStage.Margin = new Thickness(12, 20, 12, visible && _settings.FilmstripMode != 1 ? 100 : 20);
-        PreviewFilmstripToggleBtn.Content = _filmstripHidden ? "显示胶片条" : "隐藏胶片条";
+        PreviewFilmstripToggleBtn.Content = shown ? "隐藏胶片条" : "显示胶片条";
     }
 
     private async void RemoveSelected_Click(object sender, RoutedEventArgs e) => await RemoveSelectedAsync();

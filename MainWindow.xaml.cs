@@ -56,6 +56,7 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer _searchTimer;
     private readonly DispatcherTimer _saveTimer;
     private readonly DispatcherTimer _slideshowTimer;
+    private bool _slideshowActive;
     private readonly HashSet<string> _selectedPaths = new();
     private bool _batchMode;
 
@@ -123,11 +124,12 @@ public sealed partial class MainWindow : Window
         MainScroll.KeyDown += (_, _) => StopGalleryWheel();
         PreviewOverlay.PointerMoved += (_, e) =>
         {
-            if (_settings.FilmstripMode != 1 || _filmstripHidden || _previewFullscreen) return;
+            if (_settings.FilmstripMode != 1 || _filmstripHidden || _filmstripPinnedVisible || _previewFullscreen) return;
             var y = e.GetCurrentPoint(PreviewContentRoot).Position.Y;
             var show = y >= PreviewContentRoot.ActualHeight - 104 && y <= PreviewContentRoot.ActualHeight;
             PreviewFilmstripBar.Opacity = show ? 1 : 0;
             PreviewFilmstripBar.IsHitTestVisible = show;
+            PreviewFilmstripToggleBtn.Content = show ? "隐藏胶片条" : "显示胶片条";
         };
 
         // 应用主题 + 外观（深色/浅色即时生效）
@@ -188,8 +190,9 @@ public sealed partial class MainWindow : Window
                 StopSlideshow();
                 return;
             }
-            if (!_previewIsLoading)
-                ShowPreviewAt((_previewIndex + 1) % _currentView.Count);
+            if (_previewIsLoading) return;
+            _slideshowTimer.Stop();
+            ShowPreviewAt((_previewIndex + 1) % _currentView.Count);
         };
 
         _folderWatcher.KnownPaths = () => _allPhotos.Select(p => p.FilePath).ToArray();
@@ -2319,6 +2322,7 @@ public sealed partial class MainWindow : Window
         _previewInfoVisible = _settings.PreviewInfoDefaultVisible;
         ApplyPreviewInfoVisibility();
         _filmstripHidden = _settings.FilmstripMode == 2;
+        _filmstripPinnedVisible = false;
         ApplyFilmstripVisibility();
         PreviewOverlay.Background = _mapPreviewRestore != null
             ? new SolidColorBrush(Windows.UI.Color.FromArgb(178, 4, 9, 14))
@@ -2394,6 +2398,7 @@ public sealed partial class MainWindow : Window
 
         var transition = ++_previewTransitionRequest;
         _previewIsLoading = true;
+        if (_slideshowActive) _slideshowTimer.Stop();
         PreviewImageOutgoing.Source = previous;
         PreviewImageOutgoing.Opacity = previous == null ? 0 : 1;
         ResetPreviewFocusBlur();
@@ -2425,6 +2430,7 @@ public sealed partial class MainWindow : Window
             PreviewImageOutgoing.Source = null;
             PreviewSoftLayer.Opacity = 0; PreviewSoftImage.Source = null; ResetPreviewFocusBlur();
             PreviewTransitionVeil.Opacity = 0;
+            ResumeSlideshowTimer();
             return;
         }
 
@@ -2464,7 +2470,11 @@ public sealed partial class MainWindow : Window
         storyboard.Children.Add(veilFade);
         storyboard.Completed += (_, _) =>
         {
-            if (transition == _previewTransitionRequest) { PreviewImageOutgoing.Source = null; PreviewSoftLayer.Opacity = 0; PreviewSoftImage.Source = null; ResetPreviewFocusBlur(); }
+            if (transition == _previewTransitionRequest)
+            {
+                PreviewImageOutgoing.Source = null; PreviewSoftLayer.Opacity = 0; PreviewSoftImage.Source = null; ResetPreviewFocusBlur();
+                ResumeSlideshowTimer();
+            }
         };
         _previewImageAnimation = storyboard;
         storyboard.Begin();
@@ -2571,21 +2581,30 @@ public sealed partial class MainWindow : Window
 
     private void ToggleSlideshow()
     {
-        if (_slideshowTimer.IsEnabled)
+        if (_slideshowActive)
         {
             StopSlideshow();
             return;
         }
         if (PreviewOverlay.Visibility != Visibility.Visible || _currentView.Count < 2) return;
-        _slideshowTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(_settings.SlideshowIntervalSeconds, 2, 15));
-        _slideshowTimer.Start();
+        _slideshowActive = true;
         PreviewSlideshowBtn.Content = "⏸ 暂停";
+        ResumeSlideshowTimer();
     }
 
     private void StopSlideshow()
     {
+        _slideshowActive = false;
         _slideshowTimer.Stop();
         PreviewSlideshowBtn.Content = "▶ 播放";
+    }
+
+    private void ResumeSlideshowTimer()
+    {
+        if (!_slideshowActive || PreviewOverlay.Visibility != Visibility.Visible || _currentView.Count < 2) return;
+        _slideshowTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(_settings.SlideshowIntervalSeconds, 2, 15));
+        _slideshowTimer.Stop();
+        _slideshowTimer.Start();
     }
 
     private void Root_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -3363,10 +3382,33 @@ public sealed partial class MainWindow : Window
     private void OnNewFilesFound(List<PhotoFile> files)
     {
         if (_windowClosing || !_libraryLoaded) return;
+        var previewWasOpen = PreviewOverlay.Visibility == Visibility.Visible;
+        var mapPreviewWasOpen = previewWasOpen && _mapPreviewRestore != null;
+        var previewPhoto = previewWasOpen && _previewIndex >= 0 && _previewIndex < _currentView.Count
+            ? _currentView[_previewIndex] : null;
         var added = AppendImportedPhotos(files);
         if (added == 0) return;
         RebuildCategories();
         RefreshPhotos();
+        if (mapPreviewWasOpen)
+        {
+            // Keep the newly refreshed gallery as the return target while preserving the map-place sequence.
+            _mapPreviewRestore = _currentView;
+            _currentView = _mapPlace.ToList();
+        }
+        if (previewPhoto != null)
+        {
+            var updatedIndex = _currentView.IndexOf(previewPhoto);
+            if (updatedIndex >= 0)
+            {
+                _previewIndex = updatedIndex;
+                PreviewCounter.Text = $"{_previewIndex + 1} / {_currentView.Count}";
+                PreviewFilmstrip.ItemsSource = _currentView;
+                PreviewFilmstrip.SelectedItem = previewPhoto;
+                PreviewFilmstrip.ScrollIntoView(previewPhoto);
+                UpdatePreviewNavigationState();
+            }
+        }
         ScheduleSave();
         StatusText.Text = $"自动发现 {added} 张新照片";
     }
