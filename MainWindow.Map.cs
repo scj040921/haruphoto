@@ -519,7 +519,7 @@ public sealed partial class MainWindow
         // Keep the map itself as the spatial background; avoid a second full-window photo decode.
         _mapPlaceAnchor = (first.MapLatitude ?? _mapLatitude, first.MapLongitude ?? _mapLongitude);
         MapScaleHud.VerticalAlignment = VerticalAlignment.Top; MapScaleHud.Margin = new Thickness(0, 112, 22, 0);
-        MapNetworkStatus.Visibility = Visibility.Collapsed;
+        MapNetworkNotice.Visibility = Visibility.Collapsed;
         _mapPlaceEntranceActive = entering && MotionEnabled;
         if (changed || MapPlacePhotos.ItemsSource == null) MapPlacePhotos.ItemsSource = _mapPlace;
         MapPlaceOverlay.Visibility = Visibility.Visible;
@@ -527,11 +527,14 @@ public sealed partial class MainWindow
         MapSearchResultsPanel.Visibility = Visibility.Collapsed;
         MapPlacesFlyout.Hide();
         UpdateMapPlaceNavigation();
+        ApplyMapPlaceReelVisibility();
+        RestoreMapPlacePhotoPosition();
         ResetMapVisual(MapPlacePhotos);
         if (changed && !entering && MotionEnabled) MapFade(MapVisual(MapPlacePhotos), .35f, 1, 140);
         if (_mapPlaceEntranceActive) MapVisual(MapPlaceOverlay).Opacity = 0;
         if (entering) _ = OpenMapPlaceTransitionAsync(request, token);
-        foreach (var photo in _mapPlace.Take(100)) _ = EnsureFilmstripThumbnailAsync(photo, _mapThumbnailLifetime.Token);
+        if (!_mapPlaceReelHidden)
+            foreach (var photo in _mapPlace.Take(3)) _ = EnsureFilmstripThumbnailAsync(photo, _mapThumbnailLifetime.Token);
     }
 
     private void MapPlaceClose_Click(object sender, RoutedEventArgs e) => _ = CloseMapPlaceTransitionAsync();
@@ -540,11 +543,12 @@ public sealed partial class MainWindow
         MapHeader.Visibility = Visibility.Visible;
         ResetMapVisual(MapHeader);
         MapScaleHud.VerticalAlignment = VerticalAlignment.Bottom; MapScaleHud.Margin = new Thickness(0, 0, 22, 46);
-        MapNetworkStatus.Visibility = Visibility.Visible;
+        MapNetworkNotice.Visibility = Visibility.Visible;
     }
     private void MapPhoto_ItemClick(object sender, ItemClickEventArgs e)
     {
         if (e.ClickedItem is not PhotoItem photo) return;
+        _mapPlaceLastPhoto = photo;
         _mapPhotoPreviewSource = CaptureMapPhotoPreviewSource(photo);
         _mapPreviewRestore = _currentView; _currentView = _mapPlace.ToList(); OpenPreview(photo);
     }
@@ -568,6 +572,7 @@ public sealed partial class MainWindow
         if (args.InRecycleQueue) { _mapPhotoContainers.Remove(args.ItemContainer); return; }
         if (args.Item is not PhotoItem photo || _mapThumbnailLifetime.IsCancellationRequested) return;
         _mapPhotoContainers[args.ItemContainer] = photo;
+        if (_mapPlaceReelHidden) return;
         _ = EnsureFilmstripThumbnailAsync(photo, _mapThumbnailLifetime.Token);
         AnimateMapPhotoArrival(args.ItemContainer, args.ItemIndex);
     }

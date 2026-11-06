@@ -543,7 +543,7 @@
                     <TextBlock x:Name="MapScaleText" Foreground="#EAF2F3" FontSize="11" HorizontalAlignment="Right"/>
                     <Border x:Name="MapScaleLine" Width="100" Height="6" BorderBrush="#DDEAF2F3" BorderThickness="1,0,1,1" HorizontalAlignment="Right"/>
                 </StackPanel>
-                <Border VerticalAlignment="Bottom" HorizontalAlignment="Stretch" Margin="12,12,190,12" Padding="10,6" Background="#DD202830" CornerRadius="8" IsHitTestVisible="False">
+                <Border x:Name="MapNetworkNotice" VerticalAlignment="Bottom" HorizontalAlignment="Stretch" Margin="12,12,190,12" Padding="10,6" Background="#DD202830" CornerRadius="8" IsHitTestVisible="False">
                     <TextBlock x:Name="MapNetworkStatus" Text="在线地图；照片和批注保存在本机；地名仅在确认搜索后发送" Foreground="White" FontSize="12" TextTrimming="CharacterEllipsis"/>
                 </Border>
                 <Border x:Name="MapSearchResultsPanel" Width="380" MaxHeight="300" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="14"
@@ -606,6 +606,9 @@
                         <Button x:Name="MapNextPlaceButton" Content="→" AutomationProperties.Name="下一个地点" Click="MapNextPlace_Click" ToolTipService.ToolTip="下一个地点（Page Down）"/>
                         <Button Content="更多" AutomationProperties.Name="地点操作">
                             <Button.Flyout><MenuFlyout>
+                                <MenuFlyoutItem Text="定位此处（Home）" Click="MapLocatePlace_Click"/>
+                                <MenuFlyoutItem x:Name="MapReelToggleItem" Text="收起照片条（H）" Click="MapToggleReel_Click"/>
+                                <MenuFlyoutSeparator/>
                                 <MenuFlyoutItem Text="编辑地点 / 批注" Click="MapEditPlace_Click"/>
                                 <MenuFlyoutItem Text="加入照片" Click="MapAddToPlace_Click"/>
                                 <MenuFlyoutSeparator/>
@@ -619,7 +622,7 @@
                 </Border>
                 <Grid x:Name="MapPlaceReel" Grid.Row="2" Height="184" Margin="0,12,0,2">
                     <Border CornerRadius="18" Background="#D916222B" BorderBrush="#386D7A84" BorderThickness="1"/>
-                <GridView x:Name="MapPlacePhotos" Margin="8,4,8,4" Height="176" VerticalAlignment="Bottom" SelectionMode="None" IsItemClickEnabled="True" ItemClick="MapPhoto_ItemClick" ContainerContentChanging="MapPhoto_ContainerContentChanging">
+                <GridView x:Name="MapPlacePhotos" Margin="8,4,8,4" Height="176" VerticalAlignment="Bottom" ScrollViewer.HorizontalScrollMode="Enabled" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled" SelectionMode="Single" IsItemClickEnabled="True" ItemClick="MapPhoto_ItemClick" ContainerContentChanging="MapPhoto_ContainerContentChanging">
                     <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Vertical"/></ItemsPanelTemplate></GridView.ItemsPanel>
                     <GridView.ItemTemplate><DataTemplate>
                         <StackPanel Width="144" Spacing="6" Margin="2,4,6,4">

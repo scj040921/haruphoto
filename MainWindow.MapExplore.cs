@@ -59,6 +59,86 @@ public sealed partial class MainWindow
         if (index < 0 || next < 0 || next >= places.Count) return;
         AnimateToMapPlace(places[next].Photos);
     }
+    private bool _mapPlaceReelHidden;
+    private int _mapReelRequest;
+    private PhotoItem? _mapPlaceLastPhoto;
+
+    private void RestoreMapPlacePhotoPosition()
+    {
+        var photo = _mapPlaceLastPhoto != null && _mapPlace.Contains(_mapPlaceLastPhoto)
+            ? _mapPlaceLastPhoto : _mapPlace.FirstOrDefault();
+        MapPlacePhotos.SelectedItem = photo;
+        if (photo != null && !_mapPlaceReelHidden)
+        {
+            MapPlacePhotos.UpdateLayout();
+            MapPlacePhotos.ScrollIntoView(photo, ScrollIntoViewAlignment.Leading);
+        }
+    }
+
+    private void ApplyMapPlaceReelVisibility()
+    {
+        ++_mapReelRequest;
+        ResetMapVisual(MapPlaceReel);
+        MapPlaceReel.Visibility = _mapPlaceReelHidden ? Visibility.Collapsed : Visibility.Visible;
+        MapReelToggleItem.Text = _mapPlaceReelHidden ? "展开照片条（H）" : "收起照片条（H）";
+    }
+
+    private async Task ToggleMapPlaceReelAsync()
+    {
+        if (MapPlaceOverlay.Visibility != Visibility.Visible || _mapPlaceClosing) return;
+        CancelMapPlaceTransition();
+        _mapPlaceReelHidden = !_mapPlaceReelHidden;
+        var request = ++_mapReelRequest;
+        MapReelToggleItem.Text = _mapPlaceReelHidden ? "展开照片条（H）" : "收起照片条（H）";
+        ResetMapVisual(MapPlaceReel);
+        try
+        {
+            if (!_mapPlaceReelHidden)
+            {
+                MapPlaceReel.Visibility = Visibility.Visible;
+                RestoreMapPlacePhotoPosition();
+                if (MotionEnabled) MapFade(MapVisual(MapPlaceReel), .35f, 1, 140);
+            }
+            else
+            {
+                if (MotionEnabled)
+                    await MapAnimationBatchAsync(() => MapFade(MapVisual(MapPlaceReel), 1, 0, 140), _windowLifetime.Token);
+                if (request == _mapReelRequest) MapPlaceReel.Visibility = Visibility.Collapsed;
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task LocateCurrentMapPlaceAsync()
+    {
+        if (_mapPlaceClosing || _mapPlace.Count == 0 || MapPlaceOverlay.Visibility != Visibility.Visible) return;
+        var photo = _mapPlace[0];
+        if (!MapGeometry.Valid(photo.MapLatitude, photo.MapLongitude)) return;
+        _mapLatitude = photo.MapLatitude!.Value; _mapLongitude = photo.MapLongitude!.Value; _mapZoom = 17;
+        await AnimateMapMotionAsync(MapTransitionDuration, true);
+    }
+    private async void MapLocatePlace_Click(object sender, RoutedEventArgs e) => await LocateCurrentMapPlaceAsync();
+    private async void MapToggleReel_Click(object sender, RoutedEventArgs e) => await ToggleMapPlaceReelAsync();
+
+    private bool TryHandleMapSceneKey(Windows.System.VirtualKey key, bool ctrl)
+    {
+        if (MapOverlay.Visibility != Visibility.Visible || PreviewOverlay.Visibility == Visibility.Visible) return false;
+        if (key == Windows.System.VirtualKey.Escape)
+        {
+            if (_mapPlacement.Count > 0) MapCancelPlacement_Click(this, new RoutedEventArgs());
+            else if (MapPlaceOverlay.Visibility == Visibility.Visible) MapPlaceClose_Click(this, new RoutedEventArgs());
+            else MapClose_Click(this, new RoutedEventArgs());
+            return true;
+        }
+        if (MapPlaceOverlay.Visibility != Visibility.Visible) return false;
+        if (key is Windows.System.VirtualKey.PageUp or Windows.System.VirtualKey.PageDown)
+            MoveMapPlace(key == Windows.System.VirtualKey.PageUp ? -1 : 1);
+        else if (key == Windows.System.VirtualKey.Home) _ = LocateCurrentMapPlaceAsync();
+        else if (!ctrl && key == Windows.System.VirtualKey.H) _ = ToggleMapPlaceReelAsync();
+        else return false;
+        return true;
+    }
+
     private void MapPreviousPlace_Click(object sender, RoutedEventArgs e) => MoveMapPlace(-1);
     private void MapNextPlace_Click(object sender, RoutedEventArgs e) => MoveMapPlace(1);
 }

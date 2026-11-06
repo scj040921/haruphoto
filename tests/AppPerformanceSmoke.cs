@@ -507,6 +507,24 @@ public sealed partial class MainWindow
             await CaptureFeatureSnapshotAsync("map-place-compact-alignment.png");
             MapPlaceOverlay.Width = double.NaN; MapPlaceOverlay.UpdateLayout();
             await CaptureFeatureSnapshotAsync("map-place.png");
+            await ToggleMapPlaceReelAsync();
+            Check(MapPlaceReel.Visibility == Visibility.Collapsed && MapReelToggleItem.Text.Contains("展开"),
+                "place reel can collapse into an unobstructed map with a discoverable restore action");
+            await CaptureFeatureSnapshotAsync("map-focus-reel-hidden.png");
+            await ToggleMapPlaceReelAsync();
+            var hideReel = ToggleMapPlaceReelAsync(); var showReel = ToggleMapPlaceReelAsync();
+            await Task.WhenAll(hideReel, showReel);
+            await WaitFor(() => MapVisual(MapPlaceReel).Opacity > .99);
+            Check(MapPlaceReel.Visibility == Visibility.Visible && !_mapPlaceReelHidden,
+                "rapid reel toggles honor the latest choice without a stale collapse");
+            Check(!TryHandleMapSceneKey(Windows.System.VirtualKey.Tab, false),
+                "map keyboard shortcuts preserve native tab focus navigation");
+            var returnCameraBeforeLocate = _mapPlaceReturnCamera;
+            _mapLatitude += .02; _mapLongitude += .02; await RenderMapAsync();
+            await LocateCurrentMapPlaceAsync();
+            Check(_mapZoom == 17 && _mapLatitude == _mapPlace[0].MapLatitude && _mapLongitude == _mapPlace[0].MapLongitude &&
+                  _mapPlaceReturnCamera == returnCameraBeforeLocate,
+                "recenter finds the selected place without discarding the original return camera");
             MapPlaceClose_Click(this, new RoutedEventArgs());
             await WaitFor(() => MapTransitionHero.Visibility == Visibility.Visible && _mapPlaceClosing);
             await CaptureFeatureSnapshotAsync("map-transition-closing.png");
@@ -533,6 +551,10 @@ public sealed partial class MainWindow
             _mapPreviewRestore=_currentView; _currentView=_mapPlace.ToList(); OpenPreview(_mapPlace[0]);
             await WaitFor(()=>!_previewIsLoading);
             Check(_currentView.Count==3,"map photo preview is scoped to the chosen location");
+            Check(!TryHandleMapSceneKey(Windows.System.VirtualKey.Left, false) &&
+                  !TryHandleMapSceneKey(Windows.System.VirtualKey.Escape, false) &&
+                  !TryHandleMapSceneKey(Windows.System.VirtualKey.H, false),
+                "map keyboard routing yields navigation, escape and filmstrip keys to open photo preview");
             Check(_mapPhotoPreviewSource.HasValue && PreviewOverlay.Background is SolidColorBrush previewShade && previewShade.Color.A < 200,
                   "map photo opens from its card over a dimmed but still visible location scene");
             Check(MapPhotoHeroLayer.Visibility==Visibility.Visible&&_mapPhotoPreviewSourceElement!=null&&MapVisual(_mapPhotoPreviewSourceElement).Opacity<.01,
@@ -560,6 +582,8 @@ public sealed partial class MainWindow
             ApplyFitPreviewZoom();
             ClosePreview(); await WaitFor(() => ReferenceEquals(_currentView, originalView));
             Check(ReferenceEquals(_currentView,originalView),"closing map detail restores gallery query results");
+            Check(ReferenceEquals(MapPlacePhotos.SelectedItem, metadataPhoto),
+                "returning from preview selects the last viewed photo in the location reel");
             _mapPhotoPreviewSource = CaptureMapPhotoPreviewSource(_mapPlace[0]);
             _mapPreviewRestore = _currentView; _currentView = _mapPlace.ToList(); OpenPreview(_mapPlace[0]);
             await Task.Delay(30); ShowPreviewAt(1);
@@ -593,6 +617,21 @@ public sealed partial class MainWindow
             Check(_mapPlace.All(p=>p.MapLatitude==null)&&_allPhotos.Count==total,"removing a map location preserves library records");
             Undo_Click(this,new RoutedEventArgs()); await Task.Delay(100);
             Check(_mapPlace.All(p=>p.MapLatitude==31.2),"map removal undo restores coordinates and notes");
+            var dozen = view.Take(12).ToList();
+            SaveMapPlacement(dozen, 31.2, 121.5, "qa-twelve", "十二张照片地点", "检查长照片条");
+            await RenderMapAsync();
+            ShowMapPlace(dozen);
+            await WaitFor(() => !_mapPlaceEntranceActive);
+            _mapPlaceLastPhoto = dozen[11]; RestoreMapPlacePhotoPosition();
+            await WaitFor(() => MapPlacePhotos.ContainerFromIndex(11) != null && dozen[11].ThumbnailSource != null &&
+                FindVisual<TextBlock>(MapPlacePhotos).Any(t => t.Text == dozen[11].Filename) &&
+                MapVisual(MapPlacePhotos).Opacity > .99 &&
+                MapPlacePhotos.ContainerFromIndex(11) is FrameworkElement lastPhotoCard &&
+                Bounds(lastPhotoCard, MapPlacePhotos).Left >= -1 &&
+                Bounds(lastPhotoCard, MapPlacePhotos).Right <= MapPlacePhotos.ActualWidth + 1);
+            Check(MapPlacePhotos.Items.Count == 12 && ReferenceEquals(MapPlacePhotos.SelectedItem, dozen[11]),
+                "twelve-photo reel realizes and selects the final photo with its thumbnail loaded");
+            await CaptureFeatureSnapshotAsync("map-place-twelve-photos.png");
             MapPlaceClose_Click(this, new RoutedEventArgs());
             MapClose_Click(this,new RoutedEventArgs());
             Check(MapOverlay.Visibility==Visibility.Collapsed&&_mapThumbnailLifetime.IsCancellationRequested&&

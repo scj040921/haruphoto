@@ -409,13 +409,13 @@ public sealed partial class MainWindow
             if (!MotionEnabled) { _mapPlaceOpeningSource = null; return; }
             await Task.Yield();
             // Start from the available marker image; decoding must never delay input feedback.
-            if (_mapPlace[0].ThumbnailSource == null)
+            if (!_mapPlaceReelHidden && _mapPlace[0].ThumbnailSource == null)
                 _ = EnsureFilmstripThumbnailAsync(_mapPlace[0], _mapThumbnailLifetime.Token);
             token.ThrowIfCancellationRequested();
             var source = _mapPlaceOpeningSource ?? MapMarkerSource();
             _mapPlaceOpeningSource = null;
             var destination = MapPhotoDestination(out first);
-            var hasHero = _mapPlace[0].ThumbnailSource != null;
+            var hasHero = !_mapPlaceReelHidden && _mapPlace[0].ThumbnailSource != null;
             if (hasHero) { PrepareMapHero(destination); if (first != null) { ResetMapVisual(first); MapVisual(first).Opacity = 0; } }
             if (hasHero)
             {
@@ -456,7 +456,7 @@ public sealed partial class MainWindow
             if (MotionEnabled && _mapPlace.Count > 0)
             {
                 var destination = MapPhotoDestination(out var first);
-                var hasHero = _mapPlace[0].ThumbnailSource != null;
+                var hasHero = !_mapPlaceReelHidden && _mapPlace[0].ThumbnailSource != null;
                 if (hasHero) { PrepareMapHero(destination); if (first != null) { ResetMapVisual(first); MapVisual(first).Opacity = 0; } }
                 var duration = MapTransitionDuration * .8;
                 await MapAnimationBatchAsync(() =>

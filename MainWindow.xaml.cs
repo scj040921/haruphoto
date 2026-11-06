@@ -2532,6 +2532,8 @@ public sealed partial class MainWindow : Window
 
     private void ClosePreview()
     {
+        if (_mapPreviewRestore != null && _previewIndex >= 0 && _previewIndex < _currentView.Count)
+            _mapPlaceLastPhoto = _currentView[_previewIndex];
         if (!MotionEnabled) _mapPhotoPreviewSource = null;
         if (!_mapPhotoPreviewClosing && _mapPhotoPreviewSource is Rect source && _mapPreviewRestore != null && MotionEnabled)
         {
@@ -2554,6 +2556,7 @@ public sealed partial class MainWindow : Window
         AnimatePreviewOut();
         PreviewOverlay.Opacity = 1;
         RestoreMapPhotoPreviewSource();
+        if (_mapPreviewRestore != null) RestoreMapPlacePhotoPosition();
         RestoreMapPreviewView();
         _mapPhotoPreviewPhoto = null; _mapPhotoPreviewImageSource = null; _mapPhotoPreviewSource = null;
     }
@@ -2602,17 +2605,9 @@ public sealed partial class MainWindow : Window
         if (FocusManager.GetFocusedElement() is TextBox or PasswordBox)
             return;
         if (_mapDialogOpen) return;
-        if (MapOverlay.Visibility == Visibility.Visible)
+        if (MapOverlay.Visibility == Visibility.Visible && PreviewOverlay.Visibility != Visibility.Visible)
         {
-            if (e.Key == VirtualKey.Escape)
-            {
-                if (_mapPlacement.Count > 0) MapCancelPlacement_Click(this, new RoutedEventArgs());
-                else if (MapPlaceOverlay.Visibility == Visibility.Visible) MapPlaceClose_Click(this, new RoutedEventArgs());
-                else MapClose_Click(this, new RoutedEventArgs());
-                e.Handled = true;
-            }
-            else if (MapPlaceOverlay.Visibility == Visibility.Visible && e.Key is VirtualKey.PageUp or VirtualKey.PageDown)
-            { MoveMapPlace(e.Key == VirtualKey.PageUp ? -1 : 1); e.Handled = true; }
+            if (TryHandleMapSceneKey(e.Key, ctrl)) e.Handled = true;
             return;
         }
 
