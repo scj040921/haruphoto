@@ -693,6 +693,7 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="2*" MaxWidth="740"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="PreviewCounter" VerticalAlignment="Center" FontSize="12"
@@ -725,7 +726,7 @@
                             </Button>
                             <Button x:Name="PreviewInfoToggleBtn" Content="信息" Click="PreviewInfoToggle_Click"
                                     FontSize="12" Padding="10,6"
-                                    Background="Transparent" Foreground="#FFFFFF"/>
+                                    Background="Transparent" Foreground="#FFFFFF" ToolTipService.ToolTip="显示或隐藏信息（I）"/>
                             <Button x:Name="PreviewFilmstripToggleBtn" Content="隐藏胶片条" Click="PreviewFilmstripToggle_Click"
                                     Background="Transparent" Foreground="White" ToolTipService.ToolTip="显示/隐藏胶片条（H）"/>
                             <Button x:Name="PreviewFullscreenBtn" Content="全屏" Click="PreviewFullscreen_Click"
@@ -739,11 +740,11 @@
                                     </MenuFlyout>
                                 </Button.Flyout>
                             </Button>
-                            <Button Content="✕" Click="ClosePreview_Click"
-                                    FontSize="14" Padding="14,6"
-                                    Background="Transparent" Foreground="#FFFFFF" AutomationProperties.Name="关闭照片预览"/>
                         </StackPanel>
                         </ScrollViewer>
+                        <Button Grid.Column="3" Content="✕" Click="ClosePreview_Click"
+                                FontSize="14" Padding="14,6" Background="Transparent" Foreground="#FFFFFF"
+                                ToolTipService.ToolTip="关闭照片预览（Esc）" AutomationProperties.Name="关闭照片预览"/>
                     </Grid>
                 </Border>
 
@@ -846,13 +847,13 @@
                                     <TextBlock Text="评分" FontSize="13" FontWeight="SemiBold"
                                                Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                                     <RatingControl x:Name="PreviewRating" MaxRating="5"
-                                                   ValueChanged="PreviewRating_ValueChanged"/>
+                                                   ValueChanged="PreviewRating_ValueChanged" ToolTipService.ToolTip="按 0–5 设置评分"/>
                                 </StackPanel>
 
                                 <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" Opacity="0.5"/>
                                 <StackPanel Spacing="2">
                                     <Button x:Name="PreviewFavButton" Click="PreviewFav_Click"
-                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0" CornerRadius="8" Height="40" FontSize="13"/>
+                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0" CornerRadius="8" Height="40" FontSize="13" ToolTipService.ToolTip="收藏或取消收藏（F）"/>
                                     <Button Content="复制图片" Click="CopyImage_Click"
                                             HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0" CornerRadius="8" Height="40" FontSize="13"/>
                                     <Button Content="在文件夹中显示" Click="RevealInExplorer_Click"

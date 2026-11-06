@@ -2647,6 +2647,19 @@ public sealed partial class MainWindow : Window
         // ── 预览模式下 ──
         if (PreviewOverlay.Visibility == Visibility.Visible)
         {
+            var alt = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu).HasFlag(CoreVirtualKeyStates.Down);
+            if (!ctrl && !alt && FocusManager.GetFocusedElement() is not ComboBox)
+            {
+                if (e.Key == VirtualKey.F) { PreviewFav_Click(this, new RoutedEventArgs()); e.Handled = true; return; }
+                if (e.Key == VirtualKey.I && !_previewFullscreen) { PreviewInfoToggle_Click(this, new RoutedEventArgs()); e.Handled = true; return; }
+                if (e.Key >= VirtualKey.Number0 && e.Key <= VirtualKey.Number5)
+                {
+                    PreviewRating.Value = (int)e.Key - (int)VirtualKey.Number0;
+                    PreviewRating_ValueChanged(PreviewRating, EventArgs.Empty);
+                    e.Handled = true;
+                    return;
+                }
+            }
             switch (e.Key)
             {
                 case VirtualKey.Escape: if (_previewFullscreen) SetPreviewFullscreen(false); else ClosePreview(); e.Handled = true; break;
