@@ -1,6 +1,7 @@
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Windows.Foundation;
 
@@ -9,6 +10,7 @@ namespace PhotoAlbum;
 public sealed partial class MainWindow
 {
     private bool _previewFullscreen, _filmstripHidden, _filmstripPinnedVisible;
+    private bool _filmstripVertical;
     private AppWindowPresenter? _previewPreviousPresenter;
     private uint? _previewDragId;
     private Point _previewDragStart;
@@ -85,8 +87,7 @@ public sealed partial class MainWindow
         _previewFullscreen = fullscreen;
         PreviewToolbar.Visibility = fullscreen ? Visibility.Collapsed : Visibility.Visible;
         PreviewFullscreenExit.Visibility = fullscreen ? Visibility.Visible : Visibility.Collapsed;
-        DetailPanel.Visibility = !fullscreen && _previewInfoVisible ? Visibility.Visible : Visibility.Collapsed;
-        DetailColumn.Width = !fullscreen && _previewInfoVisible ? new GridLength(310) : new GridLength(0);
+        ApplyResponsivePreviewDetail();
         ApplyFilmstripVisibility();
         DispatcherQueue.TryEnqueue(() => { if (!_windowClosing) ApplyFitPreviewZoom(); });
     }
@@ -105,12 +106,54 @@ public sealed partial class MainWindow
     private void ApplyFilmstripVisibility()
     {
         var visible = !_filmstripHidden && !_previewFullscreen;
+        PreviewFilmstripColumn.Width = new GridLength(visible && _filmstripVertical && _settings.FilmstripMode != 1 ? 120 : 0);
         PreviewFilmstripBar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         var shown = visible && (_settings.FilmstripMode != 1 || _filmstripPinnedVisible);
         PreviewFilmstripBar.Opacity = shown ? 1 : 0;
         PreviewFilmstripBar.IsHitTestVisible = shown;
-        PreviewImageStage.Margin = new Thickness(12, 20, 12, visible && _settings.FilmstripMode != 1 ? 100 : 20);
+        PreviewImageStage.Margin = new Thickness(12, 20, 12, !_filmstripVertical && visible && _settings.FilmstripMode != 1 ? 100 : 20);
         PreviewFilmstripToggleBtn.Content = shown ? "隐藏胶片条" : "显示胶片条";
+    }
+
+    private void ConfigureFilmstripLayout(bool vertical)
+    {
+        var changed = _filmstripVertical != vertical;
+        _filmstripVertical = vertical;
+        var overlay = vertical && _settings.FilmstripMode == 1;
+        Grid.SetColumn(PreviewFilmstripBar, overlay ? 2 : vertical ? 0 : 1);
+        Grid.SetColumnSpan(PreviewFilmstripBar, vertical ? 1 : 3);
+        PreviewFilmstripBar.HorizontalAlignment = overlay ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
+        PreviewFilmstripBar.Width = overlay ? 120 : double.NaN;
+        PreviewFilmstripBar.Height = vertical ? double.NaN : 90;
+        PreviewFilmstripBar.VerticalAlignment = vertical ? VerticalAlignment.Stretch : VerticalAlignment.Bottom;
+        PreviewFilmstrip.Height = vertical ? double.NaN : 78;
+        PreviewFilmstrip.VerticalAlignment = vertical ? VerticalAlignment.Stretch : VerticalAlignment.Top;
+        if (!changed) return;
+        PreviewFilmstrip.ItemsPanel = (ItemsPanelTemplate)PreviewContentRoot.Resources[vertical ? "FilmstripVerticalPanel" : "FilmstripHorizontalPanel"];
+        ScrollViewer.SetHorizontalScrollMode(PreviewFilmstrip, vertical ? ScrollMode.Disabled : ScrollMode.Enabled);
+        ScrollViewer.SetVerticalScrollMode(PreviewFilmstrip, vertical ? ScrollMode.Enabled : ScrollMode.Disabled);
+        ScrollViewer.SetHorizontalScrollBarVisibility(PreviewFilmstrip, vertical ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Visible);
+        ScrollViewer.SetVerticalScrollBarVisibility(PreviewFilmstrip, vertical ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_windowClosing || _filmstripVertical != vertical || PreviewOverlay.Visibility != Visibility.Visible ||
+                _previewIndex < 0 || _previewIndex >= _currentView.Count) return;
+            PreviewFilmstrip.UpdateLayout();
+            PreviewFilmstrip.ScrollIntoView(_currentView[_previewIndex]);
+        });
+    }
+
+    private void ApplyResponsivePreviewDetail()
+    {
+        var show = !_previewFullscreen && _previewInfoVisible;
+        var overlay = _settings.InterfaceStyle == 1 && PreviewContentRoot.ActualWidth > 0 && PreviewContentRoot.ActualWidth < 820;
+        DetailPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        Grid.SetColumn(DetailPanel, overlay ? 2 : 4);
+        Grid.SetColumnSpan(DetailPanel, overlay ? 2 : 1);
+        Canvas.SetZIndex(DetailPanel, overlay ? 1 : 0);
+        DetailPanel.HorizontalAlignment = overlay ? HorizontalAlignment.Right : HorizontalAlignment.Stretch;
+        DetailPanel.Width = overlay ? Math.Min(310, Math.Max(180, PreviewContentRoot.ActualWidth - 150)) : double.NaN;
+        DetailColumn.Width = new GridLength(show && !overlay ? 310 : 0);
     }
 
     private async void RemoveSelected_Click(object sender, RoutedEventArgs e) => await RemoveSelectedAsync();

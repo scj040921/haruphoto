@@ -239,12 +239,13 @@
                             Background="{ThemeResource LibraryHeaderBrush}"/>
                     <Border x:Name="TopBarGradient" Grid.RowSpan="2" Grid.ColumnSpan="2" IsHitTestVisible="False" CornerRadius="14"
                             BorderBrush="{ThemeResource LibraryHairlineBrush}" BorderThickness="1"/>
+                    <Border x:Name="GalleryControlsGlass" Visibility="Collapsed" Grid.Row="1" Grid.ColumnSpan="2" IsHitTestVisible="False"
+                            CornerRadius="16" Margin="0,6,0,0" BorderBrush="{ThemeResource LibraryHairlineBrush}" BorderThickness="1"/>
 
                     <Grid x:Name="HeaderTitleRow" Grid.Row="0" Margin="16,12,12,12" ColumnSpacing="16" RowSpacing="12">
                         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel Spacing="4">
-                            <TextBlock x:Name="GalleryOverline" Text="HARUPHOTO  /  照片库" Visibility="Collapsed" FontSize="11" CharacterSpacing="110" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <TextBlock x:Name="GalleryTitleText" Text="所有照片" FontSize="19" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -268,7 +269,7 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <Grid x:Name="GalleryFilters" ColumnSpacing="8" HorizontalAlignment="Left">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <ComboBox x:Name="SortCombo" SelectedIndex="0" Width="136" Style="{StaticResource LibraryToolbarComboStyle}"
                                       AutomationProperties.Name="照片排序" SelectionChanged="SortCombo_SelectionChanged">
@@ -330,6 +331,15 @@
                                         </StackPanel>
                                     </Flyout>
                                 </Button.Flyout>
+                            </Button>
+                            <Button x:Name="ExhibitionLibraryActions" Grid.Column="2" Visibility="Collapsed" Content="图库" Style="{StaticResource LibraryPageButtonStyle}"
+                                    ToolTipService.ToolTip="导入照片与打开设置">
+                                <Button.Flyout><MenuFlyout>
+                                    <MenuFlyoutItem Text="导入文件夹" Click="ImportButton_Click" IsEnabled="{Binding IsEnabled, ElementName=ImportFolderButton}"/>
+                                    <MenuFlyoutItem Text="导入文件" Click="ImportFiles_Click" IsEnabled="{Binding IsEnabled, ElementName=ImportFilesButton}"/>
+                                    <MenuFlyoutSeparator/>
+                                    <MenuFlyoutItem Text="设置" Click="SettingsButton_Click"/>
+                                </MenuFlyout></Button.Flyout>
                             </Button>
                         </Grid>
                         <StackPanel x:Name="PaginationGroup" Grid.Column="1" Orientation="Horizontal" Spacing="6"
@@ -768,20 +778,25 @@
 
                 <!-- 预览主区 -->
                 <Grid x:Name="PreviewContentRoot" Grid.Row="1">
+                    <Grid.Resources>
+                        <ItemsPanelTemplate x:Key="FilmstripHorizontalPanel"><ItemsStackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                        <ItemsPanelTemplate x:Key="FilmstripVerticalPanel"><ItemsStackPanel Orientation="Vertical"/></ItemsPanelTemplate>
+                    </Grid.Resources>
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition x:Name="PreviewFilmstripColumn" Width="0"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition x:Name="DetailColumn" Width="310"/>
                     </Grid.ColumnDefinitions>
 
-                    <Button Grid.Column="0" Padding="10" Margin="6,0"
+                    <Button Grid.Column="1" Padding="10" Margin="6,0"
                             VerticalAlignment="Center" Click="PreviewPrev_Click" x:Name="PreviewPrevBtn"
                             Background="Transparent">
                         <FontIcon Glyph="&#xE76B;" FontSize="22" Foreground="#FFFFFF"/>
                     </Button>
 
-                    <Grid x:Name="PreviewImageStage" Grid.Column="1" Margin="12,20">
+                    <Grid x:Name="PreviewImageStage" Grid.Column="2" Margin="12,20">
                         <ScrollViewer x:Name="PreviewImageScroll" ZoomMode="Enabled" MinZoomFactor="1" MaxZoomFactor="8"
                                       HorizontalScrollMode="Enabled" VerticalScrollMode="Enabled"
                                       HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
@@ -808,14 +823,14 @@
                                  HorizontalAlignment="Center" VerticalAlignment="Top" Margin="12,12,12,0"/>
                     </Grid>
 
-                    <Button Grid.Column="2" Padding="10" Margin="6,0"
+                    <Button Grid.Column="3" Padding="10" Margin="6,0"
                             VerticalAlignment="Center" Click="PreviewNext_Click" x:Name="PreviewNextBtn"
                             Background="Transparent">
                         <FontIcon Glyph="&#xE76C;" FontSize="22" Foreground="#FFFFFF"/>
                     </Button>
 
                     <!-- 详情面板 - 毛玻璃效果 -->
-                    <Border x:Name="DetailPanel" Grid.Column="3"
+                    <Border x:Name="DetailPanel" Grid.Column="4"
                             BorderThickness="1,0,0,0"
                             CornerRadius="16,0,0,16"
                             Background="{ThemeResource PreviewPanelBrush}">
@@ -886,9 +901,10 @@
                         </ScrollViewer>
                     </Border>
 
-                    <Border x:Name="PreviewFilmstripBar" Grid.ColumnSpan="3" Height="90" VerticalAlignment="Bottom"
+                    <Border x:Name="PreviewFilmstripBar" Grid.Column="1" Grid.ColumnSpan="3" Height="90" VerticalAlignment="Bottom"
                             Background="#CC101014" Padding="8,6">
                         <ListView x:Name="PreviewFilmstrip" Height="78" VerticalAlignment="Top"
+                                  ItemsPanel="{StaticResource FilmstripHorizontalPanel}"
                                   SelectionChanged="PreviewFilmstrip_SelectionChanged"
                                   ContainerContentChanging="PreviewFilmstrip_ContainerContentChanging"
                                   SelectionMode="Single" BorderThickness="0"
@@ -897,9 +913,6 @@
                                   ScrollViewer.HorizontalScrollMode="Enabled"
                                   ScrollViewer.VerticalScrollMode="Disabled"
                                   ScrollViewer.IsHorizontalScrollChainingEnabled="False">
-                            <ListView.ItemsPanel>
-                                <ItemsPanelTemplate><ItemsStackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
-                            </ListView.ItemsPanel>
                             <ListView.ItemTemplate>
                                 <DataTemplate>
                                     <Border Width="72" Height="58" Margin="3" CornerRadius="5" Background="#FF252A32">

@@ -41,6 +41,7 @@ public sealed class SettingsEditor : UserControl
     private readonly Button _removeProfile = new() { Content = "移除方案", FontSize = 12 };
     private readonly nint _owner;
     private readonly List<PhotoItem> _samplePhotos;
+    private readonly bool _useWideSettingsRows;
     private bool _refreshing;
     private readonly CancellationTokenSource _lifetime = new();
     private bool _closed;
@@ -72,7 +73,8 @@ public sealed class SettingsEditor : UserControl
     public SettingsEditor(AppSettings settings, IEnumerable<PhotoItem> photos, nint owner, double width, double height)
     {
         Draft = settings.Clone();
-        RequestedTheme = settings.ThemeMode switch { 1 => ElementTheme.Dark, 0 => ElementTheme.Light, _ => ElementTheme.Default };
+        RequestedTheme = settings.InterfaceStyle == 1 ? ElementTheme.Dark : settings.ThemeMode switch { 1 => ElementTheme.Dark, 0 => ElementTheme.Light, _ => ElementTheme.Default };
+        _useWideSettingsRows = settings.InterfaceStyle == 1 && width >= 700;
         Draft.AppearanceProfiles ??= new();
         Draft.WatchedFolders ??= new();
         _samplePhotos = photos.Where(p => p.ThumbnailSource != null).Take(6).ToList();
@@ -136,11 +138,26 @@ public sealed class SettingsEditor : UserControl
 
     private void AddSetting(Section section, string title, string description, FrameworkElement control)
     {
-        var body = new StackPanel { Spacing = 6 };
-        body.Children.Add(Heading(title,14));
-        if (!string.IsNullOrEmpty(description)) body.Children.Add(Label(description));
+        var labels = new StackPanel { Spacing = 6 };
+        labels.Children.Add(Heading(title,14));
+        if (!string.IsNullOrEmpty(description)) labels.Children.Add(Label(description));
         AutomationProperties.SetName(control, title);
-        body.Children.Add(control);
+        FrameworkElement body;
+        if (_useWideSettingsRows)
+        {
+            var row = new Grid { ColumnSpacing = 20 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
+            row.Children.Add(labels);
+            Grid.SetColumn(control, 1); row.Children.Add(control);
+            body = row;
+        }
+        else
+        {
+            var stack = new StackPanel { Spacing = 6 };
+            stack.Children.Add(labels); stack.Children.Add(control);
+            body = stack;
+        }
         var card = new Border
         {
             Padding = new Thickness(0, 14, 0, 14), CornerRadius = new CornerRadius(0),
@@ -320,7 +337,7 @@ public sealed class SettingsEditor : UserControl
         s.Reset = () => { Draft.PreviewPaletteEnabled = true; Draft.PreviewInfoDefaultVisible = true; Draft.FilmstripMode = 0; Draft.SlideshowIntervalSeconds = 4; Draft.ActiveAppearanceProfileId = ""; };
         Toggle(s, "照片取色背景", "背景色随当前照片变化。", () => Draft.PreviewPaletteEnabled, v => Draft.PreviewPaletteEnabled = v);
         Toggle(s, "默认显示详情栏", "打开照片时显示文件信息、分类和评分。", () => Draft.PreviewInfoDefaultVisible, v => Draft.PreviewInfoDefaultVisible = v);
-        SegmentedChoice(s, "底部胶片条", "自动模式下将指针移到预览底部即可显示。", new[] { "始终显示", "靠近底部显示", "隐藏" }, () => Draft.FilmstripMode, v => Draft.FilmstripMode = v);
+        SegmentedChoice(s, "照片胶片条", "自动模式下将指针移到胶片条所在的窗口边缘即可显示。", new[] { "始终显示", "靠近边缘显示", "隐藏" }, () => Draft.FilmstripMode, v => Draft.FilmstripMode = v);
         Range(s, "幻灯片换图间隔", "在预览工具栏点击播放，或按空格键。", 2, 15, 1, () => Draft.SlideshowIntervalSeconds, v => Draft.SlideshowIntervalSeconds = (int)v, "秒");
         AddSetting(s, "对比选片", "多选 2–4 张照片后选择对比；也可在预览中对比相邻照片。数字 0–5 评分，F 收藏，Tab 切换当前照片。", Label("支持同步缩放与拖动，可随时关闭同步。"));
     }

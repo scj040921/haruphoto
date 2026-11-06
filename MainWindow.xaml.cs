@@ -112,6 +112,8 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        MapPlaceOverlay.SizeChanged += (_, _) => UpdateMapReelStyle();
+        PreviewContentRoot.SizeChanged += (_, _) => ApplyResponsivePreviewDetail();
         _previewNoticeTimer.Tick += (_, _) => { _previewNoticeTimer.Stop(); PreviewActionNotice.IsOpen = false; };
         Title = "haruphoto";
         PreviewImageScroll.ViewChanged += (_, _) => UpdatePreviewZoomText();
@@ -127,8 +129,9 @@ public sealed partial class MainWindow : Window
         PreviewOverlay.PointerMoved += (_, e) =>
         {
             if (_settings.FilmstripMode != 1 || _filmstripHidden || _filmstripPinnedVisible || _previewFullscreen) return;
-            var y = e.GetCurrentPoint(PreviewContentRoot).Position.Y;
-            var show = y >= PreviewContentRoot.ActualHeight - 104 && y <= PreviewContentRoot.ActualHeight;
+            var position = e.GetCurrentPoint(PreviewContentRoot).Position;
+            var show = _filmstripVertical ? position.X >= 0 && position.X <= 180 :
+                position.Y >= PreviewContentRoot.ActualHeight - 104 && position.Y <= PreviewContentRoot.ActualHeight;
             PreviewFilmstripBar.Opacity = show ? 1 : 0;
             PreviewFilmstripBar.IsHitTestVisible = show;
             PreviewFilmstripToggleBtn.Content = show ? "隐藏胶片条" : "显示胶片条";
@@ -2805,8 +2808,7 @@ public sealed partial class MainWindow : Window
 
     private void ApplyPreviewInfoVisibility()
     {
-        DetailPanel.Visibility = _previewInfoVisible ? Visibility.Visible : Visibility.Collapsed;
-        DetailColumn.Width = _previewInfoVisible ? new GridLength(310) : new GridLength(0);
+        ApplyResponsivePreviewDetail();
         PreviewInfoToggleBtn.Content = _previewInfoVisible ? "隐藏信息" : "显示信息";
     }
 

@@ -74,7 +74,8 @@ public sealed partial class MainWindow
                 await WaitFor(() => MainScroll.VerticalOffset < .5);
                 GallerySurface.Width = width;
                 GallerySurface.UpdateLayout(); await Task.Delay(150);
-                var controls = new FrameworkElement[] { GalleryTitleText, LibraryNameText, SearchBox, SortCombo, FilterMenuButton, PaginationGroup };
+                var controls = new List<FrameworkElement> { GalleryTitleText, LibraryNameText, SearchBox, SortCombo, FilterMenuButton, PaginationGroup };
+                if (ExhibitionLibraryActions.Visibility == Visibility.Visible) controls.Add(ExhibitionLibraryActions);
                 var bounds = controls.Select(c => Bounds(c, TopBarOverlay)).ToArray();
                 var fits = bounds.All(r => r.X >= 0 && r.Right <= TopBarOverlay.ActualWidth + 1 && r.Width > 25);
                 for (var a = 0; a < bounds.Length; a++)
@@ -151,14 +152,28 @@ public sealed partial class MainWindow
             var originalThemeMode = _settings.ThemeMode;
             _settings.InterfaceStyle = 1; ApplyTheme();
             await Task.Delay(300);
-            Check(GalleryOverline.Visibility == Visibility.Visible && ((FrameworkElement)Content).RequestedTheme == ElementTheme.Dark,
-                "exhibition style applies its dark gallery treatment without changing the saved theme choice");
+            Check(GalleryControlsGlass.Visibility == Visibility.Visible &&
+                TopBarTint.Visibility == Visibility.Collapsed && ((FrameworkElement)Content).RequestedTheme == ElementTheme.Dark,
+                "exhibition style keeps the title open and the controls on a floating glass surface");
+            Check(NavView.PaneDisplayMode == NavigationViewPaneDisplayMode.LeftCompact && !NavView.IsPaneOpen &&
+                ExhibitionLibraryActions.Visibility == Visibility.Visible,
+                "exhibition gallery uses a compact navigation rail and exposes library actions");
+            var libraryActions = (MenuFlyout)ExhibitionLibraryActions.Flyout;
+            libraryActions.ShowAt(ExhibitionLibraryActions); await Task.Delay(150);
+            Check(libraryActions.Items.OfType<MenuFlyoutItem>().Count(i => i.Text.StartsWith("导入") && i.IsEnabled) == 2 &&
+                libraryActions.Items.OfType<MenuFlyoutItem>().Any(i => i.Text == "设置"),
+                "compact navigation keeps import and settings available in the gallery");
+            libraryActions.Hide();
+            NavView.IsPaneOpen = true; await Task.Delay(180);
+            Check(NavView.IsPaneOpen && ImportFolderButton.ActualWidth > 100 && ImportFilesButton.IsEnabled,
+                "expanded exhibition navigation exposes the existing import controls");
+            NavView.IsPaneOpen = false; await Task.Delay(180);
             await CheckLibraryLayout(900);
             await CheckLibraryLayout(480);
             GallerySurface.Width = double.NaN; GallerySurface.UpdateLayout(); await Task.Delay(200);
             await CaptureFeatureSnapshotAsync("exhibition-gallery.png");
             _settings.InterfaceStyle = 0; ApplyTheme(); await Task.Delay(200);
-            Check(GalleryOverline.Visibility == Visibility.Collapsed && _settings.ThemeMode == originalThemeMode,
+            Check(GalleryControlsGlass.Visibility == Visibility.Collapsed && TopBarTint.Visibility == Visibility.Visible && _settings.ThemeMode == originalThemeMode,
                 "switching back restores the classic layout and the previous theme preference");
             _settings.InterfaceStyle = originalInterfaceStyle; ApplyTheme();
             await CheckLibraryLayout(900);
@@ -310,10 +325,28 @@ public sealed partial class MainWindow
                 "preview copy success gives temporary visible feedback");
             _previewNoticeTimer.Stop(); PreviewActionNotice.IsOpen = false;
             _settings.InterfaceStyle = 1; ApplyTheme(); await Task.Delay(150);
-            Check(PreviewTitleBar.FontSize == 15 && DetailPanel.CornerRadius.TopLeft == 22,
-                "exhibition style applies the preview treatment");
+            Check(PreviewToolbar.Margin.Left == 20 && DetailPanel.Margin.Right == 16 && _filmstripVertical &&
+                Grid.GetColumn(PreviewFilmstripBar) == 0 && PreviewFilmstripColumn.Width.Value == 120,
+                "exhibition style places the filmstrip in a dedicated vertical rail beside the photograph");
+            await WaitFor(() => PreviewFilmstrip.ContainerFromIndex(_previewIndex) is FrameworkElement selectedCard &&
+                Bounds(selectedCard, PreviewFilmstrip).Top >= -1 && Bounds(selectedCard, PreviewFilmstrip).Bottom <= PreviewFilmstrip.ActualHeight + 1);
+            Check(ReferenceEquals(PreviewFilmstrip.SelectedItem, _currentView[_previewIndex]),
+                "vertical filmstrip scrolls to the photograph currently being viewed");
             await CaptureFeatureSnapshotAsync("exhibition-preview.png");
+            PreviewContentRoot.Width = 650; PreviewContentRoot.UpdateLayout(); await Task.Delay(150);
+            Check(DetailColumn.Width.Value == 0 && Grid.GetColumn(DetailPanel) == 2 && PreviewImageStage.ActualWidth > 100 &&
+                Bounds(DetailPanel, PreviewContentRoot).Right <= PreviewContentRoot.ActualWidth + 1,
+                "compact exhibition viewer keeps the photograph visible and places details within the viewport");
+            await CaptureFeatureSnapshotAsync("exhibition-preview-compact.png");
+            PreviewContentRoot.Width = double.NaN; PreviewContentRoot.UpdateLayout(); await Task.Delay(150);
+            var savedFilmstripMode = _settings.FilmstripMode;
+            _settings.FilmstripMode = 1; ConfigureFilmstripLayout(true); ApplyFilmstripVisibility();
+            Check(PreviewFilmstripColumn.Width.Value == 0 && Grid.GetColumn(PreviewFilmstripBar) == 2,
+                "auto-hidden vertical filmstrip overlays the photo instead of reserving an empty column");
+            _settings.FilmstripMode = savedFilmstripMode; ConfigureFilmstripLayout(true); ApplyFilmstripVisibility();
             _settings.InterfaceStyle = originalInterfaceStyle; ApplyTheme();
+            Check(!_filmstripVertical && PreviewFilmstripColumn.Width.Value == 0 && Grid.GetColumnSpan(PreviewFilmstripBar) == 3,
+                "switching to classic restores the horizontal filmstrip");
             await EnsureFilmstripThumbnailAsync(view[120],_filmstripCts!.Token);
             Check(view[120].ThumbnailSource!=null,"filmstrip loads a photo outside current gallery page");
             var sharedPhoto = view[300]; sharedPhoto.ThumbnailSource = null;
@@ -577,8 +610,8 @@ public sealed partial class MainWindow
             MapPlaceOverlay.Width = double.NaN; MapPlaceOverlay.UpdateLayout();
             await CaptureFeatureSnapshotAsync("map-place.png");
             _settings.InterfaceStyle = 1; ApplyTheme(); await Task.Delay(150);
-            Check(MapPlaceTitle.FontSize == 24 && MapPlaceContext.CornerRadius.TopLeft == 18,
-                "exhibition style applies the map place treatment");
+            Check(MapPlaceTitle.FontSize == 24 && MapPlaceContext.MaxWidth == 840 && MapPlaceReel.Width <= 504,
+                "exhibition style sizes the map photo reel to its contents and preserves map space");
             await CaptureFeatureSnapshotAsync("exhibition-map-place.png");
             _settings.InterfaceStyle = originalInterfaceStyle; ApplyTheme();
             await ToggleMapPlaceReelAsync();
@@ -695,6 +728,7 @@ public sealed partial class MainWindow
             SaveMapPlacement(dozen, 31.2, 121.5, "qa-twelve", "十二张照片地点", "检查长照片条");
             await RenderMapAsync();
             ShowMapPlace(dozen);
+            _settings.InterfaceStyle = 1; ApplyTheme();
             await WaitFor(() => !_mapPlaceEntranceActive);
             _mapPlaceLastPhoto = dozen[11]; RestoreMapPlacePhotoPosition();
             await WaitFor(() => MapPlacePhotos.ContainerFromIndex(11) != null && dozen[11].ThumbnailSource != null &&
@@ -704,8 +738,9 @@ public sealed partial class MainWindow
                 Bounds(lastPhotoCard, MapPlacePhotos).Left >= -1 &&
                 Bounds(lastPhotoCard, MapPlacePhotos).Right <= MapPlacePhotos.ActualWidth + 1);
             Check(MapPlacePhotos.Items.Count == 12 && ReferenceEquals(MapPlacePhotos.SelectedItem, dozen[11]),
-                "twelve-photo reel realizes and selects the final photo with its thumbnail loaded");
+                "exhibition reel realizes and selects the final photo with its thumbnail loaded");
             await CaptureFeatureSnapshotAsync("map-place-twelve-photos.png");
+            _settings.InterfaceStyle = originalInterfaceStyle; ApplyTheme();
             _mapPhotoPreviewSource = CaptureMapPhotoPreviewSource(dozen[11]);
             _mapPreviewRestore = _currentView; _currentView = _mapPlace.ToList(); OpenPreview(dozen[11]);
             await WaitFor(() => !_previewIsLoading && MapPhotoHeroLayer.Visibility == Visibility.Collapsed);
@@ -746,6 +781,17 @@ public sealed partial class MainWindow
             Check(await ImportPathsAsync(new[]{cancelImportPath},"测试重试导入") && _allPhotos.Count == beforeImportCount + 1,
                 "import remains usable after cancellation");
             RemoveLibraryRecords(_allPhotos.Where(p=>p.FilePath==cancelImportPath).ToArray()); RefreshPhotos();
+            var exhibitionSettings = _settings.Clone(); exhibitionSettings.InterfaceStyle = 1; exhibitionSettings.ThemeMode = 0;
+            var exhibitionEditor = new SettingsEditor(exhibitionSettings,_allPhotos,WinRT.Interop.WindowNative.GetWindowHandle(this),760,450);
+            var exhibitionDialog = new ContentDialog { Content=exhibitionEditor,CloseButtonText="关闭",XamlRoot=Content.XamlRoot,RequestedTheme=ElementTheme.Dark };
+            exhibitionDialog.Resources["ContentDialogMaxWidth"]=850d;
+            var exhibitionShown=exhibitionDialog.ShowAsync(); await Task.Delay(350);
+            var styleLabel=FindVisual<TextBlock>(exhibitionEditor).First(t=>t.Text=="界面风格");
+            var styleBox=FindVisual<ComboBox>(exhibitionEditor).First(box=>box.Items.OfType<string>().Contains("影像展厅"));
+            Check(exhibitionEditor.ActualTheme == ElementTheme.Dark && Bounds(styleLabel,exhibitionEditor).Right <= Bounds(styleBox,exhibitionEditor).Left,
+                "exhibition settings use the dark theme and aligned two-column setting rows");
+            await CaptureFeatureSnapshotAsync("exhibition-settings.png",exhibitionDialog);
+            exhibitionDialog.Hide(); await exhibitionShown; exhibitionEditor.CancelPendingOperations();
             foreach(var theme in new[] {ElementTheme.Light,ElementTheme.Dark})
             {
                 var settings=_settings.Clone(); settings.ThemeMode=theme==ElementTheme.Dark?1:0;

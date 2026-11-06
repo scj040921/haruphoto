@@ -514,6 +514,7 @@ public sealed partial class MainWindow
         var (request, token) = BeginMapPlaceTransition();
         var changed = !_mapPlace.SequenceEqual(current);
         _mapPlace = current;
+        UpdateMapReelStyle();
         var first = _mapPlace[0]; MapPlaceTitle.Text = $"{first.MapLabel} · {_mapPlace.Count} 张"; MapPlaceNote.Text = first.MapNote;
         MapPlaceHeroBackdrop.Source = first.ThumbnailSource;
         // Keep the map itself as the spatial background; avoid a second full-window photo decode.
