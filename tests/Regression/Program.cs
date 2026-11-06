@@ -88,6 +88,11 @@ try
     var original = new AppSettings { BackgroundImagePath="original", WatchedFolders=new() {"original"} };
     var clone = original.Clone(); clone.BackgroundImagePath="changed";clone.WatchedFolders.Clear();
     Check(original.BackgroundImagePath=="original" && original.WatchedFolders.Count==1,"settings cancel preserves original");
+    var exhibit = original.Clone(); exhibit.InterfaceStyle = 1; exhibit.ThemeMode = 0;
+    var exhibitProfile = AppearanceProfile.Capture(exhibit, "展厅");
+    var restoredExhibit = original.Clone(); exhibitProfile.ApplyTo(restoredExhibit);
+    Check(restoredExhibit.InterfaceStyle == 1 && restoredExhibit.ThemeMode == 0 && restoredExhibit.Clone().InterfaceStyle == 1,
+        "interface style persists in settings and appearance profiles without overwriting theme preference");
     foreach(var profile in AppearanceProfile.BuiltIns()) { var target=original.Clone(); profile.ApplyTo(target); Check(target.WatchedFolders.Count==1,"appearance profile preserves folders: "+profile.Name); }
     var legacy = JsonSerializer.Deserialize<AppSettings>("{\"CardMinWidth\":240}")!;
     Check(legacy.PreviewInfoDefaultVisible && legacy.FilmstripMode==0,"old settings migration");

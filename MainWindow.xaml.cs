@@ -55,6 +55,7 @@ public sealed partial class MainWindow : Window
 
     private readonly DispatcherTimer _searchTimer;
     private readonly DispatcherTimer _saveTimer;
+    private readonly DispatcherTimer _previewNoticeTimer = new() { Interval = TimeSpan.FromSeconds(4) };
     private readonly DispatcherTimer _slideshowTimer;
     private bool _slideshowActive;
     private readonly HashSet<string> _selectedPaths = new();
@@ -111,6 +112,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _previewNoticeTimer.Tick += (_, _) => { _previewNoticeTimer.Stop(); PreviewActionNotice.IsOpen = false; };
         Title = "haruphoto";
         PreviewImageScroll.ViewChanged += (_, _) => UpdatePreviewZoomText();
         PreviewImageScroll.SizeChanged += (_, _) => SizePreviewCanvas();
@@ -211,6 +213,7 @@ public sealed partial class MainWindow : Window
             _windowLifetime.Cancel();
             _galleryMeasureTimer.Stop();
             _saveTimer.Stop();
+            _previewNoticeTimer.Stop();
             _slideshowTimer.Stop();
             _filmstripCts?.Cancel();
             _thumbCts?.Cancel();
@@ -470,6 +473,7 @@ public sealed partial class MainWindow : Window
     /// <summary>当前是否为深色（跟随系统时读 ActualTheme）</summary>
     private bool IsDark()
     {
+        if (_settings.InterfaceStyle == 1) return true;
         if (_settings.ThemeMode == -1)
             return (Content as FrameworkElement)?.ActualTheme == ElementTheme.Dark;
         return _settings.ThemeMode == 1;
@@ -483,7 +487,7 @@ public sealed partial class MainWindow : Window
         {
             var root = Content as FrameworkElement;
             if (root != null)
-                root.RequestedTheme = _settings.ThemeMode switch
+                root.RequestedTheme = _settings.InterfaceStyle == 1 ? ElementTheme.Dark : _settings.ThemeMode switch
                 {
                     -1 => ElementTheme.Default,   // 跟随系统
                     1 => ElementTheme.Dark,
@@ -505,6 +509,7 @@ public sealed partial class MainWindow : Window
             ApplyTopBarLiquidGlass();
         else
             ApplyTopBarFrostedGlass();
+        ApplyInterfaceStyle();
         if (StatsScroll?.Visibility == Visibility.Visible) UpdateStatsView();
         if (OrganizeScroll?.Visibility == Visibility.Visible) UpdateOrganizeView();
     }
@@ -2565,6 +2570,7 @@ public sealed partial class MainWindow : Window
         ++_exifRequestSeq;
         _previewImageAnimation?.Stop();
         StopSlideshow();
+        _previewNoticeTimer.Stop(); PreviewActionNotice.IsOpen = false;
         StopFilmstripLoading();
         LoadThumbnailsForCurrentPage();
         ++_previewPaletteRequest;
@@ -2882,14 +2888,27 @@ public sealed partial class MainWindow : Window
     {
         if (_previewIndex < 0 || _previewIndex >= _currentView.Count) return;
         var path = _currentView[_previewIndex].FilePath;
-        StatusText.Text = await CopyToClipboardAsync(path) ? $"已复制：{Path.GetFileName(path)}" : "复制失败，请确认照片仍可访问后重试。";
+        var copied = await CopyToClipboardAsync(path);
+        ShowPreviewNotice(copied ? $"已复制：{Path.GetFileName(path)}" : "复制失败，请确认照片仍可访问后重试。", !copied);
     }
 
     private async void CopyImage_Click(object sender, RoutedEventArgs e)
     {
         if (_previewIndex < 0 || _previewIndex >= _currentView.Count) return;
         var path = _currentView[_previewIndex].FilePath;
-        StatusText.Text = await CopyToClipboardAsync(path) ? "已复制到剪贴板" : "复制失败，请确认照片仍可访问后重试。";
+        var copied = await CopyToClipboardAsync(path);
+        ShowPreviewNotice(copied ? $"已复制：{Path.GetFileName(path)}" : "复制失败，请确认照片仍可访问后重试。", !copied);
+    }
+
+    private void ShowPreviewNotice(string message, bool isError)
+    {
+        StatusText.Text = message;
+        if (_windowClosing || PreviewOverlay.Visibility != Visibility.Visible) return;
+        _previewNoticeTimer.Stop();
+        PreviewActionNotice.Severity = isError ? InfoBarSeverity.Error : InfoBarSeverity.Success;
+        PreviewActionNotice.Message = message;
+        PreviewActionNotice.IsOpen = true;
+        if (!isError) _previewNoticeTimer.Start();
     }
 
     private static async Task<bool> CopyToClipboardAsync(string filePath)

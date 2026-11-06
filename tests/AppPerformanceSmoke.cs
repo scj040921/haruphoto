@@ -147,6 +147,20 @@ public sealed partial class MainWindow
             Check(GallerySurface.Visibility == Visibility.Visible && GallerySurface.Opacity > .99 && StatsScroll.Opacity == 1 && OrganizeScroll.Opacity == 1,
                 "rapid navigation leaves the current page visible without stale animation");
             await CaptureFeatureSnapshotAsync("library-dark.png");
+            var originalInterfaceStyle = _settings.InterfaceStyle;
+            var originalThemeMode = _settings.ThemeMode;
+            _settings.InterfaceStyle = 1; ApplyTheme();
+            await Task.Delay(300);
+            Check(GalleryOverline.Visibility == Visibility.Visible && ((FrameworkElement)Content).RequestedTheme == ElementTheme.Dark,
+                "exhibition style applies its dark gallery treatment without changing the saved theme choice");
+            await CheckLibraryLayout(900);
+            await CheckLibraryLayout(480);
+            GallerySurface.Width = double.NaN; GallerySurface.UpdateLayout(); await Task.Delay(200);
+            await CaptureFeatureSnapshotAsync("exhibition-gallery.png");
+            _settings.InterfaceStyle = 0; ApplyTheme(); await Task.Delay(200);
+            Check(GalleryOverline.Visibility == Visibility.Collapsed && _settings.ThemeMode == originalThemeMode,
+                "switching back restores the classic layout and the previous theme preference");
+            _settings.InterfaceStyle = originalInterfaceStyle; ApplyTheme();
             await CheckLibraryLayout(900);
             await CheckLibraryLayout(860);
             await CheckLibraryLayout(640);
@@ -288,6 +302,18 @@ public sealed partial class MainWindow
                 "preview more menu exposes the secondary photo actions");
             moreMenu.Hide();
             await CaptureFeatureSnapshotAsync("preview-detail.png");
+            ShowPreviewNotice("复制失败，请确认照片仍可访问后重试。", true);
+            Check(PreviewActionNotice.IsOpen && PreviewActionNotice.Severity == InfoBarSeverity.Error && !_previewNoticeTimer.IsEnabled,
+                "preview copy errors remain visible until dismissed");
+            ShowPreviewNotice("已复制：test.png", false);
+            Check(PreviewActionNotice.IsOpen && PreviewActionNotice.Severity == InfoBarSeverity.Success && _previewNoticeTimer.IsEnabled,
+                "preview copy success gives temporary visible feedback");
+            _previewNoticeTimer.Stop(); PreviewActionNotice.IsOpen = false;
+            _settings.InterfaceStyle = 1; ApplyTheme(); await Task.Delay(150);
+            Check(PreviewTitleBar.FontSize == 15 && DetailPanel.CornerRadius.TopLeft == 22,
+                "exhibition style applies the preview treatment");
+            await CaptureFeatureSnapshotAsync("exhibition-preview.png");
+            _settings.InterfaceStyle = originalInterfaceStyle; ApplyTheme();
             await EnsureFilmstripThumbnailAsync(view[120],_filmstripCts!.Token);
             Check(view[120].ThumbnailSource!=null,"filmstrip loads a photo outside current gallery page");
             var sharedPhoto = view[300]; sharedPhoto.ThumbnailSource = null;
@@ -550,6 +576,11 @@ public sealed partial class MainWindow
             await CaptureFeatureSnapshotAsync("map-place-compact-alignment.png");
             MapPlaceOverlay.Width = double.NaN; MapPlaceOverlay.UpdateLayout();
             await CaptureFeatureSnapshotAsync("map-place.png");
+            _settings.InterfaceStyle = 1; ApplyTheme(); await Task.Delay(150);
+            Check(MapPlaceTitle.FontSize == 24 && MapPlaceContext.CornerRadius.TopLeft == 18,
+                "exhibition style applies the map place treatment");
+            await CaptureFeatureSnapshotAsync("exhibition-map-place.png");
+            _settings.InterfaceStyle = originalInterfaceStyle; ApplyTheme();
             await ToggleMapPlaceReelAsync();
             Check(MapPlaceReel.Visibility == Visibility.Collapsed && MapReelToggleItem.Text.Contains("展开"),
                 "place reel can collapse into an unobstructed map with a discoverable restore action");
@@ -723,6 +754,12 @@ public sealed partial class MainWindow
                 dialog.Resources["ContentDialogMaxWidth"]=850d;
                 var shown=dialog.ShowAsync(); await Task.Delay(350);
                 Check(editor.ActualTheme==theme,"settings applies "+theme+" theme");
+                var styleSelector = FindVisual<ComboBox>(editor).First(box => box.Items.OfType<string>().Contains("影像展厅"));
+                var savedStyle = settings.InterfaceStyle;
+                styleSelector.SelectedIndex = 1;
+                Check(editor.Draft.InterfaceStyle == 1 && settings.InterfaceStyle == savedStyle,
+                    "settings selects exhibition style in the draft without changing saved settings in " + theme);
+                styleSelector.SelectedIndex = savedStyle;
                 await CaptureFeatureSnapshotAsync(theme == ElementTheme.Dark ? "settings-dark.png" : "settings-light.png", dialog);
                 var settingsNavigation = FindVisual<ListView>(editor).First();
                 settingsNavigation.SelectedIndex = 1; await Task.Delay(80);

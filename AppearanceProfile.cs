@@ -9,6 +9,7 @@ public sealed class AppearanceProfile
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "我的方案";
     public int ThemeMode { get; set; }
+    public int InterfaceStyle { get; set; }
     public string AccentColor { get; set; } = "#5B6EAE";
     public bool AcrylicEnabled { get; set; }
     public double AcrylicOpacity { get; set; } = .55;
@@ -28,7 +29,7 @@ public sealed class AppearanceProfile
 
     public static AppearanceProfile Capture(AppSettings s, string name) => new()
     {
-        Name = name, ThemeMode = s.ThemeMode, AccentColor = s.AccentColor,
+        Name = name, ThemeMode = s.ThemeMode, InterfaceStyle = s.InterfaceStyle, AccentColor = s.AccentColor,
         AcrylicEnabled = s.AcrylicEnabled, AcrylicOpacity = s.AcrylicOpacity,
         TopBarStyle = s.TopBarStyle, CardCornerRadius = s.CardCornerRadius,
         DisplayMode = s.DisplayMode, CardMinWidth = s.CardMinWidth,
@@ -42,6 +43,7 @@ public sealed class AppearanceProfile
     public void ApplyTo(AppSettings s)
     {
         s.ThemeMode = Math.Clamp(ThemeMode, -1, 1);
+        s.InterfaceStyle = Math.Clamp(InterfaceStyle, 0, 1);
         s.DarkMode = s.ThemeMode == 1;
         s.AccentColor = AccentColor;
         s.AcrylicEnabled = AcrylicEnabled;

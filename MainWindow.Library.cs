@@ -85,7 +85,7 @@ public sealed partial class MainWindow
     private void ArrangeLibraryHeader(double width)
     {
         if (GalleryFilters == null || SearchBox == null || width <= 0) return;
-        var singleLine = width >= 820;
+        var singleLine = width >= 820 && _settings.InterfaceStyle != 1;
         var compact = width < 520;
         var stackedSearch = width < 580;
         Grid.SetColumnSpan(HeaderTitleRow, singleLine ? 1 : 2);

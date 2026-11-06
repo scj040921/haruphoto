@@ -244,6 +244,7 @@
                         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel Spacing="4">
+                            <TextBlock x:Name="GalleryOverline" Text="HARUPHOTO  /  照片库" Visibility="Collapsed" FontSize="11" CharacterSpacing="110" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <TextBlock x:Name="GalleryTitleText" Text="所有照片" FontSize="19" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -731,6 +732,23 @@
                                     Background="Transparent" Foreground="White" ToolTipService.ToolTip="显示/隐藏胶片条（H）"/>
                             <Button x:Name="PreviewFullscreenBtn" Content="全屏" Click="PreviewFullscreen_Click"
                                     Background="Transparent" Foreground="White" ToolTipService.ToolTip="全屏欣赏（F11），Esc 退出全屏"/>
+                            <Button Content="快捷键" Background="Transparent" Foreground="White" ToolTipService.ToolTip="查看照片浏览快捷键">
+                                <Button.Flyout>
+                                    <Flyout Placement="Bottom">
+                                        <StackPanel Spacing="10" MinWidth="220" Padding="4">
+                                            <TextBlock Text="照片浏览快捷键" FontWeight="SemiBold" FontSize="16"/>
+                                            <TextBlock Text="← / →　切换照片"/>
+                                            <TextBlock Text="F　收藏或取消收藏"/>
+                                            <TextBlock Text="0–5　设置评分"/>
+                                            <TextBlock Text="I　显示或隐藏信息"/>
+                                            <TextBlock Text="H　显示或隐藏胶片条"/>
+                                            <TextBlock Text="空格　播放或暂停"/>
+                                            <TextBlock Text="F11　全屏　 ·　Esc　返回"/>
+                                            <TextBlock Text="滚轮缩放　 ·　拖动查看细节" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </StackPanel>
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
                             <Button x:Name="PreviewMoreButton" Content="更多" Background="Transparent" Foreground="White" ToolTipService.ToolTip="更多照片操作">
                                 <Button.Flyout>
                                     <MenuFlyout>
@@ -786,6 +804,8 @@
                         </StackPanel>
                         <Border x:Name="PreviewTransitionVeil" IsHitTestVisible="False" Opacity="0"
                                 Background="#40212A36" CornerRadius="18"/>
+                        <InfoBar x:Name="PreviewActionNotice" IsOpen="False" IsClosable="True" MaxWidth="460"
+                                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="12,12,12,0"/>
                     </Grid>
 
                     <Button Grid.Column="2" Padding="10" Margin="6,0"
