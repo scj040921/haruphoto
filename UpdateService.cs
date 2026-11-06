@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -29,6 +29,15 @@ public static class UpdateService
     public static string CurrentVersion => typeof(UpdateService).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
     public static BuildIdentity CurrentBuild { get; } = BuildIdentity.Load(AppContext.BaseDirectory, CurrentVersion);
     public static string CurrentDisplayVersion => $"{CurrentVersion} · {CurrentBuild.Channel}" + (CurrentBuild.Channel == "Nightly" ? $" · {CurrentBuild.Tag}" : "");
+    internal static string DescribeRelease(ReleaseInfo release, string currentVersion, string currentChannel)
+    {
+        if (release.Channel == currentChannel) return $"发现更新：{release.DisplayVersion}";
+        var downgrade = System.Version.TryParse(release.Version, out var target) &&
+            System.Version.TryParse(currentVersion, out var current) && target < current;
+        return $"可切换到 {release.Channel}：{release.DisplayVersion}" +
+            (downgrade ? $"（低于当前 {currentVersion}，切换将回退程序版本）" : "");
+    }
+
     public static string NormalizeChannel(string? channel) => channel == "Nightly" ? "Nightly" : "Stable";
     public static bool IsChannelTag(string tag, string channel) => Regex.IsMatch(tag, channel == "Nightly"
         ? "\\Anightly-[0-9]{8}-[0-9]+\\z" : "\\A[vV][0-9]+\\.[0-9]+\\.[0-9]+\\z");

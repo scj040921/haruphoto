@@ -385,6 +385,13 @@ public sealed partial class MainWindow
             await RenderMapAsync();
             MapPlacesFlyout.ShowAt(MapPlacesButton);
             await Task.Delay(120);
+            var retryCamera = (_mapLatitude, _mapLongitude, _mapZoom);
+            var failedTile = _mapTileViews.First(); failedTile.Value.Ready = false;
+            var preservedReadyTile = _mapTileViews.Values.FirstOrDefault(t => t.Ready);
+            await Task.WhenAll(RetryMapTilesAsync(), RetryMapTilesAsync());
+            Check((_mapLatitude, _mapLongitude, _mapZoom) == retryCamera && !_mapRetryInProgress && MapRetryTilesButton.IsEnabled &&
+                (preservedReadyTile == null || _mapTileViews.Values.Contains(preservedReadyTile)),
+                "tile retry preserves camera and ready imagery and recovers controls after duplicate requests");
             RefreshMapPlacesList();
             MapPlacesList.UpdateLayout();
             await WaitFor(() => FindVisual<TextBlock>(MapPlacesList).Any(t => t.Text == "测试地点"));
@@ -632,6 +639,25 @@ public sealed partial class MainWindow
             Check(MapPlacePhotos.Items.Count == 12 && ReferenceEquals(MapPlacePhotos.SelectedItem, dozen[11]),
                 "twelve-photo reel realizes and selects the final photo with its thumbnail loaded");
             await CaptureFeatureSnapshotAsync("map-place-twelve-photos.png");
+            _mapPhotoPreviewSource = CaptureMapPhotoPreviewSource(dozen[11]);
+            _mapPreviewRestore = _currentView; _currentView = _mapPlace.ToList(); OpenPreview(dozen[11]);
+            await WaitFor(() => !_previewIsLoading && MapPhotoHeroLayer.Visibility == Visibility.Collapsed);
+            RemoveLibraryRecords(new[]{dozen[11]}); CompletePreviewRemoval(true, 11);
+            await WaitFor(() => !_previewIsLoading);
+            Check(PreviewOverlay.Visibility == Visibility.Visible && _mapPreviewRestore != null && _currentView.Count == 11 &&
+                ReferenceEquals(_currentView[_previewIndex], dozen[10]) && File.Exists(dozen[11].FilePath),
+                "removing a map preview photo continues at the adjacent photo while preserving source files");
+            _mapPhotoPreviewSource = null; ClosePreview();
+            await WaitFor(() => PreviewOverlay.Visibility == Visibility.Collapsed);
+            SaveMapPlacement(new[]{view[50]},31.2,121.5,"qa-single-remove","单张地点","");
+            ShowMapPlace(new(){view[50]});
+            _mapPreviewRestore = _currentView; _currentView = _mapPlace.ToList(); OpenPreview(view[50]);
+            await WaitFor(() => !_previewIsLoading);
+            RemoveLibraryRecords(new[]{view[50]}); CompletePreviewRemoval(true,0);
+            await WaitFor(() => PreviewOverlay.Visibility == Visibility.Collapsed && MapPlaceOverlay.Visibility == Visibility.Collapsed && !_mapPlaceClosing);
+            Check(_mapPreviewRestore == null && File.Exists(view[50].FilePath),
+                "removing the last place photo returns to exploration without a stale preview or deleting the file");
+            Undo_Click(this,new RoutedEventArgs());
             MapPlaceClose_Click(this, new RoutedEventArgs());
             MapClose_Click(this,new RoutedEventArgs());
             Check(MapOverlay.Visibility==Visibility.Collapsed&&_mapThumbnailLifetime.IsCancellationRequested&&

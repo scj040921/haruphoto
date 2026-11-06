@@ -1636,7 +1636,7 @@ public sealed partial class MainWindow : Window
             _settings.Save();
             if (update != null)
             {
-                StatusText.Text = $"发现 {update.Channel}：{update.DisplayVersion}，请到设置页的「关于与更新」安装";
+                StatusText.Text = UpdateService.DescribeRelease(update, UpdateService.CurrentVersion, UpdateService.CurrentBuild.Channel) + "，请到设置页的「关于与更新」查看";
             }
         }
         catch { /* 静默失败，不影响离线使用 */ }
@@ -2585,7 +2585,7 @@ public sealed partial class MainWindow : Window
     private void Root_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (CompareOverlay.Visibility == Visibility.Visible) return;
-        if (_settingsDialogOpen || _updateInProgress) return;
+        if (_settingsDialogOpen || _updateInProgress || _removalDialogOpen) return;
         var ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
                    .HasFlag(CoreVirtualKeyStates.Down);
         if (ctrl && e.Key == VirtualKey.F && PreviewOverlay.Visibility != Visibility.Visible)
@@ -2882,12 +2882,11 @@ public sealed partial class MainWindow : Window
     {
         if (!await ConfirmLibraryRemovalAsync(new[] { p }, "从图库移除")) return;
         var fromMap = _mapPreviewRestore != null;
+        var previousIndex = _previewIndex;
         RemoveLibraryRecords(new[] { p });
-        RefreshPhotos();
+        CompletePreviewRemoval(fromMap, previousIndex);
         ScheduleSave();
         StatusText.Text = $"已移除 {p.Filename}（文件仍在磁盘上）";
-        if (fromMap) { _mapPreviewRestore = _currentView; ClosePreview(); var remaining = _mapPlace.Where(_allPhotos.Contains).ToList(); if (remaining.Count > 0) ShowMapPlace(remaining); else MapPlaceClose_Click(this, new RoutedEventArgs()); }
-        else if (PreviewOverlay.Visibility == Visibility.Visible) ShowPreviewAt(_previewIndex);
     }
 
     /// <summary>批量移除选中的照片（仅图库记录，不删磁盘文件）。</summary>

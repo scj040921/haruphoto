@@ -4,6 +4,32 @@ public sealed partial class MainWindow
 {
     private bool _syncingPreviewFilmstrip;
 
+    private void CompletePreviewRemoval(bool fromMap, int previousIndex)
+    {
+        RefreshPhotos();
+        if (fromMap)
+        {
+            CancelMapPhotoTransition();
+            _mapPreviewRestore = _currentView;
+            var remaining = _mapPlace.Where(_allPhotos.Contains).ToList();
+            if (remaining.Count == 0)
+            {
+                _mapPhotoPreviewSource = null;
+                _mapPlace.Clear();
+                ClosePreview();
+                _ = CloseMapPlaceTransitionAsync();
+                return;
+            }
+            ShowMapPlace(remaining);
+            _currentView = remaining;
+        }
+        if (PreviewOverlay.Visibility == Microsoft.UI.Xaml.Visibility.Visible)
+        {
+            if (_currentView.Count == 0) ClosePreview();
+            else ShowPreviewAt(Math.Clamp(previousIndex, 0, _currentView.Count - 1));
+        }
+    }
+
     private void RefreshPreviewAfterMetadataChange(PhotoItem photo, int previousIndex)
     {
         var fromMap = _mapPreviewRestore != null;

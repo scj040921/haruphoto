@@ -1,4 +1,4 @@
-using PhotoAlbum;
+﻿using PhotoAlbum;
 using System.Text.Json;
 
 int passed = 0;
@@ -21,6 +21,8 @@ try
     var release = UpdateService.ParseRelease(releaseDoc.RootElement,"1.3.1")!;
     Check(release.PackageUrl.EndsWith("-portable.zip") && release.Notes == "notes", "choose portable not installer / carry release notes");
     UpdateService.ValidateRelease(release);
+    Check(UpdateService.DescribeRelease(release,"1.3.11","Nightly").Contains("回退"), "channel switch explains semantic downgrade");
+    Check(UpdateService.DescribeRelease(release,"1.3.1","Stable").StartsWith("发现更新"), "same channel release is described as an update");
     Reject(() => UpdateService.ValidateRelease(release with {PackageUrl="https://evil.invalid/package.zip"}), "reject foreign download source");
     Reject(() => UpdateService.ValidateRelease(release with {Sha256=""}), "reject unverified downloads");
     using var draft = JsonDocument.Parse(JsonSerializer.Serialize(new {tag_name="v1.3.2",draft=true,prerelease=false,assets}));

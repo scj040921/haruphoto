@@ -413,9 +413,9 @@ public sealed class SettingsEditor : UserControl
                 release = await UpdateService.CheckLatestAsync(channel, proxy, _lifetime.Token);
                 if (_closed || XamlRoot == null) return;
                 if (channel != Draft.UpdateChannel) { release = null; status.Text = "通道已修改，请重新检查更新。"; return; }
-                status.Text = release == null ? $"{Draft.UpdateChannel} 通道暂无可用更新（当前 {UpdateService.CurrentDisplayVersion}）" : $"发现 {release.Channel}：{release.DisplayVersion}";
+                status.Text = release == null ? $"{Draft.UpdateChannel} 通道暂无可用更新（当前 {UpdateService.CurrentDisplayVersion}）" : UpdateService.DescribeRelease(release, UpdateService.CurrentVersion, UpdateService.CurrentBuild.Channel);
                 if (release != null && release.Channel != UpdateService.CurrentBuild.Channel) status.Text += "。切换发行通道可能回退版本；照片和图库数据保留。";
-                install.Content = release?.Channel == "Nightly" ? "安装 Nightly 测试版" : "下载并更新";
+                install.Content = release != null && release.Channel != UpdateService.CurrentBuild.Channel ? $"切换并安装 {release.Channel}" : "下载并更新";
                 install.Visibility = release == null ? Visibility.Collapsed : Visibility.Visible;
             }
             catch (OperationCanceledException) { /* 设置页关闭后不再操作已卸载的控件。 */ }

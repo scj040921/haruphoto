@@ -120,6 +120,29 @@ public sealed partial class MainWindow
     private async void MapLocatePlace_Click(object sender, RoutedEventArgs e) => await LocateCurrentMapPlaceAsync();
     private async void MapToggleReel_Click(object sender, RoutedEventArgs e) => await ToggleMapPlaceReelAsync();
 
+    private bool _mapRetryInProgress;
+    private async Task RetryMapTilesAsync()
+    {
+        if (_mapRetryInProgress || MapOverlay.Visibility != Visibility.Visible) return;
+        _mapRetryInProgress = true;
+        MapRetryTilesButton.IsEnabled = MapRetryTilesMenu.IsEnabled = false;
+        try
+        {
+            CancelMapMotion();
+            foreach (var key in _mapTileViews.Where(p => !p.Value.Ready).Select(p => p.Key).ToArray()) RemoveMapTile(key);
+            await RenderMapAsync();
+            MapRetryTilesMenu.Text = _mapTileViews.Values.Any(t => !t.Ready) ? "底图未完全加载，再次重试" : "重新加载底图";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { if (!_windowClosing) MapNetworkStatus.Text = "底图重试失败：" + ex.Message; }
+        finally
+        {
+            _mapRetryInProgress = false;
+            if (!_windowClosing) MapRetryTilesButton.IsEnabled = MapRetryTilesMenu.IsEnabled = true;
+        }
+    }
+    private async void MapRetryTiles_Click(object sender, RoutedEventArgs e) => await RetryMapTilesAsync();
+
     private bool TryHandleMapSceneKey(Windows.System.VirtualKey key, bool ctrl)
     {
         if (MapOverlay.Visibility != Visibility.Visible || PreviewOverlay.Visibility == Visibility.Visible) return false;
