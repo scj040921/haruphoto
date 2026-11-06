@@ -2601,7 +2601,7 @@ public sealed partial class MainWindow : Window
 
     private void ResumeSlideshowTimer()
     {
-        if (!_slideshowActive || PreviewOverlay.Visibility != Visibility.Visible || _currentView.Count < 2) return;
+        if (!_slideshowActive || _previewIsLoading || PreviewOverlay.Visibility != Visibility.Visible || _currentView.Count < 2) return;
         _slideshowTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(_settings.SlideshowIntervalSeconds, 2, 15));
         _slideshowTimer.Stop();
         _slideshowTimer.Start();
@@ -3403,9 +3403,14 @@ public sealed partial class MainWindow : Window
             {
                 _previewIndex = updatedIndex;
                 PreviewCounter.Text = $"{_previewIndex + 1} / {_currentView.Count}";
-                PreviewFilmstrip.ItemsSource = _currentView;
-                PreviewFilmstrip.SelectedItem = previewPhoto;
-                PreviewFilmstrip.ScrollIntoView(previewPhoto);
+                _syncingPreviewFilmstrip = true;
+                try
+                {
+                    PreviewFilmstrip.ItemsSource = _currentView;
+                    PreviewFilmstrip.SelectedItem = previewPhoto;
+                    if (!_filmstripHidden && !_previewFullscreen) PreviewFilmstrip.ScrollIntoView(previewPhoto);
+                }
+                finally { _syncingPreviewFilmstrip = false; }
                 UpdatePreviewNavigationState();
             }
         }
