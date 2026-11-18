@@ -1094,9 +1094,10 @@ public sealed partial class MainWindow : Window
 
     private void ApplyGalleryLayout()
     {
-        var cardWidth = Math.Clamp(_settings.CardMinWidth, 160, 360);
-        PhotoGrid.Layout = _settings.DisplayMode == 1
-            ? new MasonryLayout { MinColumnWidth = cardWidth, ColumnSpacing = 0, RowSpacing = 0 }
+        var exhibition = _settings.InterfaceStyle == 1;
+        var cardWidth = exhibition ? 264 : Math.Clamp(_settings.CardMinWidth, 160, 360);
+        PhotoGrid.Layout = exhibition || _settings.DisplayMode == 1
+            ? new MasonryLayout { MinColumnWidth = cardWidth, ColumnSpacing = exhibition ? 4 : 0, RowSpacing = exhibition ? 4 : 0 }
             : new UniformGridLayout
             {
                 MinItemWidth = cardWidth,
@@ -1157,7 +1158,7 @@ public sealed partial class MainWindow : Window
                 _thumbnailResidency.Touch(photo);
                 TrimThumbnailMemory();
                 // Cached dimensions do not change the masonry geometry on later visits.
-                if (_settings.DisplayMode == 1 && Math.Abs(previousRatio - photo.ThumbnailAspectRatio) > 0.001)
+                if ((_settings.InterfaceStyle == 1 || _settings.DisplayMode == 1) && Math.Abs(previousRatio - photo.ThumbnailAspectRatio) > 0.001)
                     RequestGalleryMeasure();
             }
             else if (!ct.IsCancellationRequested) photo.ThumbnailStatus = "无法读取";
@@ -1310,23 +1311,24 @@ public sealed partial class MainWindow : Window
 
     private void AddOrganizeItem(string title, int count, string tag)
     {
-        var row = new Grid { Padding = new Thickness(20), ColumnSpacing = 16 };
+        var exhibition = _settings.InterfaceStyle == 1;
+        var row = new Grid { Padding = new Thickness(exhibition ? 18 : 20, exhibition ? 17 : 20, 18, exhibition ? 17 : 20), ColumnSpacing = 20 };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var text = new StackPanel { Spacing = 3 };
-        text.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = LibraryThemeBrush("LibraryPrimaryTextBrush") });
-        text.Children.Add(new TextBlock { Text = $"{count} 张照片", FontSize = 12, Foreground = LibraryThemeBrush("LibrarySecondaryTextBrush") });
-        var button = new Button { Content = "查看", Tag = tag, Padding = new Thickness(12) };
+        text.Children.Add(new TextBlock { Text = title, FontSize = exhibition ? 17 : 14, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = LibraryThemeBrush("LibraryPrimaryTextBrush") });
+        text.Children.Add(new TextBlock { Text = $"{count} 张照片", FontSize = exhibition ? 14 : 12, Foreground = LibraryThemeBrush("LibrarySecondaryTextBrush") });
+        var button = new Button { Content = "查看照片", Tag = tag, Padding = new Thickness(14, 8, 14, 8), MinHeight = 42 };
         button.Click += OrganizeFilter_Click;
         Grid.SetColumn(button, 1);
         row.Children.Add(text);
         row.Children.Add(button);
         OrganizeItems.Items.Add(new Border
         {
-            Child = row, Margin = new Thickness(0, 0, 0, 10), CornerRadius = new CornerRadius(16),
+            Child = row, Margin = new Thickness(0, 0, 0, exhibition ? 6 : 10), CornerRadius = new CornerRadius(exhibition ? 12 : 16),
             Background = LibraryThemeBrush("LibraryCardBrush"),
-            BorderBrush = LibraryThemeBrush("LibraryHairlineBrush"), BorderThickness = new Thickness(1)
+            BorderBrush = LibraryThemeBrush("LibraryHairlineBrush"), BorderThickness = new Thickness(0, 0, 0, 1)
         });
     }
 
@@ -1375,17 +1377,19 @@ public sealed partial class MainWindow : Window
         var catCount = photos.GroupBy(p => p.Category, StringComparer.OrdinalIgnoreCase)
                              .Count(g => !string.IsNullOrEmpty(g.Key));
 
+        StatsLeadValue.Text = $"{total:N0} 张";
+
         StatsGrid.Children.Clear();
         void AddRow(string label, string value)
         {
             var content = new StackPanel { Spacing = 10 };
-            content.Children.Add(new TextBlock { Text = label, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis,
+            content.Children.Add(new TextBlock { Text = label, FontSize = _settings.InterfaceStyle == 1 ? 14 : 12, TextTrimming = TextTrimming.CharacterEllipsis,
                 Foreground = LibraryThemeBrush("LibrarySecondaryTextBrush") });
-            content.Children.Add(new TextBlock { Text = value, FontSize = 26, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            content.Children.Add(new TextBlock { Text = value, FontSize = _settings.InterfaceStyle == 1 ? 24 : 26, FontWeight = _settings.InterfaceStyle == 1 ? Microsoft.UI.Text.FontWeights.Light : Microsoft.UI.Text.FontWeights.SemiBold,
                 Foreground = LibraryThemeBrush("LibraryPrimaryTextBrush") });
             StatsGrid.Children.Add(new Border
             {
-                Child = content, Padding = new Thickness(20, 18, 20, 18), CornerRadius = new CornerRadius(0),
+                Child = content, Padding = new Thickness(_settings.InterfaceStyle == 1 ? 24 : 20, 22, 20, 22), CornerRadius = new CornerRadius(0),
                 Background = LibraryThemeBrush("LibraryCardBrush"),
                 BorderBrush = LibraryThemeBrush("LibraryHairlineBrush"), BorderThickness = new Thickness(0, 0, 0, 1)
             });
@@ -1738,70 +1742,28 @@ public sealed partial class MainWindow : Window
     private static int RadiusIndex(double r)
         => r <= 8 ? 0 : r >= 20 ? 2 : 1;
 
-    private void StatusBarGlass_Tapped(object sender, TappedRoutedEventArgs e)
+    private void GalleryActionToggle_Click(object sender, RoutedEventArgs e) =>
+        SetStatusBarExpanded(GalleryActionToggle.IsChecked == true);
+
+    private void GallerySurface_SizeChanged(object sender, SizeChangedEventArgs e) => ArrangeGalleryActions();
+
+    private void ArrangeGalleryActions()
     {
-        for (var node = e.OriginalSource as DependencyObject; node != null; node = VisualTreeHelper.GetParent(node))
-            if (node is Button || ReferenceEquals(node, StatusBarActions)) return;
-        SetStatusBarExpanded(!_statusBarExpanded);
+        if (StatusBarGlass == null) return;
+        var available = GallerySurface.ActualWidth > 0
+            ? Math.Max(0, GallerySurface.ActualWidth - StatusBarGlass.Margin.Left - StatusBarGlass.Margin.Right)
+            : 760;
+        var desired = _statusBarExpanded ? 760 : _settings.InterfaceStyle == 1 ? 280 : 250;
+        StatusBarGlass.Width = Math.Min(desired, available);
     }
 
     private void SetStatusBarExpanded(bool expanded)
     {
         if (_statusBarExpanded == expanded) return;
         _statusBarExpanded = expanded;
-        var from = StatusBarGlass.ActualWidth > 0 ? StatusBarGlass.ActualWidth : StatusBarGlass.Width;
-        var to = expanded ? Math.Min(760d, Math.Max(320d, NavView.ActualWidth - (NavView.IsPaneOpen ? NavView.OpenPaneLength : NavView.CompactPaneLength) - 36)) : 230d;
-        StatusBarActionScroll.MaxWidth = Math.Max(140, to - 180);
-        if (expanded)
-        {
-            StatusBarActions.Visibility = Visibility.Visible;
-            StatusBarActions.Opacity = 0;
-            StatusBarHint.Visibility = Visibility.Collapsed;
-        }
-
-        if (!MotionEnabled)
-        {
-            StatusBarGlass.Width = to;
-            StatusBarActions.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
-            StatusBarActions.Opacity = expanded ? 1 : 0;
-            StatusBarHint.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
-            return;
-        }
-        var storyboard = new Storyboard();
-        var width = new DoubleAnimation
-        {
-            From = from,
-            To = to,
-            Duration = TimeSpan.FromMilliseconds(expanded ? 220 : 180),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
-            EnableDependentAnimation = true,
-        };
-        Storyboard.SetTarget(width, StatusBarGlass);
-        Storyboard.SetTargetProperty(width, "Width");
-        storyboard.Children.Add(width);
-        if (expanded)
-        {
-            var fade = new DoubleAnimation
-            {
-                To = 1,
-                BeginTime = TimeSpan.FromMilliseconds(110),
-                Duration = TimeSpan.FromMilliseconds(180),
-                EnableDependentAnimation = true,
-            };
-            Storyboard.SetTarget(fade, StatusBarActions);
-            Storyboard.SetTargetProperty(fade, "Opacity");
-            storyboard.Children.Add(fade);
-        }
-        else
-        {
-            StatusBarActions.Opacity = 0;
-            storyboard.Completed += (_, _) =>
-            {
-                StatusBarActions.Visibility = Visibility.Collapsed;
-                StatusBarHint.Visibility = Visibility.Visible;
-            };
-        }
-        storyboard.Begin();
+        GalleryActionToggle.IsChecked = expanded;
+        StatusBarActionScroll.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+        ArrangeGalleryActions();
     }
 
     private void PhotoCard_Tapped(object sender, TappedRoutedEventArgs e)
@@ -1884,7 +1846,7 @@ public sealed partial class MainWindow : Window
 
     private void PhotoGrid_ElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
     {
-        var isMasonry = _settings.DisplayMode == 1;
+        var isMasonry = _settings.InterfaceStyle == 1 || _settings.DisplayMode == 1;
         // 卡片入场：渐入动画（可配置时长/开关）
         if (args.Element is UIElement element)
         {
@@ -1904,12 +1866,12 @@ public sealed partial class MainWindow : Window
                 card.Shadow = null;
 
                 // 自定义圆角（SPW 风格外观设置）
-                var r = isMasonry ? 0 : _settings.CardCornerRadius;
+                var r = _settings.InterfaceStyle == 1 ? 10 : isMasonry ? 0 : _settings.CardCornerRadius;
                 card.BorderThickness = isMasonry ? new Thickness(0) : new Thickness(1);
                 card.CornerRadius = new CornerRadius(r);
                 if (card.Child is Grid g && g.Children.Count > 0 && g.Children[0] is Border imgBorder)
                 {
-                    imgBorder.CornerRadius = new CornerRadius(r, r, 0, 0);
+                    imgBorder.CornerRadius = new CornerRadius(r);
                     if (!isMasonry) imgBorder.Height = 180;
                     if (imgBorder.Child is Image thumbnail)
                         thumbnail.Stretch = isMasonry ? Stretch.Uniform : Stretch.UniformToFill;

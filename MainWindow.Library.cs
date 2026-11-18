@@ -19,6 +19,7 @@ public sealed partial class MainWindow
         _visibleLibrarySection = section;
         _librarySectionAnimation?.Stop();
         GallerySurface.Opacity = StatsScroll.Opacity = OrganizeScroll.Opacity = 1;
+        GallerySurface.RenderTransform = StatsScroll.RenderTransform = OrganizeScroll.RenderTransform = null;
         var gallery = section == LibrarySection.Gallery;
         GallerySurface.Visibility = gallery ? Visibility.Visible : Visibility.Collapsed;
         MainScroll.Visibility = gallery ? Visibility.Visible : Visibility.Collapsed;
@@ -31,7 +32,17 @@ public sealed partial class MainWindow
             var fade = new DoubleAnimation { From = .82, To = 1, Duration = TimeSpan.FromMilliseconds(Math.Clamp(_settings.AnimationDurationMs * .6, 100, 220)),
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
             Storyboard.SetTarget(fade, target); Storyboard.SetTargetProperty(fade, "Opacity");
-            _librarySectionAnimation = new Storyboard(); _librarySectionAnimation.Children.Add(fade); _librarySectionAnimation.Begin();
+            _librarySectionAnimation = new Storyboard(); _librarySectionAnimation.Children.Add(fade);
+            if (_settings.InterfaceStyle == 1 && target is FrameworkElement surface)
+            {
+                var translate = new TranslateTransform { Y = 8 };
+                surface.RenderTransform = translate;
+                var slide = new DoubleAnimation { From = 8, To = 0, Duration = TimeSpan.FromMilliseconds(Math.Clamp(_settings.AnimationDurationMs * .7, 120, 240)),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                Storyboard.SetTarget(slide, translate); Storyboard.SetTargetProperty(slide, "Y");
+                _librarySectionAnimation.Children.Add(slide);
+            }
+            _librarySectionAnimation.Begin();
         }
         PageInfoButton.Flyout.Hide();
         FilterMenuButton.Flyout.Hide();
@@ -70,6 +81,18 @@ public sealed partial class MainWindow
     // 代码生成的卡片显式读取当前窗口对应的调色板；XAML 仍使用 ThemeResource。
     private Brush LibraryThemeBrush(string key)
     {
+        if (_settings.InterfaceStyle == 1)
+        {
+            return key switch
+            {
+                "LibraryPrimaryTextBrush" => new SolidColorBrush(Windows.UI.Color.FromArgb(255, 242, 239, 230)),
+                "LibrarySecondaryTextBrush" => new SolidColorBrush(Windows.UI.Color.FromArgb(255, 177, 175, 164)),
+                "LibraryHairlineBrush" => new SolidColorBrush(Windows.UI.Color.FromArgb(48, 229, 223, 205)),
+                "LibraryCardBrush" => new SolidColorBrush(Windows.UI.Color.FromArgb(255, 26, 27, 25)),
+                "LibraryControlBrush" => new SolidColorBrush(Windows.UI.Color.FromArgb(255, 38, 39, 36)),
+                _ => new SolidColorBrush(Windows.UI.Color.FromArgb(255, 196, 170, 112)),
+            };
+        }
         var palette = (ResourceDictionary)Application.Current.Resources.ThemeDictionaries[IsDark() ? "Dark" : "Light"];
         return (Brush)palette[key];
     }
@@ -85,15 +108,16 @@ public sealed partial class MainWindow
     private void ArrangeLibraryHeader(double width)
     {
         if (GalleryFilters == null || SearchBox == null || width <= 0) return;
-        var singleLine = width >= 820 && _settings.InterfaceStyle != 1;
+        var singleLine = width >= (_settings.InterfaceStyle == 1 ? 1000 : 860);
         var compact = width < 520;
         var stackedSearch = width < 580;
         Grid.SetColumnSpan(HeaderTitleRow, singleLine ? 1 : 2);
         Grid.SetRow(HeaderControlRow, singleLine ? 0 : 1);
         Grid.SetColumn(HeaderControlRow, singleLine ? 1 : 0);
         Grid.SetColumnSpan(HeaderControlRow, singleLine ? 1 : 2);
-        HeaderTitleRow.Margin = singleLine ? new Thickness(16, 12, 12, 12) : new Thickness(16, 12, 16, 0);
-        HeaderControlRow.Margin = singleLine ? new Thickness(0, 12, 16, 12) : new Thickness(16, 10, 16, 12);
+        HeaderTitleRow.Margin = singleLine ? new Thickness(16, 10, 12, 10) : new Thickness(16, 10, 16, 0);
+        HeaderControlRow.Margin = singleLine ? new Thickness(0, 10, 16, 10) : new Thickness(16, 6, 16, 10);
+        HeaderControlRow.VerticalAlignment = VerticalAlignment.Center;
         HeaderTitleRow.RowSpacing = stackedSearch ? 12 : 0;
         HeaderControlRow.RowSpacing = compact ? 12 : 0;
         Grid.SetRow(SearchBox, stackedSearch ? 1 : 0);
@@ -102,7 +126,7 @@ public sealed partial class MainWindow
         Grid.SetRow(SearchGlyph, stackedSearch ? 1 : 0);
         Grid.SetColumn(SearchGlyph, stackedSearch ? 0 : 1);
         Grid.SetColumnSpan(SearchGlyph, stackedSearch ? 2 : 1);
-        SearchBox.Width = stackedSearch ? double.NaN : singleLine ? 210 : 280;
+        SearchBox.Width = stackedSearch ? double.NaN : singleLine ? 224 : 280;
         SearchBox.HorizontalAlignment = HorizontalAlignment.Stretch;
 
         Grid.SetColumnSpan(GalleryFilters, compact ? 2 : 1);
@@ -113,7 +137,50 @@ public sealed partial class MainWindow
 
     private void FilterDone_Click(object sender, RoutedEventArgs e) => FilterMenuButton.Flyout.Hide();
 
+    private void NavView_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
+    {
+        if (ReferenceEquals(args.InvokedItemContainer, ExhibitionSettingsNav))
+            SettingsButton_Click(sender, new RoutedEventArgs());
+    }
+
+    private void ExhibitionCancelImport_Click(object sender, RoutedEventArgs e)
+    {
+        ExhibitionLibraryFlyout.Hide();
+        CancelImport_Click(sender, e);
+    }
+
+    private void ExhibitionImportFolder_Click(object sender, RoutedEventArgs e)
+    {
+        ExhibitionLibraryFlyout.Hide();
+        ImportButton_Click(sender, e);
+    }
+
+    private void ExhibitionImportFiles_Click(object sender, RoutedEventArgs e)
+    {
+        ExhibitionLibraryFlyout.Hide();
+        ImportFiles_Click(sender, e);
+    }
+
+    private void ExhibitionSettings_Click(object sender, RoutedEventArgs e)
+    {
+        ExhibitionLibraryFlyout.Hide();
+        SettingsButton_Click(sender, e);
+    }
+
     private void StatsPanel_SizeChanged(object sender, SizeChangedEventArgs e) => ArrangeStatsCards(e.NewSize.Width);
+
+    private void OrganizePanel_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (OrganizePanel.ColumnDefinitions.Count < 2) return;
+        var stacked = e.NewSize.Width < 920;
+        OrganizePanel.ColumnDefinitions[0].Width = stacked ? new GridLength(1, GridUnitType.Star) : new GridLength(310);
+        OrganizePanel.ColumnDefinitions[1].Width = stacked ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+        Grid.SetRow(OrganizeFeature, 1);
+        Grid.SetColumn(OrganizeFeature, 0);
+        Grid.SetRow(OrganizeListPanel, stacked ? 2 : 1);
+        Grid.SetColumn(OrganizeListPanel, stacked ? 0 : 1);
+        OrganizeFeature.Width = stacked ? double.NaN : 310;
+    }
 
     private void ArrangeStatsCards(double width)
     {
@@ -124,7 +191,22 @@ public sealed partial class MainWindow
             Grid.SetRow((FrameworkElement)StatsGrid.Children[i], i / columns);
             Grid.SetColumn((FrameworkElement)StatsGrid.Children[i], i % columns);
             if (StatsGrid.Children[i] is Border card)
-                card.BorderThickness = new Thickness(0, 0, 0, i / columns < (StatsGrid.Children.Count - 1) / columns ? 1 : 0);
+                card.BorderThickness = _settings.InterfaceStyle == 1
+                    ? new Thickness(0, 0, 1, 1)
+                    : new Thickness(0, 0, 0, i / columns < (StatsGrid.Children.Count - 1) / columns ? 1 : 0);
+        }
+        if (StatsChartsLayout != null && StatsChartsLayout.ColumnDefinitions.Count > 1)
+        {
+            var stacked = width is > 0 and < 900;
+            StatsChartsLayout.ColumnDefinitions[0].Width = stacked ? new GridLength(1, GridUnitType.Star) : new GridLength(1.2, GridUnitType.Star);
+            StatsChartsLayout.ColumnDefinitions[1].Width = stacked ? new GridLength(1, GridUnitType.Star) : new GridLength(.8, GridUnitType.Star);
+            if (StatsChartsLayout.Children.Count >= 2)
+            {
+                Grid.SetColumn((FrameworkElement)StatsChartsLayout.Children[0], 0);
+                Grid.SetRow((FrameworkElement)StatsChartsLayout.Children[0], 0);
+                Grid.SetColumn((FrameworkElement)StatsChartsLayout.Children[1], stacked ? 0 : 1);
+                Grid.SetRow((FrameworkElement)StatsChartsLayout.Children[1], stacked ? 1 : 0);
+            }
         }
     }
 }

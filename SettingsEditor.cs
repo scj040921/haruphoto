@@ -263,7 +263,7 @@ public sealed class SettingsEditor : UserControl
         };
         AddSetting(s, "外观方案", "内置深色看图、浅色整理和沉浸展示；自定义方案同时保存图库布局与预览偏好。", scheme);
         AddSetting(s, "效果预览", "此处展示草稿的配色和布局，主界面在保存后更新。", _preview);
-        Combo(s, "界面风格", "影像展厅使用深色玻璃界面与更宽松的照片浏览布局；切回经典界面后恢复所选主题。", new[] { "经典界面", "影像展厅" }, () => Math.Clamp(Draft.InterfaceStyle, 0, 1), v => Draft.InterfaceStyle = v);
+        Combo(s, "界面风格", "影像展厅采用暗房侧栏、原比例影像墙、沉浸预览，以及重新编排的统计与整理页；切回经典界面恢复原布局。", new[] { "经典界面", "影像展厅" }, () => Math.Clamp(Draft.InterfaceStyle, 0, 1), v => Draft.InterfaceStyle = v);
         Combo(s, "主题模式", "选择跟随系统、浅色或深色。", new[] { "跟随系统", "浅色", "深色" }, () => Draft.ThemeMode + 1, v => { Draft.ThemeMode = v - 1; Draft.DarkMode = v == 2; });
         AddColor(s, "主题色", () => Draft.GetAccentColor(), hex => Draft.AccentColor = hex, true);
         Toggle(s, "亚克力毛玻璃", "为侧栏和操作栏使用通透材质。", () => Draft.AcrylicEnabled, v => Draft.AcrylicEnabled = v);
@@ -511,20 +511,21 @@ public sealed class SettingsEditor : UserControl
             _preview.Background = new ImageBrush { ImageSource = new BitmapImage(new Uri(Draft.BackgroundImagePath)) { DecodePixelWidth = 600 }, Stretch = Stretch.UniformToFill };
         var body = new StackPanel { Spacing = 8 };
         body.Children.Add(new Border { Height = 4, CornerRadius = new CornerRadius(2), Background = new SolidColorBrush(Draft.GetAccentColor()) });
-        body.Children.Add(new TextBlock { Text = $"{(Draft.InterfaceStyle == 1 ? "影像展厅" : "经典界面")} · {(Draft.DisplayMode == 1 ? "瀑布流" : "规整网格")} · {Draft.CardMinWidth:0}px", FontSize = 13, Foreground = new SolidColorBrush(dark ? Colors.White : Colors.Black) });
-        var gallery = new Grid { ColumnSpacing = Draft.DisplayMode == 1 ? 0 : 6 };
+        var exhibition = Draft.InterfaceStyle == 1;
+        body.Children.Add(new TextBlock { Text = $"{(exhibition ? "影像展厅" : "经典界面")} · {(exhibition ? "原比例影像墙" : Draft.DisplayMode == 1 ? "瀑布流" : "规整网格")} · {Draft.CardMinWidth:0}px", FontSize = 13, Foreground = new SolidColorBrush(dark ? Colors.White : Colors.Black) });
+        var gallery = new Grid { ColumnSpacing = exhibition || Draft.DisplayMode == 1 ? 3 : 6 };
         var columns = Draft.CardMinWidth >= 280 ? 2 : 3;
         for (var col = 0; col < columns; col++)
         {
             gallery.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var stack = new StackPanel { Spacing = Draft.DisplayMode == 1 ? 0 : 6 };
+            var stack = new StackPanel { Spacing = exhibition || Draft.DisplayMode == 1 ? 3 : 6 };
             for (var row = 0; row < 2; row++)
             {
                 var photo = _samplePhotos.ElementAtOrDefault(col + row * columns);
                 var cell = new Border
                 {
-                    Height = Draft.DisplayMode == 1 ? 40 + ((col + row) % 3) * 12 : 52,
-                    CornerRadius = new CornerRadius(Draft.DisplayMode == 1 ? 0 : Draft.CardCornerRadius / 2),
+                    Height = exhibition || Draft.DisplayMode == 1 ? 40 + ((col + row) % 3) * 12 : 52,
+                    CornerRadius = new CornerRadius(exhibition ? 1 : Draft.DisplayMode == 1 ? 0 : Draft.CardCornerRadius / 2),
                     Background = new SolidColorBrush(Draft.GetAccentColor()),
                 };
                 if (photo != null) cell.Child = new Image { Source = photo.ThumbnailSource, Stretch = Stretch.UniformToFill };

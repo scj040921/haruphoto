@@ -113,6 +113,7 @@ public sealed partial class MainWindow
         PreviewFilmstripBar.IsHitTestVisible = shown;
         PreviewImageStage.Margin = new Thickness(12, 20, 12, !_filmstripVertical && visible && _settings.FilmstripMode != 1 ? 100 : 20);
         PreviewFilmstripToggleBtn.Content = shown ? "隐藏胶片条" : "显示胶片条";
+        ApplyResponsivePreviewDetail();
     }
 
     private void ConfigureFilmstripLayout(bool vertical)
@@ -143,16 +144,46 @@ public sealed partial class MainWindow
         });
     }
 
+    private void PreviewToolbar_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (PreviewCommands == null || PreviewCloseButton == null) return;
+        var compact = e.NewSize.Width < 720;
+        Grid.SetRow(PreviewCommands, compact ? 1 : 0);
+        Grid.SetColumn(PreviewCommands, compact ? 0 : 1);
+        Grid.SetColumnSpan(PreviewCommands, compact ? 3 : 1);
+        PreviewSlideshowBtn.Visibility = PreviewFilmstripToggleBtn.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        PreviewZoomInButton.Visibility = PreviewZoomOutButton.Visibility = e.NewSize.Width < 400 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void PreviewMore_Opening(object sender, object e)
+    {
+        PreviewSlideshowMenu.Text = _slideshowActive ? "暂停幻灯片" : "播放幻灯片";
+        PreviewFilmstripMenu.Text = PreviewFilmstripToggleBtn.Content as string ?? "切换胶片条";
+        // The menu duplicates these actions only when they don't fit in the toolbar.
+        PreviewSlideshowMenu.Visibility = PreviewSlideshowBtn.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        PreviewFilmstripMenu.Visibility = PreviewFilmstripToggleBtn.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        PreviewZoomInMenu.Visibility = PreviewZoomOutMenu.Visibility = PreviewZoomInButton.Visibility == Visibility.Visible
+            ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void PreviewShortcuts_Click(object sender, RoutedEventArgs e) => DispatcherQueue.TryEnqueue(() =>
+    {
+        if (PreviewOverlay.Visibility == Visibility.Visible && !_previewFullscreen)
+            ((Flyout)PreviewToolbar.Resources["PreviewShortcutFlyout"]).ShowAt(PreviewMoreButton);
+    });
+
     private void ApplyResponsivePreviewDetail()
     {
         var show = !_previewFullscreen && _previewInfoVisible;
         var overlay = _settings.InterfaceStyle == 1 && PreviewContentRoot.ActualWidth > 0 && PreviewContentRoot.ActualWidth < 820;
         DetailPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         Grid.SetColumn(DetailPanel, overlay ? 2 : 4);
-        Grid.SetColumnSpan(DetailPanel, overlay ? 2 : 1);
         Canvas.SetZIndex(DetailPanel, overlay ? 1 : 0);
         DetailPanel.HorizontalAlignment = overlay ? HorizontalAlignment.Right : HorizontalAlignment.Stretch;
-        DetailPanel.Width = overlay ? Math.Min(310, Math.Max(180, PreviewContentRoot.ActualWidth - 150)) : double.NaN;
+        var navigationWidth = Math.Max(56, PreviewPrevBtn.DesiredSize.Width) + Math.Max(56, PreviewNextBtn.DesiredSize.Width);
+        var detailSpace = PreviewContentRoot.ActualWidth - PreviewFilmstripColumn.Width.Value - navigationWidth
+            - DetailPanel.Margin.Left - DetailPanel.Margin.Right;
+        DetailPanel.Width = overlay ? Math.Clamp(detailSpace, 0, 310) : double.NaN;
         DetailColumn.Width = new GridLength(show && !overlay ? 310 : 0);
     }
 

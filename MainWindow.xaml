@@ -5,9 +5,26 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="haruphoto">
 
-    <Grid KeyDown="Root_KeyDown" AllowDrop="True" DragOver="Root_DragOver" Drop="Root_Drop"
+    <Grid x:Name="RootSurface" KeyDown="Root_KeyDown" AllowDrop="True" DragOver="Root_DragOver" Drop="Root_Drop"
           Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
         <Grid.Resources>
+            <AcrylicBrush x:Key="ExhibitionMenuGlass" TintColor="#252927" TintOpacity="0.76" FallbackColor="#F3262927"/>
+            <Style x:Key="ExhibitionFlyoutStyle" TargetType="FlyoutPresenter">
+                <Setter Property="Background" Value="{StaticResource ExhibitionMenuGlass}"/>
+                <Setter Property="CornerRadius" Value="24"/>
+                <Setter Property="BorderBrush" Value="#50FFFFFF"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="20"/>
+            </Style>
+            <Style x:Key="ExhibitionActionButtonStyle" TargetType="Button" BasedOn="{StaticResource AppActionButtonStyle}">
+                <Setter Property="Width" Value="64"/>
+                <Setter Property="Height" Value="64"/>
+                <Setter Property="CornerRadius" Value="32"/>
+                <Setter Property="Padding" Value="0"/>
+                <Setter Property="Background" Value="#FF3A3D3C"/>
+                <Setter Property="Foreground" Value="#FFF5F5F5"/>
+                <Setter Property="BorderBrush" Value="#36FFFFFF"/>
+            </Style>
             <Style x:Key="LibrarySearchTextBoxStyle" TargetType="TextBox">
                 <Setter Property="FontFamily" Value="{StaticResource MiSans}"/>
                 <Setter Property="FontSize" Value="13"/>
@@ -33,6 +50,7 @@
             </Style>
             <Style x:Key="LibraryPageButtonStyle" TargetType="Button" BasedOn="{StaticResource AppActionButtonStyle}">
                 <Setter Property="CornerRadius" Value="8"/>
+                <Setter Property="MinHeight" Value="40"/>
                 <Setter Property="Padding" Value="10,7"/>
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="BorderBrush" Value="Transparent"/>
@@ -53,11 +71,11 @@
         </Grid.Resources>
         <NavigationView x:Name="NavView" IsBackButtonVisible="Collapsed" IsSettingsVisible="False"
                         OpenPaneLength="210" CompactPaneLength="48" IsPaneOpen="True"
-                        SelectionChanged="NavView_SelectionChanged">
+                        SelectionChanged="NavView_SelectionChanged" ItemInvoked="NavView_ItemInvoked">
             <NavigationView.PaneHeader>
-                <StackPanel Orientation="Horizontal" Spacing="9" Padding="16,8,12,14">
-                    <Image Source="Assets/Square44x44Logo.targetsize-24_altform-unplated.png" Width="20" Height="20"/>
-                    <TextBlock Text="haruphoto" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <StackPanel x:Name="NavBrandHeader" Orientation="Horizontal" Spacing="9" Padding="16,8,12,14">
+                    <Image x:Name="NavBrandMark" Source="Assets/Square44x44Logo.targetsize-24_altform-unplated.png" Width="20" Height="20"/>
+                    <TextBlock x:Name="NavBrandText" Text="haruphoto" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 </StackPanel>
             </NavigationView.PaneHeader>
             <NavigationView.MenuItems>
@@ -92,7 +110,10 @@
             </NavigationView.MenuItems>
 
             <NavigationView.FooterMenuItems>
-                <StackPanel Padding="16,10" Spacing="8">
+                <NavigationViewItem x:Name="ExhibitionSettingsNav" Content="设置" Tag="Settings" SelectsOnInvoked="False" Visibility="Collapsed">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE713;" FontSize="16"/></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <StackPanel x:Name="NavFooterPanel" Padding="16,10" Spacing="8">
                     <TextBlock x:Name="StatsText" Text="0 张照片" FontSize="12"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="Clip"/>
                     <Button x:Name="ImportFolderButton" Content="＋ 导入文件夹" Click="ImportButton_Click" IsEnabled="False"
@@ -117,7 +138,7 @@
             <!-- 主内容 -->
             <Grid>
                 <!-- 每个页面拥有完整布局，图库内的顶栏仍固定悬浮在滚动照片上方。 -->
-                <Grid x:Name="GallerySurface">
+                <Grid x:Name="GallerySurface" SizeChanged="GallerySurface_SizeChanged">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
@@ -126,7 +147,7 @@
                               VerticalScrollBarVisibility="Auto" Padding="20,0,20,16">
                     <Grid x:Name="GalleryContentGrid">
                         <!-- ThemeShadow 阴影接收层（在卡片后面；须有可见背景才能投射阴影）-->
-                        <Border x:Name="PhotoShadowReceiver" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+                        <Border x:Name="PhotoShadowReceiver" Background="Transparent"/>
                         <ItemsRepeater x:Name="PhotoGrid" ElementPrepared="PhotoGrid_ElementPrepared">
                         <ItemsRepeater.Layout>
                             <UniformGridLayout MinItemWidth="220" MinItemHeight="270"
@@ -239,13 +260,10 @@
                             Background="{ThemeResource LibraryHeaderBrush}"/>
                     <Border x:Name="TopBarGradient" Grid.RowSpan="2" Grid.ColumnSpan="2" IsHitTestVisible="False" CornerRadius="14"
                             BorderBrush="{ThemeResource LibraryHairlineBrush}" BorderThickness="1"/>
-                    <Border x:Name="GalleryControlsGlass" Visibility="Collapsed" Grid.Row="1" Grid.ColumnSpan="2" IsHitTestVisible="False"
-                            CornerRadius="16" Margin="0,6,0,0" BorderBrush="{ThemeResource LibraryHairlineBrush}" BorderThickness="1"/>
-
                     <Grid x:Name="HeaderTitleRow" Grid.Row="0" Margin="16,12,12,12" ColumnSpacing="16" RowSpacing="12">
                         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                        <StackPanel Spacing="4">
+                        <StackPanel Spacing="2" VerticalAlignment="Center">
                             <TextBlock x:Name="GalleryTitleText" Text="所有照片" FontSize="19" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -282,9 +300,9 @@
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <FontIcon Glyph="&#xE71C;" FontSize="13"/>
                                     <TextBlock Text="筛选" FontSize="13"/>
-                                    <Border x:Name="FilterCountBadge" Visibility="Collapsed" Background="{ThemeResource AppAccentBrush}"
+                                    <Border x:Name="FilterCountBadge" Visibility="Collapsed" Background="{ThemeResource LibraryControlBrush}"
                                             CornerRadius="8" MinWidth="18" Height="18" Padding="4,0">
-                                        <TextBlock x:Name="FilterCountText" FontSize="11" Foreground="White"
+                                        <TextBlock x:Name="FilterCountText" FontSize="11" Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
                                 </StackPanel>
@@ -334,17 +352,35 @@
                             </Button>
                             <Button x:Name="ExhibitionLibraryActions" Grid.Column="2" Visibility="Collapsed" Content="图库" Style="{StaticResource LibraryPageButtonStyle}"
                                     ToolTipService.ToolTip="导入照片与打开设置">
-                                <Button.Flyout><MenuFlyout>
-                                    <MenuFlyoutItem Text="导入文件夹" Click="ImportButton_Click" IsEnabled="{Binding IsEnabled, ElementName=ImportFolderButton}"/>
-                                    <MenuFlyoutItem Text="导入文件" Click="ImportFiles_Click" IsEnabled="{Binding IsEnabled, ElementName=ImportFilesButton}"/>
-                                    <MenuFlyoutSeparator/>
-                                    <MenuFlyoutItem Text="设置" Click="SettingsButton_Click"/>
-                                </MenuFlyout></Button.Flyout>
+                                <Button.Flyout><Flyout x:Name="ExhibitionLibraryFlyout" FlyoutPresenterStyle="{StaticResource ExhibitionFlyoutStyle}">
+                                    <StackPanel Spacing="16" RequestedTheme="Dark">
+                                        <TextBlock Text="图库" FontSize="20" FontWeight="SemiBold"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="20">
+                                            <StackPanel Spacing="8" HorizontalAlignment="Center">
+                                                <Button x:Name="ExhibitionImportFolder" Style="{StaticResource ExhibitionActionButtonStyle}" Click="ExhibitionImportFolder_Click" IsEnabled="{Binding IsEnabled, ElementName=ImportFolderButton}" AutomationProperties.Name="导入文件夹">
+                                                    <FontIcon Glyph="&#xE8B7;" FontSize="22"/>
+                                                </Button><TextBlock Text="导入文件夹" FontSize="12" HorizontalAlignment="Center"/>
+                                            </StackPanel>
+                                            <StackPanel Spacing="8" HorizontalAlignment="Center">
+                                                <Button x:Name="ExhibitionImportFiles" Style="{StaticResource ExhibitionActionButtonStyle}" Click="ExhibitionImportFiles_Click" IsEnabled="{Binding IsEnabled, ElementName=ImportFilesButton}" AutomationProperties.Name="导入文件">
+                                                    <FontIcon Glyph="&#xE8A5;" FontSize="22"/>
+                                                </Button><TextBlock Text="导入文件" FontSize="12" HorizontalAlignment="Center"/>
+                                            </StackPanel>
+                                            <StackPanel Spacing="8" HorizontalAlignment="Center">
+                                                <Button x:Name="ExhibitionOpenSettings" Style="{StaticResource ExhibitionActionButtonStyle}" Click="ExhibitionSettings_Click" AutomationProperties.Name="设置">
+                                                    <FontIcon Glyph="&#xE713;" FontSize="22"/>
+                                                </Button><TextBlock Text="设置" FontSize="12" HorizontalAlignment="Center"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                        <Button x:Name="ExhibitionCancelImport" Content="取消导入" Click="ExhibitionCancelImport_Click"
+                                                Visibility="{x:Bind CancelImportButton.Visibility, Mode=OneWay}"/>
+                                    </StackPanel>
+                                </Flyout></Button.Flyout>
                             </Button>
                         </Grid>
                         <StackPanel x:Name="PaginationGroup" Grid.Column="1" Orientation="Horizontal" Spacing="6"
                                     HorizontalAlignment="Right" VerticalAlignment="Center">
-                            <Button x:Name="PrevPageBtn" Click="PrevPage_Click" IsEnabled="False" Width="34"
+                            <Button x:Name="PrevPageBtn" Click="PrevPage_Click" IsEnabled="False" Width="40"
                                     Style="{StaticResource LibraryPageButtonStyle}" AutomationProperties.Name="上一页" ToolTipService.ToolTip="上一页">
                                 <FontIcon Glyph="&#xE76B;" FontSize="11"/>
                             </Button>
@@ -368,7 +404,7 @@
                                     </Flyout>
                                 </Button.Flyout>
                             </Button>
-                            <Button x:Name="NextPageBtn" Click="NextPage_Click" IsEnabled="False" Width="34"
+                            <Button x:Name="NextPageBtn" Click="NextPage_Click" IsEnabled="False" Width="40"
                                     Style="{StaticResource LibraryPageButtonStyle}" AutomationProperties.Name="下一页" ToolTipService.ToolTip="下一页">
                                 <FontIcon Glyph="&#xE76C;" FontSize="11"/>
                             </Button>
@@ -383,20 +419,23 @@
                 <!-- 悬浮底栏（玻璃条）：与顶栏同格（Row0）+ 底部对齐 +
                      声明在 ScrollViewer 之后（Z 在上）→ 卡片滚动经过其下方透出 -->
                 <Border x:Name="StatusBarGlass" Grid.Row="1" VerticalAlignment="Bottom" HorizontalAlignment="Right" Width="230"
-                        Margin="18,0,18,16" Padding="16,8" CornerRadius="12"
-                        BorderBrush="{ThemeResource HighlightLineBrush}" BorderThickness="1"
-                        Tapped="StatusBarGlass_Tapped">
-                    <Grid>
+                        Margin="18,0,18,16" Padding="12,4" CornerRadius="12"
+                        BorderBrush="{ThemeResource HighlightLineBrush}" BorderThickness="1">
+                    <Grid ColumnSpacing="8">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="StatusText" Text="就绪" VerticalAlignment="Center" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                        <TextBlock x:Name="StatusBarHint" Grid.Column="1" Text="⌃  操作" VerticalAlignment="Center" FontSize="12"
+                        <TextBlock x:Name="StatusText" Text="就绪" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"
+                                   ToolTipService.ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <ScrollViewer x:Name="StatusBarActionScroll" Grid.Column="1" MaxWidth="550" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Enabled">
-                        <StackPanel x:Name="StatusBarActions" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                        <ToggleButton x:Name="GalleryActionToggle" Grid.Column="1" Content="照片操作" VerticalAlignment="Center"
+                                      AutomationProperties.Name="照片操作" Click="GalleryActionToggle_Click" CornerRadius="10"
+                                      Padding="12,6" MinHeight="36" Background="Transparent" BorderThickness="0"/>
+                        <ScrollViewer x:Name="StatusBarActionScroll" Grid.Row="1" Grid.ColumnSpan="2" Visibility="Collapsed"
+                                      Margin="0,4,0,4" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Enabled">
+                        <StackPanel x:Name="StatusBarActions" Orientation="Horizontal" Spacing="8">
                             <Button Content="对比选片" Click="CompareSelected_Click"
                                     FontSize="12" Padding="10,6"
                                     ToolTipService.ToolTip="选择 2–4 张照片后对比（Ctrl+D）"/>
@@ -440,45 +479,77 @@
 
                 <!-- 统计概览面板（侧边栏「统计」选中时显示）-->
                 <ScrollViewer x:Name="StatsScroll" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled"
-                              VerticalScrollBarVisibility="Auto" Padding="28,26,28,32">
-                    <StackPanel x:Name="StatsPanel" Spacing="18" MaxWidth="1000" HorizontalAlignment="Stretch" SizeChanged="StatsPanel_SizeChanged">
-                        <StackPanel Spacing="6" Margin="0,0,0,8">
-                            <TextBlock Text="照片统计" FontSize="28" FontWeight="SemiBold"/>
-                            <TextBlock Text="从数量、时间与分类，了解你的照片库。" FontSize="13"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        </StackPanel>
-                        <Border Background="{ThemeResource LibraryCardBrush}" BorderBrush="{ThemeResource LibraryHairlineBrush}" BorderThickness="1" CornerRadius="14" Padding="4">
+                              VerticalScrollBarVisibility="Auto" Padding="36,30,36,38">
+                    <StackPanel x:Name="StatsPanel" Spacing="24" MaxWidth="1380" HorizontalAlignment="Center" SizeChanged="StatsPanel_SizeChanged">
+                        <Grid ColumnSpacing="24" Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <StackPanel Spacing="5" VerticalAlignment="Bottom">
+                                <TextBlock Text="影像档案" FontSize="34" FontWeight="Light"/>
+                                <TextBlock Text="从时间与分类中，回看这座私人影像馆。" FontSize="14"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                            <TextBlock x:Name="StatsLeadValue" Grid.Column="1" Text="—" FontSize="56" FontWeight="Light"
+                                       VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                        </Grid>
+                        <Border x:Name="StatsGridSurface" Background="{ThemeResource LibraryCardBrush}" BorderBrush="{ThemeResource LibraryHairlineBrush}" BorderThickness="1" CornerRadius="18" Padding="4">
                         <Grid x:Name="StatsGrid" RowSpacing="0" ColumnSpacing="0">
                             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                         </Grid>
                         </Border>
-                        <TextBlock Text="年度分布" FontSize="18" FontWeight="SemiBold" Margin="0,8,0,0"/>
-                        <Border Padding="22,20" CornerRadius="18" BorderThickness="1"
-                                BorderBrush="{ThemeResource LibraryHairlineBrush}" Background="{ThemeResource LibraryCardBrush}">
-                            <StackPanel x:Name="StatsYears" Spacing="18"/>
-                        </Border>
-                        <TextBlock Text="分类分布" FontSize="18" FontWeight="SemiBold" Margin="0,4,0,0"/>
-                        <Border Padding="22,20" CornerRadius="18" BorderThickness="1"
-                                BorderBrush="{ThemeResource LibraryHairlineBrush}" Background="{ThemeResource LibraryCardBrush}">
-                            <StackPanel x:Name="StatsCats" Spacing="18"/>
-                        </Border>
+                        <Grid x:Name="StatsChartsLayout" ColumnSpacing="28">
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="1.2*"/><ColumnDefinition Width="0.8*"/></Grid.ColumnDefinitions>
+                            <StackPanel Spacing="14">
+                                <TextBlock Text="按年份" FontSize="20" FontWeight="SemiBold"/>
+                                <Border x:Name="StatsYearsSurface" Padding="22,22" CornerRadius="18" BorderThickness="1"
+                                        BorderBrush="{ThemeResource LibraryHairlineBrush}" Background="{ThemeResource LibraryCardBrush}">
+                                    <StackPanel x:Name="StatsYears" Spacing="18"/>
+                                </Border>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="14">
+                                <TextBlock Text="按分类" FontSize="20" FontWeight="SemiBold"/>
+                                <Border x:Name="StatsCatsSurface" Padding="22,22" CornerRadius="18" BorderThickness="1"
+                                        BorderBrush="{ThemeResource LibraryHairlineBrush}" Background="{ThemeResource LibraryCardBrush}">
+                                    <StackPanel x:Name="StatsCats" Spacing="18"/>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
                 </ScrollViewer>
                 <ScrollViewer x:Name="OrganizeScroll" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled"
-                              VerticalScrollBarVisibility="Auto" Padding="28,26,28,32">
-                    <StackPanel x:Name="OrganizePanel" Spacing="18" MaxWidth="1000" HorizontalAlignment="Stretch">
-                        <TextBlock Text="整理中心" FontSize="28" FontWeight="SemiBold"/>
-                        <Button Content="规则自动分类" Click="AutoClassify_Click" HorizontalAlignment="Left"
-                                Style="{StaticResource PrimaryActionButtonStyle}"/>
-                        <TextBlock Text="根据现有元数据找出值得优先处理的照片。这里的操作不会删除磁盘文件。"
-                                   FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
-                        <ItemsControl x:Name="OrganizeItems">
+                              VerticalScrollBarVisibility="Auto" Padding="36,30,36,38">
+                    <Grid x:Name="OrganizePanel" MaxWidth="1380" HorizontalAlignment="Center" RowSpacing="26" ColumnSpacing="36" SizeChanged="OrganizePanel_SizeChanged">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="310"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <StackPanel Grid.ColumnSpan="2" Spacing="5">
+                            <TextBlock Text="整理工作台" FontSize="34" FontWeight="Light"/>
+                            <TextBlock Text="从最值得处理的照片开始。所有操作只影响图库记录，不会删除原始文件。"
+                                       FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <Border x:Name="OrganizeFeature" Grid.Row="1" Width="310" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                Padding="24" CornerRadius="18" Background="{ThemeResource LibraryCardBrush}"
+                                BorderBrush="{ThemeResource LibraryHairlineBrush}" BorderThickness="1">
+                            <StackPanel Spacing="18">
+                                <FontIcon Glyph="&#xE8D4;" FontSize="28" Foreground="{ThemeResource AppAccentBrush}"/>
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="整理建议" FontSize="22" FontWeight="SemiBold"/>
+                                    <TextBlock Text="自动分类会根据现有元数据整理照片，随时可以撤销。"
+                                               FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <Button Content="运行自动分类" Click="AutoClassify_Click" HorizontalAlignment="Stretch"
+                                        Style="{StaticResource PrimaryActionButtonStyle}"/>
+                            </StackPanel>
+                        </Border>
+                        <StackPanel x:Name="OrganizeListPanel" Grid.Row="1" Grid.Column="1" Spacing="14">
+                            <TextBlock Text="待处理的集合" FontSize="20" FontWeight="SemiBold"/>
+                            <ItemsControl x:Name="OrganizeItems">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate><ItemsStackPanel Orientation="Vertical"/></ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
-                        </ItemsControl>
-                    </StackPanel>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Grid>
                 </ScrollViewer>
             </Grid>
         </NavigationView>
@@ -693,28 +764,39 @@
                 </Grid.RowDefinitions>
 
                 <!-- 预览工具栏 -->
-                <Border x:Name="PreviewToolbar" Grid.Row="0" Padding="14,8" Background="#A817191D" BorderBrush="#20FFFFFF" BorderThickness="0,0,0,1">
+                <Border x:Name="PreviewToolbar" Grid.Row="0" Padding="14,8" Background="#A817191D" BorderBrush="#20FFFFFF" BorderThickness="0,0,0,1"
+                        SizeChanged="PreviewToolbar_SizeChanged">
                     <Border.Resources>
                         <Style TargetType="Button" BasedOn="{StaticResource AppActionButtonStyle}">
                             <Setter Property="BorderThickness" Value="0"/>
                             <Setter Property="CornerRadius" Value="8"/>
+                            <Setter Property="MinWidth" Value="36"/>
+                            <Setter Property="MinHeight" Value="38"/>
                         </Style>
+                        <Flyout x:Key="PreviewShortcutFlyout" Placement="Bottom">
+                            <StackPanel Spacing="10" MinWidth="220" Padding="4">
+                                <TextBlock Text="照片浏览快捷键" FontWeight="SemiBold" FontSize="16"/>
+                                <TextBlock Text="← / →　切换照片"/>
+                                <TextBlock Text="F　收藏或取消收藏"/>
+                                <TextBlock Text="0–5　设置评分"/>
+                                <TextBlock Text="I　显示或隐藏信息"/>
+                                <TextBlock Text="H　显示或隐藏胶片条"/>
+                                <TextBlock Text="空格　播放或暂停"/>
+                                <TextBlock Text="F11　全屏　 ·　Esc　返回"/>
+                                <TextBlock Text="滚轮缩放　 ·　拖动查看细节" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                        </Flyout>
                     </Border.Resources>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="2*" MaxWidth="740"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="PreviewCounter" VerticalAlignment="Center" FontSize="12"
-                                   Foreground="#C0FFFFFF" Margin="0,0,12,0"/>
-                        <TextBlock x:Name="PreviewTitleBar" Grid.Column="1" Text="照片预览"
-                                   FontSize="14" FontWeight="SemiBold" Foreground="#FFFFFF"
-                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                        <ScrollViewer Grid.Column="2" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Enabled" MaxWidth="740">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <Button Click="PreviewZoomOut_Click" FontSize="15" Padding="10,6"
+                    <Grid ColumnSpacing="8" RowSpacing="4">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="PreviewTitleBar" Text="照片预览" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="White" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock x:Name="PreviewCounter" FontSize="12" Foreground="#CEFFFFFF" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                        <StackPanel x:Name="PreviewCommands" Grid.Column="1" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
+                            <Button x:Name="PreviewZoomOutButton" Click="PreviewZoomOut_Click" FontSize="15" Padding="10,6"
                                     Background="Transparent" Foreground="#FFFFFF" ToolTipService.ToolTip="缩小" AutomationProperties.Name="缩小照片">
                                 <FontIcon Glyph="&#xE71F;" FontSize="13"/>
                             </Button>
@@ -722,7 +804,7 @@
                                     Background="Transparent" Foreground="#FFFFFF" ToolTipService.ToolTip="适应窗口 (Ctrl+0)">
                                 <TextBlock x:Name="PreviewZoomText" Text="适应" FontSize="12"/>
                             </Button>
-                            <Button Click="PreviewZoomIn_Click" FontSize="15" Padding="10,6"
+                            <Button x:Name="PreviewZoomInButton" Click="PreviewZoomIn_Click" FontSize="15" Padding="10,6"
                                     Background="Transparent" Foreground="#FFFFFF" ToolTipService.ToolTip="放大" AutomationProperties.Name="放大照片">
                                 <FontIcon Glyph="&#xE8A3;" FontSize="13"/>
                             </Button>
@@ -730,11 +812,6 @@
                                     FontSize="12" Padding="10,6"
                                     Background="Transparent" Foreground="#FFFFFF"
                                     ToolTipService.ToolTip="幻灯片播放（空格键）"/>
-                            <Button Click="CompareAdjacent_Click" Padding="10,6"
-                                    Background="Transparent" Foreground="#FFFFFF" ToolTipService.ToolTip="对比相邻照片（Ctrl+D）"
-                                    AutomationProperties.Name="对比相邻照片">
-                                <FontIcon Glyph="&#xE8A5;" FontSize="13"/>
-                            </Button>
                             <Button x:Name="PreviewInfoToggleBtn" Content="信息" Click="PreviewInfoToggle_Click"
                                     FontSize="12" Padding="10,6"
                                     Background="Transparent" Foreground="#FFFFFF" ToolTipService.ToolTip="显示或隐藏信息（I）"/>
@@ -742,37 +819,30 @@
                                     Background="Transparent" Foreground="White" ToolTipService.ToolTip="显示/隐藏胶片条（H）"/>
                             <Button x:Name="PreviewFullscreenBtn" Content="全屏" Click="PreviewFullscreen_Click"
                                     Background="Transparent" Foreground="White" ToolTipService.ToolTip="全屏欣赏（F11），Esc 退出全屏"/>
-                            <Button Content="快捷键" Background="Transparent" Foreground="White" ToolTipService.ToolTip="查看照片浏览快捷键">
+                            <Button x:Name="PreviewMoreButton" Background="Transparent" Foreground="White"
+                                    AutomationProperties.Name="更多照片操作" ToolTipService.ToolTip="更多照片操作">
+                                <FontIcon Glyph="&#xE712;" FontSize="16"/>
                                 <Button.Flyout>
-                                    <Flyout Placement="Bottom">
-                                        <StackPanel Spacing="10" MinWidth="220" Padding="4">
-                                            <TextBlock Text="照片浏览快捷键" FontWeight="SemiBold" FontSize="16"/>
-                                            <TextBlock Text="← / →　切换照片"/>
-                                            <TextBlock Text="F　收藏或取消收藏"/>
-                                            <TextBlock Text="0–5　设置评分"/>
-                                            <TextBlock Text="I　显示或隐藏信息"/>
-                                            <TextBlock Text="H　显示或隐藏胶片条"/>
-                                            <TextBlock Text="空格　播放或暂停"/>
-                                            <TextBlock Text="F11　全屏　 ·　Esc　返回"/>
-                                            <TextBlock Text="滚轮缩放　 ·　拖动查看细节" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                        </StackPanel>
-                                    </Flyout>
-                                </Button.Flyout>
-                            </Button>
-                            <Button x:Name="PreviewMoreButton" Content="更多" Background="Transparent" Foreground="White" ToolTipService.ToolTip="更多照片操作">
-                                <Button.Flyout>
-                                    <MenuFlyout>
+                                    <MenuFlyout Opening="PreviewMore_Opening">
+                                        <MenuFlyoutItem x:Name="PreviewSlideshowMenu" Click="PreviewSlideshow_Click"/>
+                                        <MenuFlyoutItem x:Name="PreviewFilmstripMenu" Click="PreviewFilmstripToggle_Click"/>
+                                        <MenuFlyoutItem x:Name="PreviewZoomInMenu" Text="放大照片" Click="PreviewZoomIn_Click"/>
+                                        <MenuFlyoutItem x:Name="PreviewZoomOutMenu" Text="缩小照片" Click="PreviewZoomOut_Click"/>
+                                        <MenuFlyoutItem Text="对比相邻照片" Click="CompareAdjacent_Click"/>
                                         <MenuFlyoutItem Text="旋转预览" Click="PreviewRotate_Click"/>
                                         <MenuFlyoutItem Text="在外部应用中编辑" Click="PreviewEdit_Click"/>
                                         <MenuFlyoutItem x:Name="PreviewShareBtn" Text="复制图片" Click="ShareImage_Click"/>
+                                        <MenuFlyoutSeparator/>
+                                        <MenuFlyoutItem Text="查看快捷键" Click="PreviewShortcuts_Click"/>
                                     </MenuFlyout>
                                 </Button.Flyout>
                             </Button>
                         </StackPanel>
-                        </ScrollViewer>
-                        <Button Grid.Column="3" Content="✕" Click="ClosePreview_Click"
-                                FontSize="14" Padding="14,6" Background="Transparent" Foreground="#FFFFFF"
-                                ToolTipService.ToolTip="关闭照片预览（Esc）" AutomationProperties.Name="关闭照片预览"/>
+                        <Button x:Name="PreviewCloseButton" Grid.Column="2" Click="ClosePreview_Click"
+                                Background="Transparent" Foreground="White"
+                                ToolTipService.ToolTip="关闭照片预览（Esc）" AutomationProperties.Name="关闭照片预览">
+                            <FontIcon Glyph="&#xE711;" FontSize="14"/>
+                        </Button>
                     </Grid>
                 </Border>
 
@@ -842,11 +912,12 @@
                                     <TextBlock x:Name="PreviewName" FontWeight="SemiBold" FontSize="14"
                                                TextWrapping="Wrap"
                                                Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                    <TextBlock x:Name="PreviewInfo" FontSize="12"
-                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                    <TextBlock x:Name="PreviewPath" FontSize="11" TextWrapping="Wrap"
-                                               Opacity="0.6"
-                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                    <TextBlock x:Name="PreviewInfo" FontSize="13" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <TextBlock x:Name="PreviewPath" FontSize="12" TextWrapping="Wrap"
+                                               MaxLines="2" TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                 </StackPanel>
 
                                 <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" Opacity="0.5"/>

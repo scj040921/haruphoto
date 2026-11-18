@@ -152,28 +152,29 @@ public sealed partial class MainWindow
             var originalThemeMode = _settings.ThemeMode;
             _settings.InterfaceStyle = 1; ApplyTheme();
             await Task.Delay(300);
-            Check(GalleryControlsGlass.Visibility == Visibility.Visible &&
-                TopBarTint.Visibility == Visibility.Collapsed && ((FrameworkElement)Content).RequestedTheme == ElementTheme.Dark,
-                "exhibition style keeps the title open and the controls on a floating glass surface");
-            Check(NavView.PaneDisplayMode == NavigationViewPaneDisplayMode.LeftCompact && !NavView.IsPaneOpen &&
-                ExhibitionLibraryActions.Visibility == Visibility.Visible,
-                "exhibition gallery uses a compact navigation rail and exposes library actions");
-            var libraryActions = (MenuFlyout)ExhibitionLibraryActions.Flyout;
+            Check(TopBarTint.Visibility == Visibility.Visible && TopBarTint.Background is AcrylicBrush &&
+                ((FrameworkElement)Content).RequestedTheme == ElementTheme.Dark &&
+                RootSurface.Background is SolidColorBrush exhibitionBackground && exhibitionBackground.Color == Windows.UI.Color.FromArgb(255, 18, 19, 18),
+                "exhibition style keeps one glass surface behind its library tools");
+            Check(NavView.PaneDisplayMode == NavigationViewPaneDisplayMode.Top && !NavView.IsPaneOpen &&
+                ExhibitionLibraryActions.Visibility == Visibility.Visible && ExhibitionSettingsNav.Visibility == Visibility.Visible,
+                "exhibition gallery moves navigation into the top exhibition rail");
+            var libraryActions = (Flyout)ExhibitionLibraryActions.Flyout;
             libraryActions.ShowAt(ExhibitionLibraryActions); await Task.Delay(150);
-            Check(libraryActions.Items.OfType<MenuFlyoutItem>().Count(i => i.Text.StartsWith("导入") && i.IsEnabled) == 2 &&
-                libraryActions.Items.OfType<MenuFlyoutItem>().Any(i => i.Text == "设置"),
-                "compact navigation keeps import and settings available in the gallery");
+            Check(ExhibitionImportFolder.IsEnabled && ExhibitionImportFiles.IsEnabled && ExhibitionOpenSettings.IsEnabled &&
+                ExhibitionImportFolder.ActualWidth >= 60 && ExhibitionImportFiles.ActualWidth >= 60 &&
+                ExhibitionCancelImport.Visibility == Visibility.Collapsed,
+                "glass action panel exposes accessible import and settings controls");
+            await CaptureFeatureSnapshotAsync("exhibition-actions.png", (UIElement)libraryActions.Content);
             libraryActions.Hide();
-            NavView.IsPaneOpen = true; await Task.Delay(180);
-            Check(NavView.IsPaneOpen && ImportFolderButton.ActualWidth > 100 && ImportFilesButton.IsEnabled,
-                "expanded exhibition navigation exposes the existing import controls");
-            NavView.IsPaneOpen = false; await Task.Delay(180);
+            Check(ImportFolderButton.IsEnabled && ImportFilesButton.IsEnabled,
+                "top exhibition navigation retains the existing import actions");
             await CheckLibraryLayout(900);
             await CheckLibraryLayout(480);
             GallerySurface.Width = double.NaN; GallerySurface.UpdateLayout(); await Task.Delay(200);
             await CaptureFeatureSnapshotAsync("exhibition-gallery.png");
             _settings.InterfaceStyle = 0; ApplyTheme(); await Task.Delay(200);
-            Check(GalleryControlsGlass.Visibility == Visibility.Collapsed && TopBarTint.Visibility == Visibility.Visible && _settings.ThemeMode == originalThemeMode,
+            Check(ExhibitionSettingsNav.Visibility == Visibility.Collapsed && TopBarTint.Visibility == Visibility.Visible && _settings.ThemeMode == originalThemeMode,
                 "switching back restores the classic layout and the previous theme preference");
             _settings.InterfaceStyle = originalInterfaceStyle; ApplyTheme();
             await CheckLibraryLayout(900);
@@ -313,7 +314,8 @@ public sealed partial class MainWindow
             Check(PreviewTitleBar.Text == view[120].Filename, "preview identifies the displayed photo");
             var moreMenu = (MenuFlyout)PreviewMoreButton.Flyout;
             moreMenu.ShowAt(PreviewMoreButton); await Task.Delay(150);
-            Check(moreMenu.Items.OfType<MenuFlyoutItem>().Select(item => item.Text).SequenceEqual(new[] { "旋转预览", "在外部应用中编辑", "复制图片" }),
+            Check(new[] { "对比相邻照片", "旋转预览", "在外部应用中编辑", "复制图片", "查看快捷键" }
+                    .All(label => moreMenu.Items.OfType<MenuFlyoutItem>().Any(item => item.Text == label)),
                 "preview more menu exposes the secondary photo actions");
             moreMenu.Hide();
             await CaptureFeatureSnapshotAsync("preview-detail.png");
@@ -325,7 +327,7 @@ public sealed partial class MainWindow
                 "preview copy success gives temporary visible feedback");
             _previewNoticeTimer.Stop(); PreviewActionNotice.IsOpen = false;
             _settings.InterfaceStyle = 1; ApplyTheme(); await Task.Delay(150);
-            Check(PreviewToolbar.Margin.Left == 20 && DetailPanel.Margin.Right == 16 && _filmstripVertical &&
+            Check(PreviewToolbar.Margin.Left == 22 && DetailPanel.Margin.Right == 18 && _filmstripVertical &&
                 Grid.GetColumn(PreviewFilmstripBar) == 0 && PreviewFilmstripColumn.Width.Value == 120,
                 "exhibition style places the filmstrip in a dedicated vertical rail beside the photograph");
             await WaitFor(() => PreviewFilmstrip.ContainerFromIndex(_previewIndex) is FrameworkElement selectedCard &&
@@ -333,11 +335,22 @@ public sealed partial class MainWindow
             Check(ReferenceEquals(PreviewFilmstrip.SelectedItem, _currentView[_previewIndex]),
                 "vertical filmstrip scrolls to the photograph currently being viewed");
             await CaptureFeatureSnapshotAsync("exhibition-preview.png");
+            PreviewToolbar.Width = 480;
+            PreviewToolbar.UpdateLayout();
+            await Task.Delay(100);
+            moreMenu.ShowAt(PreviewMoreButton);
+            await Task.Delay(100);
+            Check(PreviewFilmstripMenu.Visibility == Visibility.Visible && PreviewSlideshowMenu.Visibility == Visibility.Visible &&
+                Bounds(PreviewCommands, PreviewToolbar).Right <= PreviewToolbar.ActualWidth &&
+                Bounds(PreviewCloseButton, PreviewToolbar).Bottom <= Bounds(PreviewCommands, PreviewToolbar).Top,
+                "narrow preview keeps primary tools in view and moves filmstrip and slideshow to More");
+            moreMenu.Hide();
             PreviewContentRoot.Width = 650; PreviewContentRoot.UpdateLayout(); await Task.Delay(150);
             Check(DetailColumn.Width.Value == 0 && Grid.GetColumn(DetailPanel) == 2 && PreviewImageStage.ActualWidth > 100 &&
-                Bounds(DetailPanel, PreviewContentRoot).Right <= PreviewContentRoot.ActualWidth + 1,
+                Bounds(DetailPanel, PreviewContentRoot).Right <= Bounds(PreviewNextBtn, PreviewContentRoot).Left,
                 "compact exhibition viewer keeps the photograph visible and places details within the viewport");
             await CaptureFeatureSnapshotAsync("exhibition-preview-compact.png");
+            PreviewToolbar.Width = double.NaN;
             PreviewContentRoot.Width = double.NaN; PreviewContentRoot.UpdateLayout(); await Task.Delay(150);
             var savedFilmstripMode = _settings.FilmstripMode;
             _settings.FilmstripMode = 1; ConfigureFilmstripLayout(true); ApplyFilmstripVisibility();
@@ -610,7 +623,7 @@ public sealed partial class MainWindow
             MapPlaceOverlay.Width = double.NaN; MapPlaceOverlay.UpdateLayout();
             await CaptureFeatureSnapshotAsync("map-place.png");
             _settings.InterfaceStyle = 1; ApplyTheme(); await Task.Delay(150);
-            Check(MapPlaceTitle.FontSize == 24 && MapPlaceContext.MaxWidth == 840 && MapPlaceReel.Width <= 504,
+            Check(MapPlaceTitle.FontSize == 30 && MapPlaceContext.MaxWidth == 840 && MapPlaceReel.Width <= 504,
                 "exhibition style sizes the map photo reel to its contents and preserves map space");
             await CaptureFeatureSnapshotAsync("exhibition-map-place.png");
             _settings.InterfaceStyle = originalInterfaceStyle; ApplyTheme();
